@@ -1,0 +1,14 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Experiment results
+exp/
+
+# my test
+dnnct_transformer_multi_approved.py
