@@ -33,29 +33,14 @@ export PYTHONPATH={path-to-CVC4-build}/src/bindings/python:$PYTHONPATH
 Make sure you are using Python 3.9. You can create a clean virtual environment with either Conda or pipenv (see step 3).
 
 ### 3. Install Dependencies
-Choose one of the following methods:
+We currently rely on conda, and will provide a requirements.txt file in the future.
 
-**Option A — Conda (recommended)**
-
-```bash
-conda create -n shap-concolic python=3.9
-conda activate shap-concolic
-conda install --file requirements.txt
-```
-or directly:
+**Conda**
 
 ```bash
 conda env create -f environments.yml
 conda activate shap-concolic
 ```
-
-**Option B — Pipenv**
-
-```bash
-pipenv install --python 3.9
-pipenv shell
-```
----
 ## Project Layout (key folders)
   ```graphql
 .

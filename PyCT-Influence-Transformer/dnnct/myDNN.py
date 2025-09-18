@@ -252,7 +252,7 @@ class DenseLayer:
                 for in_id in range(0, self.shape[1]):
                     tensor_out[out_id] = tensor_in[in_id]*float(self.weights[out_id][in_id]) + tensor_out[out_id]
                 if self.activation!="None":
-                    tensor_out[out_id] = actFunc(tensor_out[id], self.activation)
+                    tensor_out[out_id] = actFunc(tensor_out[out_id], self.activation)
         elif len(in_shape) == 2:
             assert in_shape[1]==self.shape[1], "DenseLayer.forward(), dim. mismatching between input and weights!"
             tensor_out = [tensor_out.copy() for _ in range(len(tensor_in))]

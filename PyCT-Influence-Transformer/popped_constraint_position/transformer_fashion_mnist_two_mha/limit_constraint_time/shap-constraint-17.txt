@@ -1,0 +1,1063 @@
+
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5), (7, 6), (7, 7)])
+popped constraint with shap value: -6.983523093140321e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)])
+popped constraint with shap value: -5.732070151864833e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7)])
+popped constraint with shap value: -6.229312177197244e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout
+popped constraint with position: (4, [(10, 0), (10, 1), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7)])
+popped constraint with shap value: -4.874646797325967e-10
+Solver timeout

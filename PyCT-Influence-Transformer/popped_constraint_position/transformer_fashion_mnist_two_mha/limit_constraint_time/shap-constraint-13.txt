@@ -1,0 +1,466 @@
+
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (6, (9,))
+popped constraint with shap value: -inf
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:1.2534754276275635
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:2.1151275634765625
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:2.9340546131134033
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:3.4796411991119385
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:4.91180944442749
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:6.12027907371521
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:7.7942376136779785
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:8.302079200744629
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:10.656438827514648
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:9.29100489616394
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:12.184024095535278
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:14.593068838119507
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:13.991663932800293
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:15.11105751991272
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:15.065385103225708
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:20.663205862045288
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:19.54144859313965
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:22.511112928390503
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:18.355743408203125
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:23.97664976119995
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:22.829174757003784
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:26.009875059127808
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:26.30797028541565
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:25.349756240844727
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+formulas built time:28.658292770385742
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (2, (127,))
+popped constraint with shap value: -8.87666828930378e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout
+popped constraint with position: (4, [(9, 0), (9, 1), (9, 2), (9, 3), (9, 4), (9, 5), (9, 6), (9, 7)])
+popped constraint with shap value: -2.311935531906783e-10
+Solver timeout

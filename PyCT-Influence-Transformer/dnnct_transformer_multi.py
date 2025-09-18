@@ -6,7 +6,7 @@ from multiprocessing import Process
 model_name="transformer_fashion_mnist_two_mha"
 
 
-NUM_PROCESS = 1
+NUM_PROCESS = 1 # CPU cores to use
 TIMEOUT = 3600
 
 NORM_01 = False
@@ -16,7 +16,7 @@ if __name__ == "__main__":
     from utils.pyct_attack_exp_research_question import fashion_mnist_transformer_shap
     
     model_type="transformer"
-    inputs = fashion_mnist_transformer_shap(model_name, first_n_img=range(30))
+    inputs = fashion_mnist_transformer_shap(model_name, first_n_img=range(100)) #測試用100張圖
     print("#"*40, f"number of inputs: {len(inputs)}", "#"*45)
     time.sleep(3)
 
