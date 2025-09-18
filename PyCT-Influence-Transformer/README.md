@@ -38,7 +38,7 @@ We currently rely on conda, and will provide a requirements.txt file in the futu
 **Conda**
 
 ```bash
-conda env create -f environments.yml
+conda env create -f environment.yml
 conda activate shap-concolic
 ```
 ## Project Layout (key folders)
