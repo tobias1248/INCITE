@@ -1,4 +1,4 @@
-# INCITE: INfluence-guided Concolic Testing for Adversarial Examples
+# INCITE: INfluence-guided ConcolIc Testing for adversarial Examples
 
 This repository is a fork of the original **[INCITE project](https://github.com/nccu-soslab/incite)** developed by NCCU SoSLab,  
 which itself is built upon the open-source framework **[PyCT](https://github.com/alan23273850/PyCT)**.
