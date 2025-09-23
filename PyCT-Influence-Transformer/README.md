@@ -8,27 +8,25 @@ This project extends **[PyCT](https://github.com/kupl/PyCT)** by implementing SH
 
 The project environment consists of three main steps:
 
-### 1. CVC4 Setup
-This project requires **[CVC4](https://github.com/CVC4/CVC4)**, commit **[d1f3225e26b9d64f065048885053392b10994e71](https://github.com/cvc5/cvc5/blob/d1f3225e26b9d64f065048885053392b10994e71/INSTALL.md)**.  
+### 1. CVC5 Setup
+This project requires **[CVC5](https://github.com/cvc5/cvc5)**. 
 
-⚠️ **Note:** Compiling CVC4 requires a **Linux system** (e.g., Ubuntu) or **WSL** on Windows.  
+> **Note:** Compiling CVC5 requires a **Linux system** (e.g., Ubuntu) or **WSL** on Windows.  
 
-Build with Python bindings:
+Run the following commands in your terminal:
 ```bash
-./contrib/get-antlr-3.4
-./configure.sh --language-bindings=python --python3
-cd <build_dir>
-make -j$(nproc)
+git clone https://github.com/cvc5/cvc5.git
+./configure.sh
+cd build
+make -j$(nporc)
+make check
+sudo make install
 ```
-Ensure the CLI is on PATH:
+Verify installation:
+```bash
+cvc5 --version
+```
 
-```bash
-cvc4 --version
-```
-And let Python find the bindings (add to ~/.bashrc):
-```bash
-export PYTHONPATH={path-to-CVC4-build}/src/bindings/python:$PYTHONPATH
-```
 ### 2. Create a Python 3.9 Virtual Environment
 Make sure you are using Python 3.9. You can create a clean virtual environment with either Conda or pipenv (see step 3).
 
@@ -41,7 +39,7 @@ We currently rely on conda, and will provide a requirements.txt file in the futu
 conda env create -f environment.yml
 conda activate shap-concolic
 ```
-## Project Layout (key folders)
+## Project Layout
   ```graphql
 .
 ├─ dnnct/ 
@@ -50,7 +48,14 @@ conda activate shap-concolic
 ├─ popped_constraint_position/ 
 ├─ shap_value/ 
 ├─ shap_value_all_layer/ 
-└─ utils/ 
+├─ utils/
+├─ .gitignore
+├─ dnnct_predict_common.py
+├─ dnnct_transformer_multi_calculate_shap.py
+├─ dnnct_transformer_multi.py
+├─ environment.yml
+├─ README.md
+└─ run_dnnct.py
   ```
 
 ### Note
@@ -58,9 +63,6 @@ conda activate shap-concolic
 - popped_constraint_position/ should exist (create it if missing).
 
 - exp/ is generated at runtime.
-
-- Ensure CVC4 is correctly built with Python bindings and visible to both the shell (cvc4) and Python (PYTHONPATH).
-
 ---
 
 ## Running the Attack
