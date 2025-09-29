@@ -64,6 +64,7 @@ class ShapValuesComparator:
     ) -> None:
         self.model_path = model_path
         self.model = load_model(model_path)
+        self.model_name = model_path.split("/")[-1].split(".")[0]
         self.background_dataset = background_dataset
         self.input = input
         self.idx = idx
@@ -72,7 +73,7 @@ class ShapValuesComparator:
 
         # If the SHAP values have already been computed, read them directly.
         if self.shap_value_pre_calculated:
-                with open(f'./shap_value_all_layer/{self.model_path.split("/")[-1].split(".")[0]}/shap_value_{self.idx}.json', 'r') as f:
+                with open(f'./shap_value_all_layer/{self.model_name}/shap_value_{self.idx}.json', 'r') as f:
                     self.shap_values = json.load(f)
         else:
             self.shap_values: dict[str, float] = dict()
@@ -109,7 +110,7 @@ class ShapValuesComparator:
             if layer_number == number_of_layers - 1:
                 break
             trimmed_model = ShapValuesComparator.without_first_layer(trimmed_model)
-        file_path = f"./shap_value_all_layer/transformer_fashion_mnist_two_mha/shap_value_{self.idx}.json"
+        file_path = f"./shap_value_all_layer/{self.model_name}/shap_value_{self.idx}.json"
         with open(file_path, "w") as json_file:
             json.dump(self.shap_values, json_file)
         print(f"shap values saved to {file_path}")
@@ -193,8 +194,8 @@ class ShapValuesComparator:
             print("------background_dataset------", background_dataset.shape)
             print("------input------", input.shape)
             outputs=model.layers[0].output
-            explainer = shap.GradientExplainer(model, background_dataset)
-            shap_values = explainer.shap_values(input)
+            explainer = shap.GradientExplainer(model, [background_dataset])
+            shap_values = explainer.shap_values(input)[0]
             
             shap_values_summed = np.sum(shap_values, axis=1)
             average_shap_values = np.squeeze(np.mean(shap_values_summed, axis=0))
