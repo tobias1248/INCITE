@@ -187,47 +187,162 @@ class ShapValuesComparator:
             print("model_with_only_first_layer:", model_with_only_first_layer.summary())
         return model_with_only_first_layer
 
+    # def calculate_shap_values(
+    #     self, model, background_dataset, input, layer_number: int
+    # ) -> None:
+    #     if self.explainer_type == "gradient":
+    #         print("------background_dataset------", background_dataset.shape)
+    #         print("------input------", input.shape)
+    #         outputs=model.layers[0].output
+    #         explainer = shap.GradientExplainer(model, background_dataset)
+    #         shap_values = explainer.shap_values(input)
+            
+    #         shap_values_summed = np.sum(shap_values, axis=1)
+    #         average_shap_values = np.squeeze(np.mean(shap_values_summed, axis=0))
+
+    #         for indices, shap_value in np.ndenumerate(average_shap_values):
+           
+    #             self.shap_values[
+    #                 ShapValuesComparator.get_position_key(layer_number - 1, indices)
+    #             ] = shap_value
+    #     else: # self.explainer_type == "kernel"
+            
+    #         shouldFlattenInputToUseKernelExplainer = len(input.shape) > 2
+    #         if shouldFlattenInputToUseKernelExplainer:
+    #             originalInputShape = input.shape
+    #             model, input, background_dataset = self.flatten_everything(model, input, background_dataset)
+    #             input = np.expand_dims(input, axis=0)
+    #             model.summary()
+    #         explainer = shap.KernelExplainer(model, background_dataset)
+            
+            
+    #         shap_values = explainer.shap_values(input)
+            
+    #         for index, shap_value in np.ndenumerate(shap_values):
+    #             index = index[1]
+    #             if shouldFlattenInputToUseKernelExplainer:
+    #                 indices = self.unflatten_index(index, originalInputShape)
+    #             else:
+    #                 indices = (index,)
+
+    #             self.shap_values[
+    #                 ShapValuesComparator.get_position_key(layer_number - 1, indices)
+    #             ] = shap_value
+
     def calculate_shap_values(
         self, model, background_dataset, input, layer_number: int
     ) -> None:
+        """
+        計算指定子模型 `model` 在當前層 `layer_number` 的 SHAP 值，
+        並把每個位置/特徵的值寫入 self.shap_values（key: "{layer}_{...indices}"}）。
+
+        關鍵原則：
+        1) 只在 batch 維做平均（通常 axis=0），不要對 H/W 做 sum/mean，避免把 2D 空間壓成 1D。
+        2) 灰階（C=1）將通道維去掉，保留 (H, W)；彩色（C>1）可依需求平均通道或把通道編進鍵。
+        3) Gradient 與 Kernel 兩種 explainer 都遵守相同的鍵格式策略。
+        """
+
         if self.explainer_type == "gradient":
+            # --- debug prints (保留原樣) ---
             print("------background_dataset------", background_dataset.shape)
             print("------input------", input.shape)
-            outputs=model.layers[0].output
-            explainer = shap.GradientExplainer(model, [background_dataset])
-            shap_values = explainer.shap_values(input)[0]
-            
-            shap_values_summed = np.sum(shap_values, axis=1)
-            average_shap_values = np.squeeze(np.mean(shap_values_summed, axis=0))
+            # outputs = model.layers[0].output  # 未使用，保留原結構
 
-            for indices, shap_value in np.ndenumerate(average_shap_values):
-           
-                self.shap_values[
-                    ShapValuesComparator.get_position_key(layer_number - 1, indices)
-                ] = shap_value
-        else: # self.explainer_type == "kernel"
-            
-            shouldFlattenInputToUseKernelExplainer = len(input.shape) > 2
-            if shouldFlattenInputToUseKernelExplainer:
-                originalInputShape = input.shape
-                model, input, background_dataset = self.flatten_everything(model, input, background_dataset)
+            # --- 1) 根據維度決定 background 如何給 explainer ---
+            # 影像 (N,H,W,C): 直接給 ndarray
+            # 向量 (N,F): 為避免 SHAP 內部 data[0].shape[1] 的 bug，包成 [ndarray]
+            if background_dataset.ndim == 2:        # (N, F) 例如 (5, 784)
+                bg_for_shap = [background_dataset]
+            else:                                   # (N, H, W, C) 例如 (5, 28, 28, 1)
+                bg_for_shap = background_dataset
+
+            explainer = shap.GradientExplainer(model, bg_for_shap)
+
+            # --- 2) shap_values 呼叫時：X 一律用 ndarray，不要包成 list ---
+            sv = explainer.shap_values(input)
+
+            # 多輸出模型時取第一個輸出
+            if isinstance(sv, list):
+                sv = sv[0]
+
+            # --- 3) 僅在 batch 維平均，保留空間/特徵維 ---
+            avg = np.mean(sv, axis=0)  # 影像: (H,W,C) / 向量: (F,)
+
+            # 灰階 (C=1) 去通道；若 C>1 可改為 avg = np.mean(avg, axis=-1)
+            if avg.ndim == 3 and avg.shape[-1] == 1:
+                avg = avg[..., 0]  # -> (H, W)
+            elif avg.ndim == 3 and avg.shape[-1] > 1:
+                avg = np.mean(avg, axis=-1)  # -> (H, W)
+
+            # --- 4) 寫鍵：2D 用 (row,col)，1D 用 (i,) ---
+            if avg.ndim == 2:
+                for (r, c), val in np.ndenumerate(avg):
+                    self.shap_values[
+                        ShapValuesComparator.get_position_key(layer_number - 1, (r, c))
+                    ] = float(val)
+            elif avg.ndim == 1:
+                for i, val in enumerate(avg):
+                    self.shap_values[
+                        ShapValuesComparator.get_position_key(layer_number - 1, (i,))
+                    ] = float(val)
+            else:
+                raise ValueError(f"Unexpected SHAP shape after batch-mean: {avg.shape}")
+
+        else:
+            # === KernelExplainer 路徑 ===
+            # 對於影像輸入 (N,H,W[,C])，KernelExplainer 需要展平成 (N,F)
+            should_flatten = (len(input.shape) > 2)
+            if should_flatten:
+                originalInputShape = input.shape  # e.g. (N, H, W, 1)
+                # flatten_everything 會：
+                # 1) 在 model 前面加一個 Reshape，把扁平輸入還原回原始形狀（確保模型能吃）
+                # 2) 將 input/background_dataset 都攤平成 1D
+                model, input, background_dataset = self.flatten_everything(
+                    model, input, background_dataset
+                )
+                # shap.KernelExplainer 這裡我們用單一樣本（batch=1）取得 (1, F)
                 input = np.expand_dims(input, axis=0)
                 model.summary()
-            explainer = shap.KernelExplainer(model, background_dataset)
-            
-            
-            shap_values = explainer.shap_values(input)
-            
-            for index, shap_value in np.ndenumerate(shap_values):
-                index = index[1]
-                if shouldFlattenInputToUseKernelExplainer:
-                    indices = self.unflatten_index(index, originalInputShape)
-                else:
-                    indices = (index,)
 
-                self.shap_values[
-                    ShapValuesComparator.get_position_key(layer_number - 1, indices)
-                ] = shap_value
+            # KernelExplainer 建議給可呼叫的預測函數；有 predict 時使用它
+            predict_fn = model.predict if hasattr(model, "predict") else model
+            explainer = shap.KernelExplainer(predict_fn, background_dataset)
+
+            # 一般回傳形狀 (N, F) 或 list；我們取 batch=1 的第一筆
+            sv = explainer.shap_values(input)
+            if isinstance(sv, list):
+                sv = sv[0]
+
+            # 取第一筆樣本的 SHAP 值向量 (F,)
+            sv0 = sv[0] if sv.ndim > 1 else sv
+
+            if should_flatten:
+                # 將每個扁平索引還原為原始多維索引（H,W[,C]）
+                for flat_idx, val in enumerate(sv0):
+                    idxs = self.unflatten_index(flat_idx, originalInputShape[1:])  # 去掉 batch 維
+
+                    # Fashion-MNIST 為灰階：若是 (H,W,1) -> 僅保留 (H,W)
+                    if len(idxs) == 3 and idxs[-1] == 0:
+                        idxs = idxs[:2]
+
+                    # 依維度寫鍵（2D/1D）
+                    if len(idxs) == 2:
+                        self.shap_values[
+                            ShapValuesComparator.get_position_key(layer_number - 1, tuple(idxs))
+                        ] = float(val)
+                    elif len(idxs) == 1:
+                        self.shap_values[
+                            ShapValuesComparator.get_position_key(layer_number - 1, (idxs[0],))
+                        ] = float(val)
+                    else:
+                        # 若還有其他維度組合，請依專案需求擴充鍵格式
+                        raise ValueError(f"Unexpected unflattened index: {idxs}")
+            else:
+                # 本來就是 (N, F) 的輸入（非影像），直接寫 1D 特徵鍵
+                for i, val in enumerate(sv0):
+                    self.shap_values[
+                        ShapValuesComparator.get_position_key(layer_number - 1, (i,))
+                    ] = float(val)
 
     def get_shap_influence(self, layer_number: int, indices: tuple[int, ...] | list[tuple[int, ...]]) -> float:
        
