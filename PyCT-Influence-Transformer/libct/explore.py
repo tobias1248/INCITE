@@ -2,6 +2,7 @@ from __future__ import annotations
 import builtins
 import coverage
 import func_timeout
+import gc
 import inspect
 import logging
 import multiprocessing
@@ -730,3 +731,12 @@ class ExplorationEngine:
             shap_value, constraint_id, position,  constraint = heapq.heappop(self.constraints_to_solve)
             print("popped constraint encounted at:", position)
             return constraint, shap_value, position
+
+
+def clear_global_context():
+    """Reset module level state so the GC can reclaim large objects between runs."""
+    global module, execute, recorder
+    module = None
+    execute = None
+    recorder = None
+    gc.collect()

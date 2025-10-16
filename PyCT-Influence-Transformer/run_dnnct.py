@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 import os
+import gc
 import libct.explore
 import json
 
@@ -88,7 +89,10 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         model_path=model_path, input_for_shap=input_for_shap, background_dataset_for_shap=background_dataset_for_shap,shap_value_pre_calculated=shap_value_pre_calculated,
         collect_constraints_with=collect_constraints_with
     )
-        
-            
+    # 清除全域狀態與暫存物件，避免前一張圖片的資料持續佔用記憶體
+    libct.explore.clear_global_context()
+    del engine
+    gc.collect()
+
     return result
 

@@ -1,5 +1,6 @@
 import os
 import json
+import gc
 import numpy as np
 import queue
 import traceback
@@ -14,26 +15,38 @@ def get_save_dir_from_save_exp(save_exp, model_name, s_or_q, only_first_forward=
     return save_dir
 
 
+def _cleanup_one_input(one_input):
+    """清空單筆實驗輸入的重資料，避免 numpy 物件持續佔用記憶體。"""
+    one_input.clear()
+    gc.collect()
+
+
 def run_multi_attack_subprocess_wall_timeout(args, timeout, norm,model_type="cnn"):
     import run_dnnct
     
     for one_input in args:
         print(one_input['save_exp'])
         
-        result = run_dnnct.run(
-            **one_input, norm=norm,
-            max_iter=0, total_timeout=timeout, single_timeout=timeout, timeout=timeout
-        )
-        
-        recorder = result[1]
+        try:
+            result = run_dnnct.run(
+                **one_input, norm=norm,
+                max_iter=0, total_timeout=timeout, single_timeout=timeout, timeout=timeout
+            )
+            
+            recorder = result[1]
+        finally:
+            _cleanup_one_input(one_input)
 
 def run_multi_attack_subprocess_wall_timeout_shap(args):
     from shapInfl import ShapValuesComparator
 
     for one_input in args:
-        ShapValuesComparator(
-                **one_input
-            )
+        try:
+            ShapValuesComparator(
+                    **one_input
+                )
+        finally:
+            _cleanup_one_input(one_input)
 def run_multi_attack_subprocess_wall_timeout_task_queue(task_queue, hierarchical_input, timeout, norm):
     import run_dnnct
     
