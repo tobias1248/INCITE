@@ -1,0 +1,194 @@
+from __future__ import annotations
+
+import gc
+import queue
+import traceback
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Sequence
+
+from libct.shapInfl import ShapValuesCalculator
+
+
+__all__ = [
+    "QueueRunner",
+    "ShapRunner",
+    "run_attack_with_shap",
+    "run_attack_with_queue",
+    "shap_prefetch",
+]
+
+
+@dataclass
+class BaseRunner:
+    timeout: int
+    norm: bool
+
+    def run_tasks(self, tasks: Sequence[Dict[str, Any]]) -> None:
+        for payload in tasks:
+            try:
+                self._run_single(payload)
+            finally:
+                self._cleanup(payload)
+
+    def _run_single(self, payload: Dict[str, Any]) -> None:  # pragma: no cover - abstract
+        raise NotImplementedError
+
+    def _cleanup(self, payload: Dict[str, Any]) -> None:
+        payload.clear()
+        gc.collect()
+
+    def _execute_attack(self, payload: Dict[str, Any]) -> Any:
+        import run_dnnct
+
+        return run_dnnct.run(
+            **payload,
+            norm=self.norm,
+            max_iter=0,
+            total_timeout=self.timeout,
+            single_timeout=self.timeout,
+            timeout=self.timeout,
+        )
+
+
+class QueueRunner(BaseRunner):
+    def __init__(self, timeout: int, norm: bool) -> None:
+        super().__init__(timeout, norm)
+
+    def run_queue(
+        self,
+        task_queue: "queue.Queue[tuple[int, Dict[str, Any]]]",
+        hierarchical_input: Dict[str, Any],
+    ) -> None:
+        while True:
+            try:
+                atk_feature_num, payload = task_queue.get(timeout=1)
+            except queue.Empty:
+                break
+
+            try:
+                q_or_s = self._resolve_queue_mode(payload.get("solve_order_stack"))
+                self._log_attempt(payload, q_or_s)
+
+                result = self._execute_attack(payload)
+                recorder = result[1]
+                del result
+                gc.collect()
+
+                if recorder.attack_label is not None:
+                    self._log_success(payload, q_or_s)
+                else:
+                    self._enqueue_next(
+                        hierarchical_input,
+                        q_or_s,
+                        payload["save_exp"]["input_name"],
+                        atk_feature_num,
+                        task_queue,
+                    )
+            except Exception:
+                print("#" * 50, "Exception", "#" * 50)
+                traceback.print_exc()
+                print("#" * 100)
+            finally:
+                self._cleanup(payload)
+
+    @staticmethod
+    def _resolve_queue_mode(solve_order_stack: Optional[bool]) -> str:
+        if solve_order_stack is True:
+            return "stack"
+        if solve_order_stack is False:
+            return "queue"
+        return "queue"
+
+    @staticmethod
+    def _log_attempt(payload: Dict[str, Any], queue_mode: str) -> None:
+        model_name = payload["model_name"]
+        exp_name = payload["save_exp"]["exp_name"]
+        input_name = payload["save_exp"]["input_name"]
+        with open(f"./log/{model_name}.log", "a") as handle:
+            handle.write(f"{model_name} {queue_mode} {exp_name} {input_name}\n")
+
+    @staticmethod
+    def _log_success(payload: Dict[str, Any], queue_mode: str) -> None:
+        print("#" * 80)
+        print("攻擊成功，參數如下：")
+        print(payload["save_exp"])
+        print(queue_mode)
+        print("#" * 80)
+
+    @staticmethod
+    def _enqueue_next(
+        hierarchical_input: Dict[str, Any],
+        queue_mode: str,
+        input_name: str,
+        atk_feature_num: int,
+        task_queue: "queue.Queue[tuple[int, Dict[str, Any]]]",
+    ) -> None:
+        next_dict = hierarchical_input[queue_mode][input_name]["next_input_dict"]
+        if atk_feature_num in next_dict:
+            task_queue.put(next_dict[atk_feature_num])
+
+
+class ShapRunner(BaseRunner):
+    """Execute SHAP-guided attacks while respecting CLI-provided options."""
+
+    def __init__(
+        self,
+        timeout: int,
+        norm: bool,
+        *,
+        model_type: str = "transformer",
+    ) -> None:
+        super().__init__(timeout=timeout or 0, norm=norm)
+        self.model_type = model_type
+
+    def _run_single(self, payload: Dict[str, Any]) -> None:
+        self._execute_attack(payload)
+
+
+class _ShapPrefetchRunner(BaseRunner):
+    """Pre-compute SHAP values to warm caches prior to attack execution."""
+
+    def __init__(self, timeout: int = 0) -> None:
+        super().__init__(timeout=timeout or 0, norm=False)
+
+    def _run_single(self, payload: Dict[str, Any]) -> None:
+        model_name = payload.get("model_name")
+        if model_name is None:
+            raise KeyError("Expected 'model_name' in payload for SHAP computation.")
+
+        calculator = ShapValuesCalculator(
+            model_path=f"./model/{model_name}.h5",
+            background_dataset=payload["background_dataset_for_shap"],
+            input_data=payload["input_for_shap"],
+            idx=payload["idx"],
+            explainer_type=payload.get("explainer_type", "gradient"),
+        )
+        assume_cached = bool(payload.get("shap_value_pre_calculated"))
+        calculator.ensure(
+            assume_cached=assume_cached,
+            force_refresh=not assume_cached,
+        )
+
+
+def run_attack_with_shap(
+    args: Sequence[Dict[str, Any]],
+    timeout: int,
+    norm: bool,
+    model_type: str = "transformer",
+) -> None:
+    ShapRunner(timeout=timeout, norm=norm, model_type=model_type).run_tasks(args)
+
+
+def run_attack_with_queue(
+    task_queue: "queue.Queue[tuple[int, Dict[str, Any]]]",
+    hierarchical_input: Dict[str, Any],
+    timeout: int,
+    norm: bool,
+) -> None:
+    QueueRunner(timeout=timeout, norm=norm).run_queue(task_queue, hierarchical_input)
+
+
+def shap_prefetch(
+    args: Sequence[Dict[str, Any]],
+) -> None:
+    _ShapPrefetchRunner().run_tasks(args)

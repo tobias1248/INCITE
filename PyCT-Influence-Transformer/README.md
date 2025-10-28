@@ -51,8 +51,8 @@ conda activate shap-concolic
 ├─ utils/
 ├─ .gitignore
 ├─ dnnct_predict_common.py
-├─ dnnct_transformer_multi_calculate_shap.py
-├─ dnnct_transformer_multi.py
+├─ shap_map_calculator.py
+├─ start_test.py
 ├─ environment.yml
 ├─ README.md
 └─ run_dnnct.py
@@ -69,7 +69,7 @@ conda activate shap-concolic
 Execute the SHAP-guided concolic test on a Transformer model:
 
 ```bash
-python3 dnnct_transformer_multi.py
+python3 start_test.py
 ```
 If the setup is successful, you should see logs similar to:
 

@@ -34,6 +34,8 @@ def run_multi_attack_subprocess_wall_timeout(args, timeout, norm,model_type="cnn
             )
             
             recorder = result[1]
+            del result
+            gc.collect()
         finally:
             _cleanup_one_input(one_input)
 
@@ -76,6 +78,8 @@ def run_multi_attack_subprocess_wall_timeout_task_queue(task_queue, hierarchical
             )
             
             recorder = result[1]
+            del result
+            gc.collect()
                                     
             if recorder.attack_label is not None:
                 # 攻擊成功
@@ -118,6 +122,8 @@ def run_multi_attack_subprocess_cpu_timeout(args, cpu_timeout):
                 max_iter=0, total_timeout=wall_time_timeout, single_timeout=wall_time_timeout, timeout=wall_time_timeout
             )
             recorder = result[0]
+            del result
+            gc.collect()
             
         process = multiprocessing.Process(target=run)
         process.start()

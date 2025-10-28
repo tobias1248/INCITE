@@ -1,0 +1,2617 @@
+
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.18592143058776855
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.33956146240234375
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5672776699066162
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6048679351806641
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.7585763931274414
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.9514679908752441
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.057532787322998
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.3277029991149902
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.4006273746490479
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6500792503356934
+popped constraint with position: (0, [(12, 0)])
+popped constraint with shap value: -8.476490620523691e-11
+formulas built time:0.0026645660400390625
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.20058155059814453
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.3512728214263916
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.7711570262908936
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6651768684387207
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8310811519622803
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.9864931106567383
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.1526527404785156
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.3328349590301514
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6703147888183594
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6273818016052246
+popped constraint with position: (0, [(12, 0)])
+popped constraint with shap value: -8.476490620523691e-11
+formulas built time:0.012928247451782227
+popped constraint with position: (0, [(12, 0)])
+popped constraint with shap value: -8.476490620523691e-11
+formulas built time:0.022657155990600586
+popped constraint with position: (0, [(12, 0)])
+popped constraint with shap value: -8.476490620523691e-11
+formulas built time:0.03107619285583496
+popped constraint with position: (0, [(12, 0)])
+popped constraint with shap value: -8.476490620523691e-11
+formulas built time:0.012340307235717773
+popped constraint with position: (0, [(12, 0)])
+popped constraint with shap value: -8.476490620523691e-11
+formulas built time:0.022899389266967773
+popped constraint with position: (0, [(12, 0)])
+popped constraint with shap value: -8.476490620523691e-11
+formulas built time:0.03129291534423828
+popped constraint with position: (0, [(5, 0)])
+popped constraint with shap value: -8.221832104027272e-11
+formulas built time:0.0012993812561035156
+popped constraint with position: (0, [(5, 0)])
+popped constraint with shap value: -8.221832104027272e-11
+formulas built time:0.012003898620605469
+popped constraint with position: (0, [(5, 0)])
+popped constraint with shap value: -8.221832104027272e-11
+formulas built time:0.021175384521484375
+popped constraint with position: (0, [(5, 0)])
+popped constraint with shap value: -8.221832104027272e-11
+formulas built time:0.032376766204833984
+popped constraint with position: (0, [(5, 0)])
+popped constraint with shap value: -8.221832104027272e-11
+formulas built time:0.012241601943969727
+popped constraint with position: (0, [(5, 0)])
+popped constraint with shap value: -8.221832104027272e-11
+formulas built time:0.021581649780273438
+popped constraint with position: (0, [(5, 0)])
+popped constraint with shap value: -8.221832104027272e-11
+formulas built time:0.031052589416503906
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.013607263565063477
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.019443035125732422
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.03115534782409668
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.03936886787414551
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.010760784149169922
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.020038366317749023
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.03685402870178223
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.03925800323486328
+popped constraint with position: (0, [(15, 0)])
+popped constraint with shap value: -5.256879376247525e-11
+formulas built time:0.0026624202728271484
+popped constraint with position: (0, [(15, 0)])
+popped constraint with shap value: -5.256879376247525e-11
+formulas built time:0.013347387313842773
+popped constraint with position: (0, [(15, 0)])
+popped constraint with shap value: -5.256879376247525e-11
+formulas built time:0.02267003059387207
+popped constraint with position: (0, [(15, 0)])
+popped constraint with shap value: -5.256879376247525e-11
+formulas built time:0.03219795227050781
+popped constraint with position: (0, [(15, 0)])
+popped constraint with shap value: -5.256879376247525e-11
+formulas built time:0.012519598007202148
+popped constraint with position: (0, [(15, 0)])
+popped constraint with shap value: -5.256879376247525e-11
+formulas built time:0.02290964126586914
+popped constraint with position: (0, [(15, 0)])
+popped constraint with shap value: -5.256879376247525e-11
+formulas built time:0.032686471939086914
+popped constraint with position: (0, [(6, 0)])
+popped constraint with shap value: -4.4383341446518895e-11
+formulas built time:0.0018074512481689453
+popped constraint with position: (0, [(6, 0)])
+popped constraint with shap value: -4.4383341446518895e-11
+formulas built time:0.011717081069946289
+popped constraint with position: (0, [(6, 0)])
+popped constraint with shap value: -4.4383341446518895e-11
+formulas built time:0.020760536193847656
+popped constraint with position: (0, [(6, 0)])
+popped constraint with shap value: -4.4383341446518895e-11
+formulas built time:0.03543663024902344
+popped constraint with position: (0, [(6, 0)])
+popped constraint with shap value: -4.4383341446518895e-11
+formulas built time:0.011109113693237305
+popped constraint with position: (0, [(6, 0)])
+popped constraint with shap value: -4.4383341446518895e-11
+formulas built time:0.021846532821655273
+popped constraint with position: (0, [(6, 0)])
+popped constraint with shap value: -4.4383341446518895e-11
+formulas built time:0.03186178207397461
+popped constraint with position: (0, [(16, 0)])
+popped constraint with shap value: -4.31100488640368e-11
+formulas built time:0.003484487533569336
+popped constraint with position: (0, [(16, 0)])
+popped constraint with shap value: -4.31100488640368e-11
+formulas built time:0.01296687126159668
+popped constraint with position: (0, [(16, 0)])
+popped constraint with shap value: -4.31100488640368e-11
+formulas built time:0.023941993713378906
+popped constraint with position: (0, [(16, 0)])
+popped constraint with shap value: -4.31100488640368e-11
+formulas built time:0.03744244575500488
+popped constraint with position: (0, [(16, 0)])
+popped constraint with shap value: -4.31100488640368e-11
+formulas built time:0.014010190963745117
+popped constraint with position: (0, [(16, 0)])
+popped constraint with shap value: -4.31100488640368e-11
+formulas built time:0.02477884292602539
+popped constraint with position: (0, [(16, 0)])
+popped constraint with shap value: -4.31100488640368e-11
+formulas built time:0.03180885314941406
+popped constraint with position: (0, [(7, 0)])
+popped constraint with shap value: -4.0972736314870415e-11
+formulas built time:0.0015273094177246094
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.2061772346496582
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.3489718437194824
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.497239351272583
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6545631885528564
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8058853149414062
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.960252046585083
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.1141471862792969
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.270885944366455
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.8474981784820557
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6240315437316895
+popped constraint with position: (0, [(7, 0)])
+popped constraint with shap value: -4.0972736314870415e-11
+formulas built time:0.015740633010864258
+popped constraint with position: (0, [(7, 0)])
+popped constraint with shap value: -4.0972736314870415e-11
+formulas built time:0.027181386947631836
+popped constraint with position: (0, [(7, 0)])
+popped constraint with shap value: -4.0972736314870415e-11
+formulas built time:0.036196231842041016
+popped constraint with position: (0, [(7, 0)])
+popped constraint with shap value: -4.0972736314870415e-11
+formulas built time:0.013310909271240234
+popped constraint with position: (0, [(7, 0)])
+popped constraint with shap value: -4.0972736314870415e-11
+formulas built time:0.024651050567626953
+popped constraint with position: (0, [(7, 0)])
+popped constraint with shap value: -4.0972736314870415e-11
+formulas built time:0.03603053092956543
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.012505769729614258
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.023095369338989258
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.03439807891845703
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.04566550254821777
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.011840581893920898
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.02301311492919922
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.03428769111633301
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.05071091651916504
+popped constraint with position: (0, [(2, 0)])
+popped constraint with shap value: -3.824425220955163e-11
+formulas built time:0.001171112060546875
+popped constraint with position: (0, [(2, 0)])
+popped constraint with shap value: -3.824425220955163e-11
+formulas built time:0.015157699584960938
+popped constraint with position: (0, [(2, 0)])
+popped constraint with shap value: -3.824425220955163e-11
+formulas built time:0.023659944534301758
+popped constraint with position: (0, [(2, 0)])
+popped constraint with shap value: -3.824425220955163e-11
+formulas built time:0.036505699157714844
+popped constraint with position: (0, [(2, 0)])
+popped constraint with shap value: -3.824425220955163e-11
+formulas built time:0.0125274658203125
+popped constraint with position: (0, [(2, 0)])
+popped constraint with shap value: -3.824425220955163e-11
+formulas built time:0.024013996124267578
+popped constraint with position: (0, [(2, 0)])
+popped constraint with shap value: -3.824425220955163e-11
+formulas built time:0.03496551513671875
+popped constraint with position: (0, [(13, 0)])
+popped constraint with shap value: -3.7834979593753816e-11
+formulas built time:0.003420114517211914
+popped constraint with position: (0, [(13, 0)])
+popped constraint with shap value: -3.7834979593753816e-11
+formulas built time:0.014317750930786133
+popped constraint with position: (0, [(13, 0)])
+popped constraint with shap value: -3.7834979593753816e-11
+formulas built time:0.025365591049194336
+popped constraint with position: (0, [(13, 0)])
+popped constraint with shap value: -3.7834979593753816e-11
+formulas built time:0.0390779972076416
+popped constraint with position: (0, [(13, 0)])
+popped constraint with shap value: -3.7834979593753816e-11
+formulas built time:0.014988422393798828
+popped constraint with position: (0, [(13, 0)])
+popped constraint with shap value: -3.7834979593753816e-11
+formulas built time:0.025873422622680664
+popped constraint with position: (0, [(13, 0)])
+popped constraint with shap value: -3.7834979593753816e-11
+formulas built time:0.03626728057861328
+popped constraint with position: (0, [(18, 0)])
+popped constraint with shap value: -3.651621227618307e-11
+formulas built time:0.003509521484375
+popped constraint with position: (0, [(18, 0)])
+popped constraint with shap value: -3.651621227618307e-11
+formulas built time:0.01488947868347168
+popped constraint with position: (0, [(18, 0)])
+popped constraint with shap value: -3.651621227618307e-11
+formulas built time:0.02549433708190918
+popped constraint with position: (0, [(18, 0)])
+popped constraint with shap value: -3.651621227618307e-11
+formulas built time:0.04204845428466797
+popped constraint with position: (0, [(18, 0)])
+popped constraint with shap value: -3.651621227618307e-11
+formulas built time:0.01479029655456543
+popped constraint with position: (0, [(18, 0)])
+popped constraint with shap value: -3.651621227618307e-11
+formulas built time:0.02620863914489746
+popped constraint with position: (0, [(18, 0)])
+popped constraint with shap value: -3.651621227618307e-11
+formulas built time:0.03859686851501465
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.010861396789550781
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.022184371948242188
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.033386945724487305
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.050249338150024414
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.013791561126708984
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.022483348846435547
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.036280155181884766
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.048898935317993164
+popped constraint with position: (0, [(11, 0)])
+popped constraint with shap value: -3.246896085329354e-11
+formulas built time:0.0026667118072509766
+popped constraint with position: (0, [(11, 0)])
+popped constraint with shap value: -3.246896085329354e-11
+formulas built time:0.013871192932128906
+popped constraint with position: (0, [(11, 0)])
+popped constraint with shap value: -3.246896085329354e-11
+formulas built time:0.02517414093017578
+popped constraint with position: (0, [(11, 0)])
+popped constraint with shap value: -3.246896085329354e-11
+formulas built time:0.036107778549194336
+popped constraint with position: (0, [(11, 0)])
+popped constraint with shap value: -3.246896085329354e-11
+formulas built time:0.014923810958862305
+popped constraint with position: (0, [(11, 0)])
+popped constraint with shap value: -3.246896085329354e-11
+formulas built time:0.0267486572265625
+popped constraint with position: (0, [(11, 0)])
+popped constraint with shap value: -3.246896085329354e-11
+formulas built time:0.03612565994262695
+popped constraint with position: (0, [(1, 0)])
+popped constraint with shap value: -3.2355274015571925e-11
+formulas built time:0.0009076595306396484
+popped constraint with position: (0, [(1, 0)])
+popped constraint with shap value: -3.2355274015571925e-11
+formulas built time:0.012506961822509766
+popped constraint with position: (0, [(1, 0)])
+popped constraint with shap value: -3.2355274015571925e-11
+formulas built time:0.02651190757751465
+popped constraint with position: (0, [(1, 0)])
+popped constraint with shap value: -3.2355274015571925e-11
+formulas built time:0.03910684585571289
+popped constraint with position: (0, [(1, 0)])
+popped constraint with shap value: -3.2355274015571925e-11
+formulas built time:0.012309074401855469
+popped constraint with position: (0, [(1, 0)])
+popped constraint with shap value: -3.2355274015571925e-11
+formulas built time:0.02608180046081543
+popped constraint with position: (0, [(1, 0)])
+popped constraint with shap value: -3.2355274015571925e-11
+formulas built time:0.034835100173950195
+popped constraint with position: (0, [(3, 0)])
+popped constraint with shap value: -3.2014213502407077e-11
+formulas built time:0.0013856887817382812
+popped constraint with position: (0, [(3, 0)])
+popped constraint with shap value: -3.2014213502407077e-11
+formulas built time:0.012612104415893555
+popped constraint with position: (0, [(3, 0)])
+popped constraint with shap value: -3.2014213502407077e-11
+formulas built time:0.023691654205322266
+popped constraint with position: (0, [(3, 0)])
+popped constraint with shap value: -3.2014213502407077e-11
+formulas built time:0.03524208068847656
+popped constraint with position: (0, [(3, 0)])
+popped constraint with shap value: -3.2014213502407077e-11
+formulas built time:0.012917757034301758
+popped constraint with position: (0, [(3, 0)])
+popped constraint with shap value: -3.2014213502407077e-11
+formulas built time:0.024302005767822266
+popped constraint with position: (0, [(3, 0)])
+popped constraint with shap value: -3.2014213502407077e-11
+formulas built time:0.03552985191345215
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.01157379150390625
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.022953033447265625
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.0343019962310791
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.0475773811340332
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.011880636215209961
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.022815227508544922
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.03451967239379883
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.04535722732543945
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.011699438095092773
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.023488998413085938
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.03450655937194824
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.044780731201171875
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.013989686965942383
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.025557279586791992
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.034749746322631836
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.045536041259765625
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.01238703727722168
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.02311539649963379
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.037354469299316406
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.045163631439208984
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.012015104293823242
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.02293539047241211
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.034352779388427734
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.045117855072021484
+popped constraint with position: (0, [(0, 0)])
+popped constraint with shap value: -2.7921487344428896e-11
+formulas built time:0.0007090568542480469
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.2078111171722412
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.35842394828796387
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5144288539886475
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6819417476654053
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8446552753448486
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.0023012161254883
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.19407057762146
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.3217661380767822
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.9524247646331787
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.685293436050415
+popped constraint with position: (0, [(0, 0)])
+popped constraint with shap value: -2.7921487344428896e-11
+formulas built time:0.015798330307006836
+popped constraint with position: (0, [(0, 0)])
+popped constraint with shap value: -2.7921487344428896e-11
+formulas built time:0.02159571647644043
+popped constraint with position: (0, [(0, 0)])
+popped constraint with shap value: -2.7921487344428896e-11
+formulas built time:0.03356623649597168
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.20871257781982422
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.36229944229125977
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5180668830871582
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6817972660064697
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8369481563568115
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.0120553970336914
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.1662795543670654
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.3261487483978271
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.491774320602417
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6583709716796875
+popped constraint with position: (0, [(0, 0)])
+popped constraint with shap value: -2.7921487344428896e-11
+formulas built time:0.012300729751586914
+popped constraint with position: (0, [(0, 0)])
+popped constraint with shap value: -2.7921487344428896e-11
+formulas built time:0.023572444915771484
+popped constraint with position: (0, [(0, 0)])
+popped constraint with shap value: -2.7921487344428896e-11
+formulas built time:0.03410077095031738
+popped constraint with position: (0, [(19, 0)])
+popped constraint with shap value: -1.9826984498649836e-11
+formulas built time:0.003500223159790039
+popped constraint with position: (0, [(19, 0)])
+popped constraint with shap value: -1.9826984498649836e-11
+formulas built time:0.01521754264831543
+popped constraint with position: (0, [(19, 0)])
+popped constraint with shap value: -1.9826984498649836e-11
+formulas built time:0.02682209014892578
+popped constraint with position: (0, [(19, 0)])
+popped constraint with shap value: -1.9826984498649836e-11
+formulas built time:0.03769254684448242
+popped constraint with position: (0, [(19, 0)])
+popped constraint with shap value: -1.9826984498649836e-11
+formulas built time:0.02085709571838379
+popped constraint with position: (0, [(19, 0)])
+popped constraint with shap value: -1.9826984498649836e-11
+formulas built time:0.026030540466308594
+popped constraint with position: (0, [(19, 0)])
+popped constraint with shap value: -1.9826984498649836e-11
+formulas built time:0.04638791084289551
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.005181074142456055
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.004035234451293945
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.004441022872924805
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.004495143890380859
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.004815340042114258
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.006746053695678711
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.005372524261474609
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.005681276321411133
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.21853375434875488
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.38466906547546387
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5478715896606445
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.7156951427459717
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8939659595489502
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.0925312042236328
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.2286581993103027
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.39552640914917
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6094322204589844
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.7452130317687988
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.007760286331176758
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.00545811653137207
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.007982969284057617
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.007943391799926758
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.006498575210571289
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.006551265716552734
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.008213520050048828
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.00709843635559082
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.007322072982788086
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.008873701095581055
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.009359121322631836
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.008162260055541992
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.011791229248046875
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.009419918060302734
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.00877833366394043
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.009179353713989258
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.009496450424194336
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.009602785110473633
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.010225296020507812
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.011610269546508789
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.014020442962646484
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.014438629150390625
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.015252351760864258
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.014917612075805664
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.015250682830810547
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.015795230865478516
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.016905546188354492
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.016289710998535156
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.01576542854309082
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.01689457893371582
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.021534204483032227
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.01972055435180664
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.021764516830444336
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.017697811126708984
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.022623300552368164
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.021260738372802734
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.022623062133789062
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.023662328720092773
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.018599510192871094
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.018426179885864258
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.020461082458496094
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.021878719329833984
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.023603200912475586
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.02098369598388672
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.020531654357910156
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.02108311653137207
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.02046799659729004
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.021866321563720703
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.026404857635498047
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.025445222854614258
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.026607036590576172
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.02581024169921875
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.030640602111816406
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.025940895080566406
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.027553319931030273
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.028583765029907227
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03261280059814453
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.027698755264282227
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03562760353088379
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.029153108596801758
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.030675888061523438
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.02792215347290039
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.028665781021118164
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.028843402862548828
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.028936386108398438
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.030599117279052734
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.031743764877319336
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.029815196990966797
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.030319690704345703
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.029518842697143555
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0305020809173584
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03093123435974121
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.031332969665527344
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03121352195739746
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03197360038757324
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.031033992767333984
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.037065744400024414
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.037218570709228516
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03653216361999512
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03914952278137207
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.038301706314086914
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03693222999572754
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.037657976150512695
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03684830665588379
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.23409104347229004
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4066340923309326
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5844707489013672
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.7584049701690674
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.9331274032592773
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.1292965412139893
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.2842128276824951
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:2.171950578689575
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.7336070537567139
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.9586398601531982
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.044754981994628906
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.045050859451293945
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.0457606315612793
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.04668855667114258
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.04579424858093262
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.04582667350769043
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04203176498413086
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03929948806762695
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.21540141105651855
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.3732876777648926
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5327823162078857
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6961450576782227
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8647375106811523
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.023613691329956
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.1802480220794678
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.335282564163208
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.4994125366210938
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:2.434098482131958
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.041544198989868164
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.2173774242401123
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.37463903427124023
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5420150756835938
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.698131799697876
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8567450046539307
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.0269441604614258
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.1767148971557617
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.3999967575073242
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.5386426448822021
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.7888777256011963
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.05432319641113281
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.044580698013305664
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.04792928695678711
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.04765152931213379
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.045899152755737305
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.04742693901062012
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04046487808227539
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04180622100830078
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04215216636657715
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04318976402282715
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04279947280883789
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04149675369262695
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.042519330978393555
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04094886779785156
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04311418533325195
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0443120002746582
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04436612129211426
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04447793960571289
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.045089006423950195
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04721641540527344
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04366278648376465
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04476571083068848
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.047782182693481445
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0065402984619140625
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.007045269012451172
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.23245525360107422
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4079124927520752
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6036603450775146
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.7870442867279053
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.8737387657165527
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.1781055927276611
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.3581445217132568
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.5652563571929932
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.752690076828003
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.9692063331604004
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.008890390396118164
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.23926162719726562
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4111902713775635
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5992085933685303
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.7689335346221924
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.9506466388702393
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.1254193782806396
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.2461090087890625
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:2.5617570877075195
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.687269687652588
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.833042860031128
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.007517814636230469
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.22618532180786133
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.39419007301330566
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5751738548278809
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.7357325553894043
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.9080922603607178
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.105468511581421
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.2753777503967285
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.4433019161224365
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6451761722564697
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.839909315109253
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.009288787841796875
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.007536649703979492
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0076558589935302734
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.008339166641235352
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.008155584335327148
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.008933067321777344
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.008431673049926758
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.008980274200439453
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.00878143310546875
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.01019287109375
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.009706258773803711
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.009712696075439453
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.010205745697021484
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.010204315185546875
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.010933637619018555
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.010482072830200195
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.021527767181396484
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.017023324966430664
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.01645207405090332
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.015972614288330078
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.01611924171447754
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.017039775848388672
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.018010616302490234
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.018913984298706055
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.01832103729248047
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.016754865646362305
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.021588802337646484
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.018140792846679688
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.017644882202148438
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.021695613861083984
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.01813054084777832
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.020498037338256836
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.018574237823486328
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.019713878631591797
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.019628047943115234
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.02016901969909668
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.021829605102539062
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0200192928314209
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.019953489303588867
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.02149224281311035
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.021511316299438477
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.021027803421020508
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.022246599197387695
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.023586750030517578
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.025795698165893555
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.02718329429626465
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.02650594711303711
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.02777719497680664
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.027727365493774414
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.027743816375732422
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.032361745834350586
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.030887603759765625
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.23350763320922852
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4110405445098877
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6037564277648926
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.7747082710266113
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.9156522750854492
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.0749399662017822
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.2593636512756348
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.4362273216247559
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6351149082183838
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.8439419269561768
+popped constraint with position: (0, [(12, 0)])
+popped constraint with shap value: -8.476490620523691e-11
+formulas built time:0.03927469253540039
+popped constraint with position: (0, [(5, 0)])
+popped constraint with shap value: -8.221832104027272e-11
+formulas built time:0.03506827354431152
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.032907962799072266
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.04338335990905762
+popped constraint with position: (0, [(15, 0)])
+popped constraint with shap value: -5.256879376247525e-11
+formulas built time:0.035779476165771484
+popped constraint with position: (0, [(6, 0)])
+popped constraint with shap value: -4.4383341446518895e-11
+formulas built time:0.033979177474975586
+popped constraint with position: (0, [(16, 0)])
+popped constraint with shap value: -4.31100488640368e-11
+formulas built time:0.03615975379943848
+popped constraint with position: (0, [(7, 0)])
+popped constraint with shap value: -4.0972736314870415e-11
+formulas built time:0.03511977195739746
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.037271738052368164
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.04515218734741211
+popped constraint with position: (0, [(2, 0)])
+popped constraint with shap value: -3.824425220955163e-11
+formulas built time:0.033606767654418945
+popped constraint with position: (0, [(13, 0)])
+popped constraint with shap value: -3.7834979593753816e-11
+formulas built time:0.04213356971740723
+popped constraint with position: (0, [(18, 0)])
+popped constraint with shap value: -3.651621227618307e-11
+formulas built time:0.04189777374267578
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.037236928939819336
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.04276633262634277
+popped constraint with position: (0, [(11, 0)])
+popped constraint with shap value: -3.246896085329354e-11
+formulas built time:0.03477597236633301
+popped constraint with position: (0, [(1, 0)])
+popped constraint with shap value: -3.2355274015571925e-11
+formulas built time:0.036531925201416016
+popped constraint with position: (0, [(3, 0)])
+popped constraint with shap value: -3.2014213502407077e-11
+formulas built time:0.03394627571105957
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.03510308265686035
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.043944597244262695
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.03586983680725098
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.044562578201293945
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.03585672378540039
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.044985055923461914
+popped constraint with position: (0, [(0, 0)])
+popped constraint with shap value: -2.7921487344428896e-11
+formulas built time:0.036112308502197266
+popped constraint with position: (0, [(19, 0)])
+popped constraint with shap value: -1.9826984498649836e-11
+formulas built time:0.037490129470825195
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.02699446678161621
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.027707576751708984
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.24235081672668457
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.41960692405700684
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.601447582244873
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.7892904281616211
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.9659349918365479
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.1490881443023682
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.3062589168548584
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.4905719757080078
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6750857830047607
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.8517422676086426
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0287477970123291
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03433346748352051
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03013443946838379
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.030330419540405273
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.029215574264526367
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.23455166816711426
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4074287414550781
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5773653984069824
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.7516021728515625
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.9475178718566895
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.1232659816741943
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.296520709991455
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.450782299041748
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.716576099395752
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.8714418411254883
+popped constraint with position: (0, [(12, 0)])
+popped constraint with shap value: -8.476490620523691e-11
+formulas built time:0.035817623138427734
+popped constraint with position: (0, [(5, 0)])
+popped constraint with shap value: -8.221832104027272e-11
+formulas built time:0.037282705307006836
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.03336024284362793
+popped constraint with position: (0, [(23, 0)])
+popped constraint with shap value: -8.026290743146092e-11
+formulas built time:0.04402589797973633
+popped constraint with position: (0, [(15, 0)])
+popped constraint with shap value: -5.256879376247525e-11
+formulas built time:0.03747296333312988
+popped constraint with position: (0, [(6, 0)])
+popped constraint with shap value: -4.4383341446518895e-11
+formulas built time:0.03446698188781738
+popped constraint with position: (0, [(16, 0)])
+popped constraint with shap value: -4.31100488640368e-11
+formulas built time:0.03738903999328613
+popped constraint with position: (0, [(7, 0)])
+popped constraint with shap value: -4.0972736314870415e-11
+formulas built time:0.03615522384643555
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.03528785705566406
+popped constraint with position: (0, [(27, 0)])
+popped constraint with shap value: -3.92901711165905e-11
+formulas built time:0.04606461524963379
+popped constraint with position: (0, [(2, 0)])
+popped constraint with shap value: -3.824425220955163e-11
+formulas built time:0.035956621170043945
+popped constraint with position: (0, [(13, 0)])
+popped constraint with shap value: -3.7834979593753816e-11
+formulas built time:0.03818535804748535
+popped constraint with position: (0, [(18, 0)])
+popped constraint with shap value: -3.651621227618307e-11
+formulas built time:0.04418492317199707
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.03430986404418945
+popped constraint with position: (0, [(21, 0)])
+popped constraint with shap value: -3.43163719662698e-11
+formulas built time:0.046201229095458984
+popped constraint with position: (0, [(11, 0)])
+popped constraint with shap value: -3.246896085329354e-11
+formulas built time:0.03612637519836426
+popped constraint with position: (0, [(1, 0)])
+popped constraint with shap value: -3.2355274015571925e-11
+formulas built time:0.03456735610961914
+popped constraint with position: (0, [(3, 0)])
+popped constraint with shap value: -3.2014213502407077e-11
+formulas built time:0.03601408004760742
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.03486013412475586
+popped constraint with position: (0, [(26, 0)])
+popped constraint with shap value: -3.183231456205249e-11
+formulas built time:0.045363664627075195
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.03361654281616211
+popped constraint with position: (0, [(24, 0)])
+popped constraint with shap value: -3.092281986027956e-11
+formulas built time:0.04451441764831543
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.03319978713989258
+popped constraint with position: (0, [(25, 0)])
+popped constraint with shap value: -2.928572939708829e-11
+formulas built time:0.04379153251647949
+popped constraint with position: (0, [(0, 0)])
+popped constraint with shap value: -2.7921487344428896e-11
+formulas built time:0.0345463752746582
+popped constraint with position: (0, [(19, 0)])
+popped constraint with shap value: -1.9826984498649836e-11
+formulas built time:0.04349637031555176
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.02941608428955078
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.25556135177612305
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4498910903930664
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6885473728179932
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8424472808837891
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.0420138835906982
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.1846554279327393
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.4290904998779297
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6487655639648438
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.8451745510101318
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:2.0361599922180176
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03261899948120117
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03291034698486328
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03393959999084473
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03316092491149902
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03464937210083008
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03392744064331055
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03345680236816406
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.038992881774902344
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03434252738952637
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03435921669006348
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03685569763183594
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.035231590270996094
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03998446464538574
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03899788856506348
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04022955894470215
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.040575265884399414
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04129958152770996
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04037761688232422
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04019021987915039
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.042592763900756836
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.040181636810302734
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.041237831115722656
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.044443368911743164
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04450726509094238
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04659700393676758
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04469752311706543
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04151153564453125
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04488229751586914
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04494810104370117
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04395246505737305
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.045812368392944336
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04583263397216797
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.045471906661987305
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.045702219009399414
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.046613454818725586
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04762411117553711
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04675769805908203
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04620981216430664
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04609942436218262
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.046753883361816406
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04035353660583496
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.040776968002319336
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04283952713012695
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04108452796936035
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.041410207748413086
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0424652099609375
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04134845733642578
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.044149160385131836
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0427396297454834
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04299116134643555
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04497957229614258
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04215431213378906
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04252219200134277
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04369497299194336
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.043999671936035156
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04668402671813965
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.047052621841430664
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.045281171798706055
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.046488046646118164
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.045517683029174805
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04511618614196777
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04515647888183594
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04441690444946289
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.043532371520996094
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.043721675872802734
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04496884346008301
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04443955421447754
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04556155204772949
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04528450965881348
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04518485069274902
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.030647754669189453
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03112483024597168
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.030611753463745117
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03219461441040039
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03362274169921875
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.031129837036132812
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03360605239868164
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0318601131439209
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03237104415893555
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0326838493347168
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03450202941894531
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.039200544357299805
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03676581382751465
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0364382266998291
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03364706039428711
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03324699401855469
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.033323049545288086
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03364229202270508
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03437066078186035
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.034529685974121094
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03822135925292969
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04020953178405762
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.040871620178222656
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.038562774658203125
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04050278663635254
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.040411949157714844
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04072070121765137
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04062795639038086
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.041231632232666016
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.039342403411865234
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.039940595626831055
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04060840606689453
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04136848449707031
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.041425466537475586
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04230856895446777
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04242300987243652
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.045614004135131836
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04395318031311035
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04527592658996582
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04174017906188965
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04383134841918945
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.043486595153808594
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.042723894119262695
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04619288444519043
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04351305961608887
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04906916618347168
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04501605033874512
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04506707191467285
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03251385688781738
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03433108329772949
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03327751159667969
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.033209800720214844
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.034903526306152344
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.038231849670410156
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03317594528198242
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03305673599243164
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.033768653869628906
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0350956916809082
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.037622690200805664
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.042740821838378906
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03810739517211914
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03850817680358887
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.038959503173828125
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03862357139587402
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04359912872314453
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.03938627243041992
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.040164947509765625
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04049825668334961
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.044962406158447266
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.044347524642944336
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04158949851989746
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04510378837585449
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.046259403228759766
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.0412602424621582
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04523062705993652
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04610896110534668
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.043328046798706055
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04400467872619629
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.042382001876831055
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04396820068359375
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04243040084838867
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04594159126281738
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04437756538391113
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04361391067504883
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.04432559013366699
+popped constraint with position: (0, [(20, 0)])
+popped constraint with shap value: -1.9281287677586078e-11
+formulas built time:0.043973445892333984
+popped constraint with position: (0, [(4, 0)])
+popped constraint with shap value: -1.7041656974470244e-11
+formulas built time:0.0012035369873046875
+popped constraint with position: (0, [(4, 0)])
+popped constraint with shap value: -1.7041656974470244e-11
+formulas built time:0.015210390090942383
+popped constraint with position: (0, [(4, 0)])
+popped constraint with shap value: -1.7041656974470244e-11
+formulas built time:0.02311539649963379
+popped constraint with position: (0, [(4, 0)])
+popped constraint with shap value: -1.7041656974470244e-11
+formulas built time:0.03526139259338379
+popped constraint with position: (0, [(4, 0)])
+popped constraint with shap value: -1.7041656974470244e-11
+formulas built time:0.012876749038696289
+popped constraint with position: (0, [(4, 0)])
+popped constraint with shap value: -1.7041656974470244e-11
+formulas built time:0.024729013442993164
+popped constraint with position: (0, [(4, 0)])
+popped constraint with shap value: -1.7041656974470244e-11
+formulas built time:0.03530383110046387
+popped constraint with position: (0, [(4, 0)])
+popped constraint with shap value: -1.7041656974470244e-11
+formulas built time:0.03594636917114258
+popped constraint with position: (0, [(4, 0)])
+popped constraint with shap value: -1.7041656974470244e-11
+formulas built time:0.03520703315734863
+popped constraint with position: (0, [(10, 0)])
+popped constraint with shap value: -1.659827830735594e-11
+formulas built time:0.002724885940551758
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.27908921241760254
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.45940637588500977
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6328060626983643
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8303332328796387
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.0105373859405518
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.2306299209594727
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.4057061672210693
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.564612865447998
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.749539852142334
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.921116590499878
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.26578187942504883
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.443911075592041
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6225101947784424
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8104822635650635
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.9829716682434082
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.170760154724121
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.3748009204864502
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.5435526371002197
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.676008939743042
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.8622510433197021
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.2796792984008789
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4576878547668457
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6372935771942139
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8588993549346924
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.047201156616211
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.229623556137085
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.4898827075958252
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6528630256652832
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.962191104888916
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:2.0950117111206055
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.1426854133605957
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.1819751262664795
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.2359788417816162
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.2764863967895508
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.32122159004211426
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.38166189193725586
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4130594730377197
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5051784515380859
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5249152183532715
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5851633548736572
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.20226192474365234
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.3018527030944824
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.42032313346862793
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5227310657501221
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6168837547302246
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.7684636116027832
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.83514404296875
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.9168753623962402
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.9782485961914062
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.0742945671081543
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.2774217128753662
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4583003520965576
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6390185356140137
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8606581687927246
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.0350191593170166
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.220700979232788
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.4562220573425293
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.602959394454956
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.8941211700439453
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:2.019253969192505
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.15054583549499512
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.185455322265625
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.21615099906921387
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.2853231430053711
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.30422186851501465
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.3370826244354248
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.3751070499420166
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.40987229347229004
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.45950746536254883
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4896667003631592
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.14646196365356445
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.19820737838745117
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.24938106536865234
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.30190134048461914
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.35030364990234375
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.41056370735168457
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4802248477935791
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5032477378845215
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5598306655883789
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6420354843139648
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.29529881477355957
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.47358036041259766
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6616508960723877
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8304381370544434
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.0553662776947021
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.2269573211669922
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.3914496898651123
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.574141502380371
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.8472926616668701
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:2.056157112121582
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.2898838520050049
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.486039400100708
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6687753200531006
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8680057525634766
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.042783498764038
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.2470998764038086
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.4343469142913818
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6260929107666016
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.8155839443206787
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.9848613739013672
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.1290271282196045
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.16733241081237793
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.20455598831176758
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:2.5675430297851562
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.281033992767334
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.3109445571899414
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.3496887683868408
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.383866548538208
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.44219279289245605
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4832429885864258
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.14502739906311035
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.1900157928466797
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.23765993118286133
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.2865121364593506
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.33139491081237793
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.38413166999816895
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.43765711784362793
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.47746706008911133
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5484917163848877
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5874660015106201
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.1375746726989746
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.18403172492980957
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.23212122917175293
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.27330636978149414
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.3222777843475342
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.3679683208465576
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4276854991912842
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.45972537994384766
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5179383754730225
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.5559701919555664
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.28006815910339355
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.46698546409606934
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6469457149505615
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8211688995361328
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.9993681907653809
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.1840605735778809
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.3746545314788818
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.5534255504608154
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.765148401260376
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.9575321674346924
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.2794675827026367
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.46640563011169434
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.656301736831665
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.8547773361206055
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.040576457977295
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.24558424949646
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.4312570095062256
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.6330928802490234
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.8146109580993652
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.9866087436676025
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.13164043426513672
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.16520023345947266
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.21336746215820312
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.24901175498962402
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.28525304794311523
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.31797170639038086
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.3603248596191406
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.40012383460998535
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.4343705177307129
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.47081923484802246

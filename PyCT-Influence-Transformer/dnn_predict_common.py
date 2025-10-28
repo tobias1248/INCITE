@@ -8,8 +8,13 @@ from libct.position import register_layer_number_mapping, to_Keras_layer_number
 
 
 myModel = None
+loaded_model_path = None
 def init_model(model_path):
-	global myModel
+	global myModel, loaded_model_path
+	if myModel is not None and loaded_model_path == model_path:
+		return
+	if loaded_model_path is not None and loaded_model_path != model_path:
+		keras.backend.clear_session()
 	model = keras.models.load_model(model_path)
 	model.summary()
 	layers = [l for l in model.layers if type(l).__name__ not in ['InputLayer','Embedding','Dropout']]
@@ -35,6 +40,7 @@ def init_model(model_path):
 	for myLayer in myModel.layers:
 		print(type(myLayer))	
 
+	loaded_model_path = model_path
 
 def predict(**data):
 	input_shape = myModel.input_shape

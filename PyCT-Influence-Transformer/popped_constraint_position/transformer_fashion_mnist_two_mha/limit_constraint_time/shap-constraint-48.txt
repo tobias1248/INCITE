@@ -1,0 +1,7 @@
+
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:0.6745543479919434
+popped constraint with position: (2, (9,))
+popped constraint with shap value: -inf
+formulas built time:1.216923713684082
