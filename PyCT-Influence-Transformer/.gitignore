@@ -9,7 +9,6 @@ __pycache__/
 
 # Experiment results
 exp/
-popped_constraint_position/
 
 # my test
 dnnct_transformer_multi_approved.py
