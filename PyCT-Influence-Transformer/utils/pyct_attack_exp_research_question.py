@@ -24,6 +24,7 @@ from utils.experiment_task_specs import (  # noqa: F401
     TaskGenerationSpec,
     fashion_mnist_transformer_shap,
     fashion_mnist_transformer_shap_calculate_all,
+    fashion_mnist_transformer_random,
     get_save_dir_from_save_exp,
     imdb_shap_1_2_3_4_8_range02,
     imdb_transformer_shap_1_2_3_4_8_range02,
@@ -66,4 +67,5 @@ __all__ = [
     "sentiment_lstm_lstm_15_1_2_3_4_8_range02",
     "fashion_mnist_transformer_shap",
     "fashion_mnist_transformer_shap_calculate_all",
+    "fashion_mnist_transformer_random",
 ]

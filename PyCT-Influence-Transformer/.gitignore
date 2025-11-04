@@ -6,9 +6,13 @@ __pycache__/
 # Logs and temporary files
 *.log
 *.tmp
+*.json
+*.txt
+
 
 # Experiment results
 exp/
+popped_constraint_position/
 
 # my test
 dnnct_transformer_multi_approved.py

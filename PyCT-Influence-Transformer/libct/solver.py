@@ -1,4 +1,5 @@
 import logging, os, re, subprocess, sys, time, func_timeout
+from pathlib import Path
 from libct.concolic import Concolic
 from libct.predicate import Predicate
 from libct.utils import py2smt
@@ -54,24 +55,66 @@ class Solver:
             cls.cmd += ["--tlimit=" + str(1000 * timeout)]
 
     @classmethod
+    def _derive_attack_mode(cls, engine) -> str:
+        """Return attack mode label derived from engine metadata."""
+        shap_flag = getattr(engine, "shap_value_pre_calculated", None)
+        if shap_flag is True:
+            return "shap"
+        if shap_flag is False:
+            return "random"
+        return "unknown"
+
+    @classmethod
+    def _derive_attack_ton(cls, engine) -> str:
+        """Estimate ton value from concolic flags; fall back to 'unknown'."""
+        flags = getattr(engine, "concolic_flag_dict", None)
+        if not flags:
+            return "unknown"
+        ton = sum(1 for flag in flags.values() if flag)
+        return str(ton if ton > 0 else 0)
+
+    @classmethod
+    def _resolve_constraint_log_path(cls, engine, idx: int) -> Path:
+        """Compute constraint log path grouped by model and attack parameters."""
+        model_path = getattr(engine, "model_path", None)
+        model_name = Path(model_path).stem if model_path else "unknown_model"
+        attack_mode = cls._derive_attack_mode(engine)
+        ton_label = cls._derive_attack_ton(engine)
+        output_dir = Path("popped_constraint_position") / model_name / f"{attack_mode}_{ton_label}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return output_dir / f"constraint_{idx}.txt"
+
+    @staticmethod
+    def _append_constraint_log(log_path: Path, position, shap_value, message: str) -> None:
+        """Append a constraint entry to the resolved log file."""
+        with log_path.open("a", encoding="utf-8") as file:
+            file.write("\n")
+            file.write(f"popped constraint with position: {position}\n")
+            file.write(f"popped constraint with shap value: {shap_value}\n")
+            file.write(f"{message}")
+
+    @classmethod
     def find_model_from_constraint(cls, engine,constraint,shap_value, position, idx, ori_args):
         print("[DEBUG]Finding model ... ")
+        log_path = cls._resolve_constraint_log_path(engine, idx)
         #limit_constraint_time_start  
         try:
             build_formula_start = time.time()
             formulas = func_timeout.func_timeout(30, Solver._build_formulas_from_constraint, args=(engine, constraint, ori_args))
             build_formula_end = time.time()
-            with open(f"./popped_constraint_position/transformer_fashion_mnist_two_mha/limit_constraint_time/shap-constraint-{idx}.txt", "a") as file:
-                file.write("\n")
-                file.write(f"popped constraint with position: {position}\n")
-                file.write(f"popped constraint with shap value: {shap_value}\n")
-                file.write(f"formulas built time:{build_formula_end - build_formula_start}")
+            cls._append_constraint_log(
+                log_path,
+                position,
+                shap_value,
+                f"formulas built time:{build_formula_end - build_formula_start}",
+            )
         except func_timeout.exceptions.FunctionTimedOut:
-            with open(f"./popped_constraint_position/transformer_fashion_mnist_two_mha/limit_constraint_time/shap-constraint-{idx}.txt", "a") as file:
-                file.write("\n")
-                file.write(f"popped constraint with position: {position}\n")
-                file.write(f"popped constraint with shap value: {shap_value}\n")
-                file.write(f"Solver timeout")
+            cls._append_constraint_log(
+                log_path,
+                position,
+                shap_value,
+                "Solver timeout",
+            )
             return None
        #limit_constraint_time_end
 

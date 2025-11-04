@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -24,6 +24,7 @@ __all__ = [
     "sentiment_lstm_lstm_15_1_2_3_4_8_range02",
     "fashion_mnist_transformer_shap",
     "fashion_mnist_transformer_shap_calculate_all",
+    "fashion_mnist_transformer_random",
 ]
 
 
@@ -93,6 +94,34 @@ def _make_shap_provider(shap_array: np.ndarray) -> Callable[[int, int], List[Any
 def _make_random_provider(random_array: np.ndarray) -> Callable[[int, int], List[Any]]:
     def provider(idx: int, ton: int) -> List[Any]:
         return random_array[idx, :ton].tolist()
+
+    return provider
+
+
+def _make_coordinate_provider(
+    sample_shape: Tuple[int, ...],
+    ton_values: Sequence[int],
+    *,
+    base_seed: int = 2024,
+) -> Callable[[int, int], List[Tuple[int, ...]]]:
+    if not ton_values:
+        raise ValueError("ton_values must be non-empty for coordinate provider generation.")
+    max_ton = max(ton_values)
+    dims = len(sample_shape)
+
+    def provider(idx: int, ton: int) -> List[Tuple[int, ...]]:
+        if ton > max_ton:
+            raise ValueError(f"Requested ton {ton} exceeds configured maximum {max_ton}.")
+        rng = np.random.default_rng(base_seed + idx)
+        seen: Set[Tuple[int, ...]] = set()
+        coords: List[Tuple[int, ...]] = []
+        while len(coords) < ton:
+            candidate = tuple(int(rng.integers(0, upper)) for upper in sample_shape)
+            if candidate in seen:
+                continue
+            coords.append(candidate)
+            seen.add(candidate)
+        return coords
 
     return provider
 
@@ -218,6 +247,76 @@ def fashion_mnist_transformer_shap(
         save_exp_builder=lambda idx, ton, mode: {
             "input_name": f"fashion_mnist_test_{idx}",
             "exp_name": f"shap_{ton}",
+        },
+        payload_builder=payload_builder,
+    )
+
+    result = _generate_inputs(
+        model_name,
+        first_n_img,
+        spec,
+        skip_existing_override=not force,
+    )
+    print(f"[DEBUG] built inputs={len(result.inputs)}, skipped={result.skipped}")
+    return result.inputs
+
+
+def fashion_mnist_transformer_random(
+    model_name: str,
+    first_n_img: Iterable[int],
+    *,
+    ton_values: Sequence[int],
+    force: bool = False,
+    base_seed: int = 2024,
+) -> List[Dict[str, Any]]:
+    from utils.dataset import FashionMnistDataset
+
+    ton_values = tuple(ton_values)
+    if not ton_values:
+        raise ValueError("ton_values must contain at least one value.")
+
+    dataset = FashionMnistDataset()
+    sample_shape = tuple(int(dim) for dim in dataset.x_test.shape[1:])
+    coordinate_provider = _make_coordinate_provider(sample_shape, ton_values, base_seed=base_seed)
+    queue_mode = QueueMode("priority_queue", "priority_queue")
+
+    def attack_pixel_fn(idx: int, ton: int) -> List[Any]:
+        return [list(coord) for coord in coordinate_provider(idx, ton)]
+
+    def payload_builder(
+        dataset_obj: Any,
+        idx: int,
+        attack_pixels: List[Any],
+        ton: int,
+        mode: QueueMode,
+    ) -> Dict[str, Any]:
+        (
+            in_dict,
+            con_dict,
+            input_for_shap,
+            background_dataset_for_shap,
+        ) = dataset_obj.get_fashion_mnist_test_data_and_set_condict(
+            idx,
+            [tuple(pixel) for pixel in attack_pixels],
+        )
+        return {
+            "idx": idx,
+            "in_dict": in_dict,
+            "con_dict": con_dict,
+            "input_for_shap": input_for_shap,
+            "background_dataset_for_shap": background_dataset_for_shap,
+            "solve_order_stack": mode.solve_order_stack,
+            "shap_value_pre_calculated": True,
+        }
+
+    spec = TaskGenerationSpec(
+        dataset_factory=lambda: dataset,
+        attack_pixel_fn=attack_pixel_fn,
+        queue_modes=[queue_mode],
+        ton_values=list(ton_values),
+        save_exp_builder=lambda idx, ton, mode: {
+            "input_name": f"fashion_mnist_test_{idx}",
+            "exp_name": f"random_select/random_{ton}",
         },
         payload_builder=payload_builder,
     )

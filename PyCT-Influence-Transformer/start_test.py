@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import functools
 import json
@@ -6,13 +9,17 @@ from multiprocessing import Process
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-_QUEUE_TYPE = "priority_queue"
-_EXPERIMENT_NAME = "shap_1"
+from utils.experiment_task_specs import (
+    fashion_mnist_transformer_random,
+    fashion_mnist_transformer_shap,
+)
+
 _INPUT_PREFIX = "fashion_mnist_test_"
+_QUEUE_TYPE = "priority_queue"
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    """Define and parse command-line arguments for the transformer multi-run CLI."""
+    """Parse command-line arguments for transformer experiments."""
     parser = argparse.ArgumentParser(
         description="Run PyCT transformer experiments across multiple processes."
     )
@@ -37,6 +44,24 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=int,
         default=3600,
         help="Per-input timeout in seconds passed to each subprocess.",
+    )
+    parser.add_argument(
+        "--ton",
+        type=int,
+        default=1,
+        help="Number of pixels/features to perturb per attack (only used for random mode).",
+    )
+    parser.add_argument(
+        "--attack-mode",
+        default="shap",
+        choices=("shap", "random"),
+        help="Select attack strategy: SHAP-guided or random selection.",
+    )
+    parser.add_argument(
+        "--random-seed",
+        type=int,
+        default=2024,
+        help="Seed controlling deterministic random selection (random mode only).",
     )
     parser.add_argument(
         "--norm-01",
@@ -72,7 +97,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--force-refresh",
         action="store_true",
-        help="Rebuild cached SHAP inputs even when existing experiment folders are present.",
+        help="Rebuild cached outputs even when existing experiment folders are present.",
     )
     return parser.parse_args(argv)
 
@@ -103,9 +128,21 @@ def _configure_solver(selected_solver: str) -> None:
     engine_cls._pyct_configured_solver = selected_solver  # type: ignore[attr-defined]
 
 
-def _derive_resume_plan(model_name: str, first_n: int) -> Tuple[int, bool]:
-    """Infer the starting index and whether forcing refresh is required for resumption."""
-    base_dir = Path("exp") / model_name / _QUEUE_TYPE / _EXPERIMENT_NAME
+def _resolve_experiment_layout(attack_mode: str, ton: int) -> Tuple[str, str]:
+    if attack_mode == "shap":
+        return _QUEUE_TYPE, "shap_1"
+    if attack_mode == "random":
+        return _QUEUE_TYPE, f"random_select/random_{ton}"
+    raise ValueError(f"Unsupported attack mode: {attack_mode}")
+
+
+def _derive_resume_plan(
+    model_name: str,
+    queue_type: str,
+    experiment_name: str,
+    first_n: int,
+) -> Tuple[int, bool]:
+    base_dir = Path("exp") / model_name / queue_type / experiment_name
     if not base_dir.is_dir():
         return 0, False
 
@@ -150,7 +187,7 @@ def _worker(
     model_type: str,
     solver: str,
 ) -> None:
-    """Entry point for each subprocess that forwards to the existing util helper."""
+    """Entry point for each subprocess that forwards to the util helper."""
     _configure_solver(solver)
     from utils.experiment_runner import run_attack_with_shap
 
@@ -163,7 +200,6 @@ def _worker(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
-    """CLI wrapper for running batch transformer concolic tests with configurable settings."""
     args = parse_args(argv)
 
     if args.num_process < 1:
@@ -174,13 +210,21 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         raise ValueError("--timeout must be >= 1 second")
     if args.spawn_delay < 0:
         raise ValueError("--spawn-delay must be non-negative")
+    if args.attack_mode == "shap" and args.ton != 1:
+        raise ValueError("SHAP mode currently supports only --ton=1.")
+    if args.ton < 1:
+        raise ValueError("--ton must be >= 1")
 
-    from utils.experiment_task_specs import fashion_mnist_transformer_shap
-
+    queue_type, exp_name = _resolve_experiment_layout(args.attack_mode, args.ton)
     resume_index = 0
     force_refresh = args.force_refresh
     if not args.force_refresh:
-        resume_index, require_force = _derive_resume_plan(args.model_name, args.first_n)
+        resume_index, require_force = _derive_resume_plan(
+            args.model_name,
+            queue_type,
+            exp_name,
+            args.first_n,
+        )
         force_refresh = require_force
         if resume_index >= args.first_n:
             print("All requested inputs already completed; nothing to do.")
@@ -190,11 +234,21 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     if resume_index > 0:
         print(f"[INFO] Resuming from idx={resume_index} (force={'yes' if force_refresh else 'no'}).")
 
-    inputs = fashion_mnist_transformer_shap(
-        args.model_name,
-        first_n_img=first_n_range,
-        force=force_refresh,
-    )
+    if args.attack_mode == "shap":
+        inputs = fashion_mnist_transformer_shap(
+            args.model_name,
+            first_n_img=first_n_range,
+            force=force_refresh,
+        )
+    else:
+        inputs = fashion_mnist_transformer_random(
+            args.model_name,
+            first_n_img=first_n_range,
+            ton_values=[args.ton],
+            force=force_refresh,
+            base_seed=args.random_seed,
+        )
+
     print("#" * 40, f"number of inputs: {len(inputs)}", "#" * 45)
     time.sleep(3)
 
