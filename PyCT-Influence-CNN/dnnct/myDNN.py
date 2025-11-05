@@ -21,7 +21,8 @@ from keras.layers import (
     LSTM,
     Embedding,
     BatchNormalization,
-    SimpleRNN
+    SimpleRNN,
+    Add
 )
 
 LAYERS = (
@@ -35,6 +36,7 @@ LAYERS = (
     LSTM,
     Embedding,
     BatchNormalization,
+    Add
 )
 
 ACTIVATIONS = (
@@ -76,13 +78,33 @@ def dim(a):
         return []
     return [len(a)] + dim(a[0])
 
+# 實現多個tensor相加
+
+
+def _recursive_elementwise_sum(values):
+    if not values:
+        raise ValueError(
+            "AddLayer.forward() requires at least one input tensor")
+    first = values[0]
+    if isinstance(first, list):
+        length = len(first)
+        for tensor in values[1:]:
+            if not isinstance(tensor, list) or len(tensor) != length:
+                raise ValueError(
+                    "AddLayer.forward() input tensors must share the same shape")
+        return [_recursive_elementwise_sum([tensor[i] for tensor in values]) for i in range(length)]
+    total = first
+    for tensor in values[1:]:
+        total += tensor
+    return total
+
 
 # acivation function
 def actFunc(val, type):
     if type == 'linear':
         return val
     elif type == 'relu':
-   
+
         if val < 0.0:
             return 0.0
         else:
@@ -150,6 +172,30 @@ class ActivationLayer:
         return self._output
 
 
+class AddLayer:
+    def __init__(self, input_from):
+        if not isinstance(input_from, (list, tuple)) or len(input_from) < 2:
+            raise ValueError("AddLayer requires at least two input sources")
+        self.input_from = list(input_from)
+        self._output = None
+
+    def forward(self, tensors):
+        if len(tensors) != len(self.input_from):
+            raise ValueError(
+                "AddLayer.forward() received unexpected number of inputs")
+        base_dim = dim(tensors[0])
+        for tensor in tensors[1:]:
+            if dim(tensor) != base_dim:  # 陸續檢查每個tensor的shape是否能夠對齊
+                raise ValueError(
+                    "AddLayer.forward() input tensors must share the same shape")
+        result = _recursive_elementwise_sum(tensors)
+        self._output = result
+        return result
+
+    def getOutput(self):
+        return self._output
+
+
 class DenseLayer:
     def __init__(self, weights, bias, shape, activation="None"):
         self.weights = weights.astype(float)
@@ -209,7 +255,7 @@ class Conv2DLayer:
         out_shape = [in_shape[0]-self.shape[1]+1,
                      in_shape[1]-self.shape[2]+1,
                      self.shape[0]]
-        #tensor_out = np.zeros( out_shape ).tolist()
+        # tensor_out = np.zeros( out_shape ).tolist()
         tensor_out = []
         for _ in range(out_shape[0]):
             tensor_out.append([
@@ -233,12 +279,12 @@ class Conv2DLayer:
                         tensor_out[row][col][channel] = actFunc(
                             tensor_out[row][col][channel], self.activation)
                     # print(type(tensor_out[row][col][channel]))
-            #print("Finished %i feature Map" % channel)
+            # print("Finished %i feature Map" % channel)
 
         if debug:
             print("[DEBUG]Finish Conv2D Layer forwarding!!")
 
-        #print("Feature Map Shape: %ix%ix%i" % tuple(out_shape))
+        # print("Feature Map Shape: %ix%ix%i" % tuple(out_shape))
         self._output = tensor_out
         return tensor_out
 
@@ -289,7 +335,7 @@ class MaxPool2DLayer:
         if debug:
             print("[DEBUG]Finish MaxPool2D Layer forwarding!!")
 
-        #print("Feature Map Shape: %ix%ix%i" % tuple(out_shape))
+        # print("Feature Map Shape: %ix%ix%i" % tuple(out_shape))
         self._output = tensor_out
         return tensor_out
 
@@ -458,16 +504,24 @@ class NNModel:
         self.input_shape = None
 
     def forward(self, tensor_in):
-        # tensor_it = tensor_in
         logging.info("DNN start forwarding")
+        # cache用來存放每一層的輸出結果 方便AddLayer取用跨層資訊
+        cache = {"layer_input": tensor_in}
+        x = tensor_in
         for i, layer in enumerate(self.layers):
             register_current_layer_number(to_Keras_layer_number(i))
-            print("layer",layer)
-            tensor_in = layer.forward(tensor_in)
-            # print(tensor_in)
+            layer_name = f"layer_{i}"
+            if hasattr(layer, "input_from"):
+                inputs = [cache[name]
+                          for name in layer.input_from]  # 取得該層的所有輸入來源名稱
+                # 將這些輸入餵入 forward（多個輸入 如 AddLayer將會接受 list）
+                x = layer.forward(inputs)
+            else:
+                x = layer.forward(x)
+            cache[layer_name] = x
 
         logging.info("DNN finish forwarding")
-        return tensor_in
+        return x
 
     def getLayOutput(self, idx):
         if idx >= len(self.layers):
