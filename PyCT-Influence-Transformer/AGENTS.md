@@ -19,7 +19,7 @@
 
 * **Read‑only by default**: Do **not** modify files, commit, push, or delete. Use plan‑only diffs unless Apply mode is explicitly enabled for a single file.
 * **No external network** and do not execute long‑running jobs. Respect environment constraints in `environment.yml` but do not create/activate conda env by yourself.
-* **Privacy/exclude**: Ignore `exp/`, `shap_value/`, `shap_value_all_layer/`, `popped_constraint_position/`, `model/`, `**/secrets/**`, `.venv/`, `__pycache__/` in analysis and reports.
+* **Privacy/exclude**: Ignore `exp/`, `shap_value_all_layer/`, `popped_constraint_position/`, `model/`, `**/secrets/**`, `.venv/`, `__pycache__/` in analysis and reports.
 * **Solver tooling**: Treat **cvc5** as default; detect availability and fail fast with actionable guidance. Never silently fall back to cvc4.
 
 ## 3) Repository Layout (reference)

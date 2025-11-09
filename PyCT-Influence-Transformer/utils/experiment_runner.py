@@ -5,7 +5,13 @@ import queue
 import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Sequence
+import time
 
+from libct.random_assign_attack import (
+    run_random_assign_step,
+    write_combined_log,
+    write_experiment_artifacts,
+)
 from libct.shapInfl import ShapValuesCalculator
 
 
@@ -14,7 +20,7 @@ __all__ = [
     "ShapRunner",
     "run_attack_with_shap",
     "run_attack_with_queue",
-    "shap_prefetch",
+    "run_attack_with_random_assign",
 ]
 
 
@@ -145,29 +151,74 @@ class ShapRunner(BaseRunner):
         self._execute_attack(payload)
 
 
-class _ShapPrefetchRunner(BaseRunner):
-    """Pre-compute SHAP values to warm caches prior to attack execution."""
+# class _ShapPrefetchRunner(BaseRunner):
+#     """Pre-compute SHAP values to warm caches prior to attack execution."""
 
-    def __init__(self, timeout: int = 0) -> None:
-        super().__init__(timeout=timeout or 0, norm=False)
+#     def __init__(self, timeout: int = 0) -> None:
+#         super().__init__(timeout=timeout or 0, norm=False)
+
+#     def _run_single(self, payload: Dict[str, Any]) -> None:
+#         model_name = payload.get("model_name")
+#         if model_name is None:
+#             raise KeyError("Expected 'model_name' in payload for SHAP computation.")
+
+#         calculator = ShapValuesCalculator(
+#             model_path=f"./model/{model_name}.h5",
+#             background_dataset=payload["background_dataset_for_shap"],
+#             input_data=payload["input_for_shap"],
+#             idx=payload["idx"],
+#             explainer_type=payload.get("explainer_type", "gradient"),
+#         )
+#         assume_cached = bool(payload.get("shap_value_pre_calculated"))
+#         calculator.ensure(
+#             assume_cached=assume_cached,
+#             force_refresh=not assume_cached,
+#         )
+
+
+class RandomAssignRunner(BaseRunner):
+    """Execute baseline attacks that randomly assign values to selected pixels."""
+
+    def __init__(
+        self,
+        timeout: int,
+        norm: bool,
+        *,
+        pixel_source: str,
+        base_seed: int,
+        model_type: str = "transformer",
+    ) -> None:
+        super().__init__(timeout=timeout or 0, norm=norm)
+        self.pixel_source = pixel_source
+        self.base_seed = base_seed
+        self.model_type = model_type
 
     def _run_single(self, payload: Dict[str, Any]) -> None:
-        model_name = payload.get("model_name")
-        if model_name is None:
-            raise KeyError("Expected 'model_name' in payload for SHAP computation.")
+        start_time = time.monotonic()
+        attempt = 0
+        final_result = None
 
-        calculator = ShapValuesCalculator(
-            model_path=f"./model/{model_name}.h5",
-            background_dataset=payload["background_dataset_for_shap"],
-            input_data=payload["input_for_shap"],
-            idx=payload["idx"],
-            explainer_type=payload.get("explainer_type", "gradient"),
-        )
-        assume_cached = bool(payload.get("shap_value_pre_calculated"))
-        calculator.ensure(
-            assume_cached=assume_cached,
-            force_refresh=not assume_cached,
-        )
+        while True:
+            result = run_random_assign_step(
+                payload,
+                pixel_source=self.pixel_source,
+                base_seed=self.base_seed,
+                attempt=attempt,
+            )
+            result.attack_wall_time = time.monotonic() - start_time
+            write_combined_log(result)
+            final_result = result
+            if result.success:
+                break
+
+            attempt += 1
+            if time.monotonic() - start_time >= self.timeout:
+                break
+
+        if final_result is None:
+            raise RuntimeError("Random assign baseline failed to produce any attempt result.")
+        final_result.attack_wall_time = time.monotonic() - start_time
+        write_experiment_artifacts(final_result)
 
 
 def run_attack_with_shap(
@@ -188,7 +239,25 @@ def run_attack_with_queue(
     QueueRunner(timeout=timeout, norm=norm).run_queue(task_queue, hierarchical_input)
 
 
-def shap_prefetch(
+def run_attack_with_random_assign(
     args: Sequence[Dict[str, Any]],
+    timeout: int,
+    norm: bool,
+    *,
+    pixel_source: str,
+    base_seed: int,
+    model_type: str = "transformer",
 ) -> None:
-    _ShapPrefetchRunner().run_tasks(args)
+    RandomAssignRunner(
+        timeout=timeout,
+        norm=norm,
+        pixel_source=pixel_source,
+        base_seed=base_seed,
+        model_type=model_type,
+    ).run_tasks(args)
+
+
+# def shap_prefetch(
+#     args: Sequence[Dict[str, Any]],
+# ) -> None:
+#     _ShapPrefetchRunner().run_tasks(args)

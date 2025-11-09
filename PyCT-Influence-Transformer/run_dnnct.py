@@ -111,7 +111,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         limit_change_range=None,
         only_first_forward=False,
         collect_constraints_with='priority_queue',
-        input_for_shap=None, background_dataset_for_shap=None, shap_value_pre_calculated=None):
+        input_for_shap=None, background_dataset_for_shap=None, shap_value_pre_calculated=None,
+        popped_log_attack_mode=None):
 
     collect_mode = _validate_collect_mode(collect_constraints_with)
     model_path, module_path, root = _resolve_model_artifacts(model_name)
@@ -162,6 +163,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         background_dataset_for_shap=background_dataset_for_shap,
         shap_value_pre_calculated=shap_value_pre_calculated,
         collect_constraints_with=collect_mode,
+        popped_log_attack_mode=popped_log_attack_mode or "unknown",
     )
 
     libct.explore.clear_global_context()

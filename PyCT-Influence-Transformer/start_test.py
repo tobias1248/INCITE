@@ -49,19 +49,25 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--ton",
         type=int,
         default=1,
-        help="Number of pixels/features to perturb per attack (only used for random mode).",
+        help="Number of pixels/features to perturb per attack when supported.",
     )
     parser.add_argument(
         "--attack-mode",
         default="shap",
-        choices=("shap", "random"),
-        help="Select attack strategy: SHAP-guided or random selection.",
+        choices=("shap", "random", "random-assign"),
+        help="Select attack strategy.",
     )
     parser.add_argument(
         "--random-seed",
         type=int,
         default=2024,
-        help="Seed controlling deterministic random selection (random mode only).",
+        help="Seed controlling deterministic random selection (random/random-assign modes).",
+    )
+    parser.add_argument(
+        "--pixel-source",
+        default="random",
+        choices=("random", "shap"),
+        help="Pixel selection strategy used for random-assign baseline.",
     )
     parser.add_argument(
         "--norm-01",
@@ -128,11 +134,22 @@ def _configure_solver(selected_solver: str) -> None:
     engine_cls._pyct_configured_solver = selected_solver  # type: ignore[attr-defined]
 
 
-def _resolve_experiment_layout(attack_mode: str, ton: int) -> Tuple[str, str]:
+def _resolve_experiment_layout(
+    attack_mode: str,
+    ton: int,
+    *,
+    pixel_source: str = "random",
+) -> Tuple[str, str]:
     if attack_mode == "shap":
         return _QUEUE_TYPE, "shap_1"
     if attack_mode == "random":
         return _QUEUE_TYPE, f"random_select/random_{ton}"
+    if attack_mode == "random-assign":
+        if pixel_source == "random":
+            return _QUEUE_TYPE, f"random_assign_random/random_{ton}"
+        if pixel_source == "shap":
+            return _QUEUE_TYPE, f"random_assign_shap/shap_{ton}"
+        raise ValueError(f"Unsupported pixel source: {pixel_source}")
     raise ValueError(f"Unsupported attack mode: {attack_mode}")
 
 
@@ -186,8 +203,24 @@ def _worker(
     norm_01: bool,
     model_type: str,
     solver: str,
+    attack_mode: str,
+    pixel_source: str,
+    base_seed: int,
 ) -> None:
     """Entry point for each subprocess that forwards to the util helper."""
+    if attack_mode == "random-assign":
+        from utils.experiment_runner import run_attack_with_random_assign
+
+        run_attack_with_random_assign(
+            sub_tasks,
+            timeout,
+            norm_01,
+            pixel_source=pixel_source,
+            base_seed=base_seed,
+            model_type=model_type,
+        )
+        return
+
     _configure_solver(solver)
     from utils.experiment_runner import run_attack_with_shap
 
@@ -212,10 +245,20 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         raise ValueError("--spawn-delay must be non-negative")
     if args.attack_mode == "shap" and args.ton != 1:
         raise ValueError("SHAP mode currently supports only --ton=1.")
+    if (
+        args.attack_mode == "random-assign"
+        and args.pixel_source == "shap"
+        and args.ton != 1
+    ):
+        raise ValueError("Random-assign with SHAP pixels currently supports only --ton=1.")
     if args.ton < 1:
         raise ValueError("--ton must be >= 1")
 
-    queue_type, exp_name = _resolve_experiment_layout(args.attack_mode, args.ton)
+    queue_type, exp_name = _resolve_experiment_layout(
+        args.attack_mode,
+        args.ton,
+        pixel_source=args.pixel_source,
+    )
     resume_index = 0
     force_refresh = args.force_refresh
     if not args.force_refresh:
@@ -240,7 +283,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             first_n_img=first_n_range,
             force=force_refresh,
         )
-    else:
+    elif args.attack_mode == "random":
         inputs = fashion_mnist_transformer_random(
             args.model_name,
             first_n_img=first_n_range,
@@ -248,6 +291,26 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             force=force_refresh,
             base_seed=args.random_seed,
         )
+    elif args.attack_mode == "random-assign":
+        exp_prefix = f"random_assign_{args.pixel_source}"
+        if args.pixel_source == "random":
+            inputs = fashion_mnist_transformer_random(
+                args.model_name,
+                first_n_img=first_n_range,
+                ton_values=[args.ton],
+                force=force_refresh,
+                base_seed=args.random_seed,
+                exp_prefix=exp_prefix,
+            )
+        else:
+            inputs = fashion_mnist_transformer_shap(
+                args.model_name,
+                first_n_img=first_n_range,
+                force=force_refresh,
+                exp_prefix=exp_prefix,
+            )
+    else:
+        raise ValueError(f"Unsupported attack mode: {args.attack_mode}")
 
     print("#" * 40, f"number of inputs: {len(inputs)}", "#" * 45)
     time.sleep(3)
@@ -264,7 +327,16 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             continue
         process = Process(
             target=_worker,
-            args=(sub_tasks, args.timeout, args.norm_01, args.model_type, args.solver),
+            args=(
+                sub_tasks,
+                args.timeout,
+                args.norm_01,
+                args.model_type,
+                args.solver,
+                args.attack_mode,
+                args.pixel_source,
+                args.random_seed,
+            ),
         )
         process.start()
         running_processes.append(process)

@@ -57,6 +57,11 @@ class Solver:
     @classmethod
     def _derive_attack_mode(cls, engine) -> str:
         """Return attack mode label derived from engine metadata."""
+        override = getattr(engine, "popped_log_attack_mode", None)
+        if isinstance(override, str):
+            normalized = override.strip().lower()
+            if normalized and normalized != "unknown":
+                return normalized
         shap_flag = getattr(engine, "shap_value_pre_calculated", None)
         if shap_flag is True:
             return "shap"

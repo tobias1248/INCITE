@@ -225,7 +225,8 @@ class ExplorationEngine:
             file_as_total=False, concolic_dict={}, solve_order_stack=False,
             norm=False, limit_change_range=None,
             model_path=None, input_for_shap=None, background_dataset_for_shap=None,idx=None, shap_value_pre_calculated = False,
-            collect_constraints_with: Literal['stack', 'queue', 'priority_queue'] = 'priority_queue'):
+            collect_constraints_with: Literal['stack', 'queue', 'priority_queue'] = 'priority_queue',
+            popped_log_attack_mode: str = "unknown"):
 
         self.model_path = model_path
         self.modpath = modpath
@@ -243,6 +244,7 @@ class ExplorationEngine:
         self.solve_order_stack = solve_order_stack
         self.limit_change_range = limit_change_range
         self.shap_value_pre_calculated = shap_value_pre_calculated
+        self.popped_log_attack_mode = popped_log_attack_mode
         self.constraints_collection_type: Literal['stack',
                                                   'queue', 'priority_queue'] = collect_constraints_with
         if self.constraints_collection_type == 'priority_queue':

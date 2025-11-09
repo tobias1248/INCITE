@@ -213,6 +213,8 @@ def fashion_mnist_transformer_shap(
     model_name: str,
     first_n_img: Iterable[int],
     force: bool = False,
+    *,
+    exp_prefix: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     from utils.dataset import FashionMnistDataset
 
@@ -237,8 +239,10 @@ def fashion_mnist_transformer_shap(
             "background_dataset_for_shap": background_dataset_for_shap,
             "solve_order_stack": mode.solve_order_stack,
             "shap_value_pre_calculated": True,
+            "popped_log_attack_mode": "shap",
         }
 
+    prefix = f"{exp_prefix.strip('/')}/" if exp_prefix else ""
     spec = TaskGenerationSpec(
         dataset_factory=FashionMnistDataset,
         attack_pixel_fn=_make_shap_provider(shap_pixels),
@@ -246,7 +250,7 @@ def fashion_mnist_transformer_shap(
         ton_values=[1],
         save_exp_builder=lambda idx, ton, mode: {
             "input_name": f"fashion_mnist_test_{idx}",
-            "exp_name": f"shap_{ton}",
+            "exp_name": f"{prefix}shap_{ton}",
         },
         payload_builder=payload_builder,
     )
@@ -268,6 +272,7 @@ def fashion_mnist_transformer_random(
     ton_values: Sequence[int],
     force: bool = False,
     base_seed: int = 2024,
+    exp_prefix: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     from utils.dataset import FashionMnistDataset
 
@@ -307,8 +312,10 @@ def fashion_mnist_transformer_random(
             "background_dataset_for_shap": background_dataset_for_shap,
             "solve_order_stack": mode.solve_order_stack,
             "shap_value_pre_calculated": True,
+            "popped_log_attack_mode": "random",
         }
 
+    prefix = exp_prefix.strip("/") if exp_prefix else "random_select"
     spec = TaskGenerationSpec(
         dataset_factory=lambda: dataset,
         attack_pixel_fn=attack_pixel_fn,
@@ -316,7 +323,7 @@ def fashion_mnist_transformer_random(
         ton_values=list(ton_values),
         save_exp_builder=lambda idx, ton, mode: {
             "input_name": f"fashion_mnist_test_{idx}",
-            "exp_name": f"random_select/random_{ton}",
+            "exp_name": f"{prefix}/random_{ton}",
         },
         payload_builder=payload_builder,
     )
