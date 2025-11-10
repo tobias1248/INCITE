@@ -1,46 +1,59 @@
-import keras
-from dnnct.myDNN import NNModel 
-from dnnct.tnnDNN import NNModel as tnnNNModel
 import itertools
+import logging
+
+import keras
 import numpy as np
+from dnnct.myDNN import NNModel
+from dnnct.tnnDNN import NNModel as tnnNNModel
 
 from libct.position import register_layer_number_mapping, to_Keras_layer_number
+
+log = logging.getLogger("ct.model")
 
 
 myModel = None
 loaded_model_path = None
+
+
 def init_model(model_path):
-	global myModel, loaded_model_path
-	if myModel is not None and loaded_model_path == model_path:
-		return
-	if loaded_model_path is not None and loaded_model_path != model_path:
-		keras.backend.clear_session()
-	model = keras.models.load_model(model_path)
-	model.summary()
-	layers = [l for l in model.layers if type(l).__name__ not in ['InputLayer','Embedding','Dropout']]
-	myModel = NNModel()
+    global myModel, loaded_model_path
+    if myModel is not None and loaded_model_path == model_path:
+        return
+    if loaded_model_path is not None and loaded_model_path != model_path:
+        keras.backend.clear_session()
+    model = keras.models.load_model(model_path)
+    model.summary()
+    layers = [l for l in model.layers if type(l).__name__ not in ['InputLayer','Embedding','Dropout']]
+    myModel = NNModel()
 
-	# 1: is because 1st dim of input shape of Keras model is batch size (None)
-	myModel.input_shape = model.input_shape[1:]
-	myLayerCount = 0
-	for i, layer in enumerate(layers):
-		
-		numberOfMyLayers = myModel.addLayer(layer)
-		# maintain the mapping of layers between Keras model and my model
-		print('Layer:', i, 'Number of layers in my model:', numberOfMyLayers)
-		for j in range(numberOfMyLayers):
-			register_layer_number_mapping(i, myLayerCount)
-			myLayerCount += 1
-	
-	print('Number of layers in my model:', len(myModel.layers))
-	print('Number of layers in original Keras model:', len(layers))
-	print('Correspondence between layers in Keras model and my model:')
-	for myLayerNumber in range(myLayerCount):
-		print('My: ', myLayerNumber, 'Keras: ', to_Keras_layer_number(myLayerNumber))
-	for myLayer in myModel.layers:
-		print(type(myLayer))	
+    # 1: is because 1st dim of input shape of Keras model is batch size (None)
+    myModel.input_shape = model.input_shape[1:]
+    myLayerCount = 0
+    for i, layer in enumerate(layers):
 
-	loaded_model_path = model_path
+        numberOfMyLayers = myModel.addLayer(layer)
+        log.info(
+            "Layer %s mapped to %s internal layer(s)",
+            i,
+            numberOfMyLayers,
+        )
+        for _ in range(numberOfMyLayers):
+            register_layer_number_mapping(i, myLayerCount)
+            myLayerCount += 1
+
+    log.info("Number of layers in my model: %s", len(myModel.layers))
+    log.info("Number of layers in original Keras model: %s", len(layers))
+    log.info("Correspondence between layers in Keras model and my model:")
+    for myLayerNumber in range(myLayerCount):
+        log.info(
+            "My layer %s -> Keras layer %s",
+            myLayerNumber,
+            to_Keras_layer_number(myLayerNumber),
+        )
+    for myLayer in myModel.layers:
+        log.debug("My model layer type: %s", type(myLayer).__name__)
+
+    loaded_model_path = model_path
 
 def predict(**data):
 	input_shape = myModel.input_shape

@@ -52,6 +52,7 @@ ACTIVATIONS = (
     'softmax',
 )
 
+log = logging.getLogger("ct.model")
 debug = False
 
 def concolic_exp(x):
@@ -112,21 +113,17 @@ def act_tanh(x):
         return (exp_x - exp_minus_x) / (exp_x + exp_minus_x)
 
 def act_sigmoid(x):
-    # return 1.0 / (1.0 + concolic_exp(-x))
-    print('== act_sigmoid ==')
+    log.debug("act_sigmoid input=%s", x)
     if x == 0:
-        print('== act_sigmoid 0 ==')
+        log.debug("act_sigmoid midpoint -> 0.5")
         return 0.5
-    elif x >= 5:
-        print('== act_sigmoid 1 ==')
+    if x >= 5:
+        log.debug("act_sigmoid saturating to 1.0")
         return 1.0
-    elif x <= -5:
-        print('== act_sigmoid 2 ==')
+    if x <= -5:
+        log.debug("act_sigmoid saturating to 0.0")
         return 0.0
-    else:
-        print('== act_sigmoid 3 ==')
-        # return 1.0 / (1.0 + my_exp(-x))
-        return 1.0 / (1.0 + exp_func(-x))
+    return 1.0 / (1.0 + exp_func(-x))
 
 def act_softmax(x):
     # exp_values = [concolic_exp(val) for val in x]    # 計算指數函數
@@ -158,7 +155,7 @@ def actFunc(val, type):
     elif type=='softmax':
         return act_softmax(val)
     elif type=='sigmoid':
-        print("val:",val)
+        log.debug("Applying sigmoid activation to value=%s", val)
         return act_sigmoid(val)
     elif type=='tanh':
         return act_tanh(val)
@@ -181,8 +178,7 @@ class ActivationLayer:
     def forward(self, tensor_in):
         out_shape = dim(tensor_in)
         tensor_out = tensor_in
-        print(len(out_shape))
-        print(out_shape)
+        log.debug("ActivationLayer type=%s input_shape=%s", self.type, out_shape)
         if len(out_shape)==1:
             # print('start 1: ', self.type, tensor_in)
             if self.type=="softmax":
@@ -216,9 +212,8 @@ class ActivationLayer:
             # print('end 3')
         else:
             raise NotImplementedError()
-        # print('end all')
         if debug:
-            print("[DEBUG]Finish Activation Layer forwarding!!")
+            log.debug("[ActivationLayer] Finished forwarding %s", self.type)
 
         #print("Output #Activations=%i" % len(tensor_out))
         ## DEBUG
@@ -730,16 +725,12 @@ class NNModel:
         self.input_shape = None
 
     def forward(self, tensor_in):
-        # tensor_it = tensor_in
-        logging.info("DNN start forwarding")
+        log.info("DNN start forwarding")
         for i, layer in enumerate(self.layers):
             register_current_layer_number(to_Keras_layer_number(i))
-            print("layer:",type(layer))
-            tensor_in = layer.forward(tensor_in)# 沒卡在這裡
-            # print("tensor_in:",layer,len(tensor_in))#attentiond完後的tensor_in: 1,500,32
-            
-        print("DNN finish forwarding")
-        logging.info("DNN finish forwarding")
+            log.debug("Forwarding layer %s (%s)", i, layer.__class__.__name__)
+            tensor_in = layer.forward(tensor_in)
+        log.info("DNN finish forwarding")
         return tensor_in
 
     def getLayOutput(self, idx):
@@ -769,7 +760,7 @@ class NNModel:
             activation = layer.get_config()['activation']
 
             self.layers.append(DenseLayer(weights, biases, weights.shape))
-            print("Add Activation Layer:", activation)
+            log.debug("Add Activation Layer: %s", activation)
             self.layers.append(ActivationLayer(activation))
             return 2
         elif type(layer) == MaxPool2D:
@@ -812,7 +803,7 @@ class NNModel:
             self.layers.append(MultiHeadAttentionLayer(num_heads,key_dim_per_heads,wq,bq,wk,bk,wv,bv,output_weights,output_bias))
             return 1
         elif type(layer)==GlobalAveragePooling1D:
-            print("GlobalAveragePooling1D")
+            log.debug("GlobalAveragePooling1D layer added")
             self.layers.append(GlobalAveragePooling1DLayer())
             return 1
         elif type(layer)==Reshape:
