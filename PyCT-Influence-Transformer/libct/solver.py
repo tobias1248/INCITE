@@ -1,11 +1,36 @@
-import logging, os, re, subprocess, sys, time, func_timeout
+import logging, os, re, subprocess, sys, time, traceback, func_timeout, unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 from libct.concolic import Concolic
 from libct.predicate import Predicate
 from libct.utils import py2smt
 
 
 log = logging.getLogger("ct.solver")
+_SMTLIB2_REGISTERED = False
+
+
+def _ensure_smtlib2_logger() -> None:
+    """Register the custom SMTLIB2 logging level once per process."""
+    global _SMTLIB2_REGISTERED
+    if _SMTLIB2_REGISTERED:
+        return
+
+    level = getattr(logging, "SMTLIB2", (logging.DEBUG + logging.INFO) // 2)
+    logging.SMTLIB2 = level
+    logging.addLevelName(level, "SMTLIB2")
+
+    if not hasattr(logging.Logger, "smtlib2"):
+        def smtlib2(self, message, *args, **kwargs):
+            if self.isEnabledFor(level):
+                self._log(level, message, args, **kwargs)
+        logging.Logger.smtlib2 = smtlib2  # type: ignore[attr-defined]
+
+    _SMTLIB2_REGISTERED = True
+
+
+_ensure_smtlib2_logger()
 
 class Solver:
     # options = {"lan": "smt.string_solver=z3str3", "stdin": "-in"}
@@ -100,7 +125,12 @@ class Solver:
 
     @classmethod
     def find_model_from_constraint(cls, engine,constraint,shap_value, position, idx, ori_args):
-        print("[DEBUG]Finding model ... ")
+        log.debug(
+            "Finding model (idx=%s, position=%s, shap_value=%s)",
+            idx,
+            position,
+            shap_value,
+        )
         log_path = cls._resolve_constraint_log_path(engine, idx)
         #limit_constraint_time_start  
         try:
@@ -119,6 +149,11 @@ class Solver:
                 position,
                 shap_value,
                 "Solver timeout",
+            )
+            log.warning(
+                "SMT formula construction timed out (idx=%s, position=%s)",
+                idx,
+                position,
             )
             return None
        #limit_constraint_time_end
@@ -143,9 +178,10 @@ class Solver:
         start = time.time()
         try: completed_process = subprocess.run(cls.cmd, input=formulas.encode(), capture_output=True)
         except subprocess.CalledProcessError as e:
-            print(e.output)
+            log.error("SMT solver process failed (idx=%s)", idx, exc_info=e)
             with open("smt_error.txt", 'a') as f:
                 f.writelines(e.output)
+            return None
 
         elapsed = time.time() - start
         
@@ -154,13 +190,17 @@ class Solver:
         model = None
         if output is None or len(output) == 0:
             status = "UNKNOWN"
+            log.warning("SMT solver returned empty output (idx=%s)", idx)
         else:
             outputs = output.splitlines()
             status = outputs[0].lower()
             if "error" in status:
-                print('solver error:', status)
-                print(f"at SMT-id: {Solver.cnt}")
-                print(formulas)
+                log.error(
+                    "Solver error '%s' at SMT-id=%s. See smt_error.txt for formula",
+                    status,
+                    Solver.cnt,
+                )
+                log.error("Failing formula:\n%s", formulas)
                 sys.exit(1)
             if "sat" == status:
                 cls.stats['sat_number'] += 1; cls.stats['sat_time'] += elapsed
@@ -207,7 +247,7 @@ class Solver:
             with open(os.path.join(cls.smtdir, "formula", save_smt_filename), 'w') as f:
                 f.write(formulas)
             
-        print(status)
+        log.info("SMT solver status for idx=%s: %s", idx, status)
         ##########################################################################################
         log.smtlib2(f"SMT-id: {Solver.cnt}／Status: {status}／Model: {model}")
         Solver.cnt += 1
@@ -297,13 +337,19 @@ class Solver:
                 formulas = f"(assert (and (<= (- (/ 1 1000000000000000)) (- {Predicate.get_formula_shallow(expr)} {py2smt(value)})) (<= (- {Predicate.get_formula_shallow(expr)} {py2smt(value)}) (/ 1 1000000000000000))))\n(check-sat)"
             else:
                 formulas = f"(assert (= {Predicate.get_formula_shallow(expr)} {py2smt(value)}))\n(check-sat)"
-            try: completed_process = subprocess.run(cls.cmd, input=formulas.encode(), capture_output=True)
-            except subprocess.CalledProcessError as e: print(e.output)
             try:
-                if completed_process.stdout.decode().splitlines()[0] == 'sat': return e
-                raise Exception # move to the following block
-            except:
-                print(formulas); print(completed_process.stdout.decode().splitlines()); print()
-                import traceback; traceback.print_stack()
-                if cls.safety >= 2: sys.exit(1)
+                completed_process = subprocess.run(cls.cmd, input=formulas.encode(), capture_output=True)
+            except subprocess.CalledProcessError as exc:
+                log.error("Safety solver invocation failed", exc_info=exc)
+                return None
+            output_lines = completed_process.stdout.decode().splitlines()
+            if output_lines and output_lines[0] == 'sat':
+                return e
+            log.error(
+                "Safety validation mismatch. Formulas: %s Output: %s",
+                formulas,
+                output_lines,
+            )
+            log.debug("Safety validation stack:\n%s", "".join(traceback.format_stack()))
+            if cls.safety >= 2: sys.exit(1)
         return None

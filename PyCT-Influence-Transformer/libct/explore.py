@@ -10,9 +10,8 @@ import os
 import pickle
 import sys
 import time
-import traceback
 from libct.path import PathToConstraint
-from libct.solver import Solver
+from libct.solver import Solver, _ensure_smtlib2_logger
 from libct.utils import ConcolicObject, unwrap, get_in_dict_shape
 from libct.record import ConcolicTestRecorder
 import cProfile
@@ -92,6 +91,8 @@ class ExplorationEngine:
         self.save_dir = save_dir
         self.input_name = input_name
         self.only_first_forward = only_first_forward
+        self.verbose = verbose
+        self.logfile = logfile
 
         self.normalize = None
         self.__init2__()
@@ -100,31 +101,7 @@ class ExplorationEngine:
             os.system(f"rm -rf '{statsdir}'")
             os.system(f"mkdir -p '{statsdir}'")
         Solver.set_basic_configurations(solver, timeout, safety, store, smtdir)
-        ############################################################
-        # This section mainly deals with the logging settings.
-        log_level = 25 - 5 * verbose
-        if logfile:
-            logging.basicConfig(filename=logfile, level=log_level,
-                                format='%(asctime)s  %(name)s\t%(levelname)s\t %(message)s',
-                                datefmt='%m/%d/%Y %I:%M:%S %p')
-        elif logfile == '':
-            logging.basicConfig(level=logging.CRITICAL+1)
-        else:
-            logging.basicConfig(level=log_level,  # stream=sys.stdout,
-                                format='  %(name)s\t%(levelname)s\t %(message)s')
-        ############################################################
-        # We add our new logging level called "SMTLIB2" to print out
-        # messages related to the solving process.
-        ############################################################
-        logging.SMTLIB2 = (logging.DEBUG + logging.INFO) // 2
-        logging.addLevelName(logging.SMTLIB2, "SMTLIB2")
-
-        # https://stackoverflow.com/questions/2183233/how-to-add-a-custom-loglevel-to-pythons-logging-facility/13638084#13638084
-        def smtlib2(self, message, *args, **kwargs):
-            # Yes, logger takes its '*args' as 'args'.
-            if self.isEnabledFor(logging.SMTLIB2):
-                self._log(logging.SMTLIB2, message, args, **kwargs)
-        logging.Logger.smtlib2 = smtlib2
+        _ensure_smtlib2_logger()
 
     def __init2__(self):
         global recorder
@@ -167,7 +144,9 @@ class ExplorationEngine:
 
         # After First execution, no constr to solve
         if len(self.constraints_to_solve) == 0:
-            print('[FIRST_NO_CONSTR]: After First execution, no constr to solve')
+            log.info(
+                "[FIRST_NO_CONSTR] After first execution, no constraint to solve",
+            )
             return 0
 
         while cont and (max_iterations == 0 or iterations < max_iterations):
@@ -215,7 +194,7 @@ class ExplorationEngine:
 
             if len(self.constraints_to_solve) == 0:
                 recorder.no_ctr_to_solve()
-                print('[SOLVED_ALL_CONSTR]: There is no constr to solve')
+                log.info("[SOLVED_ALL_CONSTR] No constraints remain to solve")
                 break
 
     def explore(
@@ -299,9 +278,8 @@ class ExplorationEngine:
             log.info('[TOTAL TIMEOUT]: Total Timeout happened')
 
         # importantly note that func_timeout.FunctionTimedOut is NOT inherited from the (general) Exception class.
-        except BaseException as e:
-            print(type(e))
-            traceback.print_exc()
+        except BaseException:
+            log.exception("Exploration loop terminated unexpectedly")
 
         # 結束後，將所有的統計資料存起來
         recorder.end(constraint_complexity=Solver.ctr_size)
@@ -351,11 +329,15 @@ class ExplorationEngine:
 
         if self.Timeout not in (result, answer):
             if result != answer:
-                print('Input:', all_args, '／My result:',
-                      result, '／Correct answer:', answer)
+                log.warning(
+                    "Result mismatch detected (input=%s result=%s answer=%s)",
+                    all_args,
+                    result,
+                    answer,
+                )
             assert result == answer
         else:
-            print('[DEBUG] Single Timeout happened')
+            log.warning("[SINGLE_TIMEOUT] Single execution hit timeout")
 
         # Note only in the self.single_coverage mode does the program go here.
         if self.file_as_total:
@@ -368,10 +350,11 @@ class ExplorationEngine:
             f"Not Covered Yet: {self.target_file} {sorted(s) if s else '{}'}")
 
         if self.previous_result != None and self.previous_result != result:
-            print('#'*60)
-            print('[Result Change]: self.previous_result != result')
-            print('#'*60)
-
+            log.warning(
+                "[RESULT_CHANGE] Previous result %s differs from current %s",
+                self.previous_result,
+                result,
+            )
             recorder.find_adversarial_input(all_args, result)
             return False
 
@@ -420,18 +403,17 @@ class ExplorationEngine:
                     f"Timeout (soft) for: {all_args} >> ./pyct.py -r '{self.root}' '{self.modpath}' -s {self.funcname} {{}} --lib '{self.lib}' --include_exception")
                 if self.statsdir:
                     with open(self.statsdir + '/exception.txt', 'a') as f:
-                        print(
-                            f"Timeout (soft) for: {all_args} >> ./pyct.py -r '{self.root}' '{self.modpath}' -s {self.funcname} {{}} --lib '{self.lib}' --include_exception", file=f)
+                        f.write(
+                            f"Timeout (soft) for: {all_args} >> ./pyct.py -r '{self.root}' '{self.modpath}' -s {self.funcname} {{}} --lib '{self.lib}' --include_exception\n")
             except Exception as e:
-                log.error(
-                    f"Exception for: {all_args} >> ./pyct '{self.root}' '{self.modpath}' -s {self.funcname} {{}} -m 20 --lib '{self.lib}' --include_exception")
-                log.error(e)
-                traceback.print_exc()
+                log.exception(
+                    f"Exception for: {all_args} >> ./pyct '{self.root}' '{self.modpath}' -s {self.funcname} {{}} -m 20 --lib '{self.lib}' --include_exception",
+                )
                 if self.statsdir:
                     with open(self.statsdir + '/exception.txt', 'a') as f:
-                        print(
-                            f"Exception for: {all_args} >> ./pyct '{self.root}' '{self.modpath}' -s {self.funcname} {{}} -m 20 --lib '{self.lib}' --include_exception", file=f)
-                        print(e, file=f)
+                        f.write(
+                            f"Exception for: {all_args} >> ./pyct '{self.root}' '{self.modpath}' -s {self.funcname} {{}} -m 20 --lib '{self.lib}' --include_exception\n")
+                        f.write(f"{e}\n")
             ###################################### Communication Section ######################################
             # just a notification to the parent process that we're going to send data
             s0.send(0)
@@ -445,8 +427,10 @@ class ExplorationEngine:
             try:
                 s3.send((Constraint.global_constraints,
                         self.constraints_to_solve, self.path))
-            except Exception as e:
-                traceback.print_exc()
+            except Exception:
+                log.exception(
+                    "Failed to send constraints back to parent process due to unpicklable objects",
+                )
                 # may fail if they contain some unpicklable objects
                 s3.send(self.Unpicklable)
 
@@ -466,8 +450,8 @@ class ExplorationEngine:
                 f"Timeout (hard) for: {all_args} >> ./pyct.py -r '{self.root}' '{self.modpath}' -s {self.funcname} {{}} --lib '{self.lib}' --include_exception")
             if self.statsdir:
                 with open(self.statsdir + '/exception.txt', 'a') as f:
-                    print(
-                        f"Timeout (hard) for: {all_args} >> ./pyct.py -r '{self.root}' '{self.modpath}' -s {self.funcname} {{}} --lib '{self.lib}' --include_exception", file=f)
+                    f.write(
+                        f"Timeout (hard) for: {all_args} >> ./pyct.py -r '{self.root}' '{self.modpath}' -s {self.funcname} {{}} --lib '{self.lib}' --include_exception\n")
         else:
             result = r2.recv()
 
@@ -698,14 +682,16 @@ class ExplorationEngine:
 
     def print_coverage(self):
         total_lines, executed_lines, missing_lines = self.coverage_statistics()
-        print("\nLine coverage {}/{} ({:.2%})".format(executed_lines,
-              total_lines, (executed_lines/total_lines) if total_lines > 0 else 0))
+        ratio = (executed_lines/total_lines) if total_lines > 0 else 0
+        log.info(
+            "Line coverage %s/%s (%.2f%%)",
+            executed_lines,
+            total_lines,
+            ratio * 100,
+        )
         if missing_lines and self.single_coverage:
-            # only print this info when the scope of coverage is a single file.
-            print("Missing lines:")
             for file, lines in missing_lines.items():
-                print(f"  {file}: {sorted(lines)}")
-        print("")
+                log.debug("Missing lines for %s: %s", file, sorted(lines))
     
     def get_shap_influence(self, position):
         layer_number, indices = position
@@ -731,7 +717,12 @@ class ExplorationEngine:
             return self.constraints_to_solve.popleft()
         elif self.constraints_collection_type == 'priority_queue':
             shap_value, constraint_id, position,  constraint = heapq.heappop(self.constraints_to_solve)
-            print("popped constraint encounted at:", position)
+            log.debug(
+                "Popped constraint from queue (position=%s shap_value=%s constraint_id=%s)",
+                position,
+                -shap_value,
+                constraint_id,
+            )
             return constraint, shap_value, position
 
 
