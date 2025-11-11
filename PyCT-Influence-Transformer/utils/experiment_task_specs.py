@@ -218,9 +218,13 @@ def fashion_mnist_transformer_shap(
     first_n_img: Iterable[int],
     force: bool = False,
     *,
+    ton: int = 1,
     exp_prefix: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     from utils.dataset import FashionMnistDataset
+
+    if ton < 1:
+        raise ValueError("ton must be >= 1 for SHAP-guided attacks.")
 
     pixel_provider = JsonShapPixelProvider(
         model_name=model_name,
@@ -258,7 +262,7 @@ def fashion_mnist_transformer_shap(
         dataset_factory=FashionMnistDataset,
         attack_pixel_fn=attack_pixel_fn,
         queue_modes=[queue_mode],
-        ton_values=[1],
+        ton_values=[ton],
         save_exp_builder=lambda idx, ton, mode: {
             "input_name": f"fashion_mnist_test_{idx}",
             "exp_name": f"{prefix}shap_{ton}",

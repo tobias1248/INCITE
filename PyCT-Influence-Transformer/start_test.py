@@ -54,8 +54,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--ton",
         type=int,
-        default=1,
-        help="Number of pixels/features to perturb per attack when supported.",
+        required=True,
+        help="Number of pixels/features to perturb per attack when supported (required).",
     )
     parser.add_argument(
         "--attack-mode",
@@ -188,7 +188,7 @@ def _resolve_experiment_layout(
     pixel_source: str = "random",
 ) -> Tuple[str, str]:
     if attack_mode == "shap":
-        return _QUEUE_TYPE, "shap_1"
+        return _QUEUE_TYPE, f"shap_{ton}"
     if attack_mode == "random":
         return _QUEUE_TYPE, f"random_select/random_{ton}"
     if attack_mode == "random-assign":
@@ -336,14 +336,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         raise ValueError("--timeout must be >= 1 second")
     if args.spawn_delay < 0:
         raise ValueError("--spawn-delay must be non-negative")
-    if args.attack_mode == "shap" and args.ton != 1:
-        raise ValueError("SHAP mode currently supports only --ton=1.")
-    if (
-        args.attack_mode == "random-assign"
-        and args.pixel_source == "shap"
-        and args.ton != 1
-    ):
-        raise ValueError("Random-assign with SHAP pixels currently supports only --ton=1.")
     if args.ton < 1:
         raise ValueError("--ton must be >= 1")
 
@@ -376,6 +368,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             args.model_name,
             first_n_img=first_n_range,
             force=force_refresh,
+            ton=args.ton,
         )
     elif args.attack_mode == "random":
         inputs = fashion_mnist_transformer_random(
@@ -401,6 +394,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 args.model_name,
                 first_n_img=first_n_range,
                 force=force_refresh,
+                ton=args.ton,
                 exp_prefix=exp_prefix,
             )
     else:
