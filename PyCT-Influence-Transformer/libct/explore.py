@@ -18,7 +18,7 @@ import cProfile
 import shap
 import numpy as np
 
-from typing import List, Tuple, Any, Callable, Literal
+from typing import Any, Callable, Dict, List, Literal, Tuple
 from types import ModuleType
 from libct.constraint import Constraint
 from libct.shapInfl import ShapValuesComparator
@@ -27,6 +27,7 @@ from collections import deque
 
 
 log = logging.getLogger("ct.explore")
+ENABLE_COVERAGE_LOGGING = False
 # The original limit is not enough in some special cases.
 sys.setrecursionlimit(1000000)
 module = None
@@ -250,13 +251,20 @@ class ExplorationEngine:
         self.target_file = os.path.join(
             self.root, self.modpath.replace('./', ''))
 
-        self.single_coverage = single_coverage
-        if self.single_coverage:
-            self.coverage = coverage.Coverage(
-                data_file=None, include=[self.target_file])
+        self.single_coverage = bool(single_coverage and ENABLE_COVERAGE_LOGGING)
+        if ENABLE_COVERAGE_LOGGING:
+            if self.single_coverage:
+                self.coverage = coverage.Coverage(
+                    data_file=None, include=[self.target_file]
+                )
+            else:
+                self.coverage = coverage.Coverage(
+                    data_file=None,
+                    source=[self.root],
+                    omit=["**/__pycache__/**", "**/.venv/**"],
+                )
         else:
-            self.coverage = coverage.Coverage(data_file=None, source=[self.root], omit=[
-                                              '**/__pycache__/**', '**/.venv/**'])
+            self.coverage = None
         if self.lib:
             sys.path.insert(0, os.path.abspath(self.lib))
         sys.path.insert(0, self.root)  # ; sys.path.insert(0, file_dir)
@@ -316,7 +324,22 @@ class ExplorationEngine:
 
         return iteration, recorder
 
+    def _clone_primitive_inputs(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a deep-ish copy of inputs with every value unwrapped."""
+        def _sanitize(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {k: _sanitize(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [_sanitize(v) for v in value]
+            if isinstance(value, tuple):
+                return tuple(_sanitize(v) for v in value)
+            return unwrap(value)
+
+        return {key: _sanitize(val) for key, val in inputs.items()}
+
     def _one_execution(self, all_args, concolic_dict):
+        """Run one concolic+primitive execution pair to advance exploration."""
+        primitive_inputs = self._clone_primitive_inputs(all_args)
         # primitive input arguments "all_args" may be modified here.
         result = self._one_execution_concolic(all_args, concolic_dict)
         # We don't measure coverage in the primitive mode under the non-single coverage setting.
@@ -325,7 +348,7 @@ class ExplorationEngine:
             self.in_out.append((all_args.copy(), result))
             return True  # continue iteration
         # we must measure the coverage in the primitive mode since self.constraints_to_solve would become unpicklable if measured in the concolic mode
-        answer = self._one_execution_primitive(all_args)
+        answer = self._one_execution_primitive(primitive_inputs)
 
         if self.Timeout not in (result, answer):
             if result != answer:
@@ -470,7 +493,8 @@ class ExplorationEngine:
             process.kill()
         return result
 
-    def _one_execution_primitive(self, all_args):
+    def _one_execution_primitive(self, primitive_inputs):
+        """Execute the target without symbolic wrappers to collect coverage."""
         r1, s1 = multiprocessing.Pipe()
         r2, s2 = multiprocessing.Pipe()
         r0, s0 = multiprocessing.Pipe()
@@ -486,7 +510,7 @@ class ExplorationEngine:
             s1.send(set(self.coverage.analysis(self.target_file)[1]) & set(range(inspect.getsourcelines(
                 execute)[1], inspect.getsourcelines(execute)[1] + len(inspect.getsourcelines(execute)[0]))))
             pri_args, pri_kwargs = self._complete_primitive_arguments(
-                execute, all_args)
+                execute, primitive_inputs)
             answer = self.Exception
             try:
                 answer = func_timeout.func_timeout(
@@ -530,7 +554,7 @@ class ExplorationEngine:
                 (self.coverage_data, self.coverage_accumulated_missing_lines) = t
         if self.target_file not in self.coverage_accumulated_missing_lines:
             self.coverage_accumulated_missing_lines[self.target_file] = self.module_lines_range
-        self.in_out.append((all_args.copy(), answer))
+        self.in_out.append((primitive_inputs.copy(), answer))
         r1.close()
         s1.close()
         r2.close()
@@ -710,13 +734,56 @@ class ExplorationEngine:
         else:
             self.constraints_to_solve.append(constraint)
     
+    def _log_pop_event(
+        self,
+        *,
+        queue_mode: str,
+        remaining: int,
+        layer: Any = None,
+        indices: Any = None,
+        shap_value: float | None = None,
+    ) -> None:
+        attack_mode = getattr(self, "popped_log_attack_mode", "unknown")
+        sample_idx = getattr(self, "idx", "unknown")
+        if queue_mode == "priority":
+            log.info(
+                "[POP] idx=%s attack=%s queue=%s layer=%s position=%s shap=%s remaining=%d",
+                sample_idx,
+                attack_mode,
+                queue_mode,
+                layer,
+                indices,
+                shap_value,
+                remaining,
+            )
+        else:
+            log.info(
+                "[POP] idx=%s attack=%s queue=%s remaining=%d",
+                sample_idx,
+                attack_mode,
+                queue_mode,
+                remaining,
+            )
+
     def pop_constraint(self) -> Constraint:
         if self.constraints_collection_type =='stack':
-            return self.constraints_to_solve.pop()
+            constraint = self.constraints_to_solve.pop()
+            self._log_pop_event(queue_mode="stack", remaining=len(self.constraints_to_solve))
+            return constraint
         elif self.constraints_collection_type == 'queue':
-            return self.constraints_to_solve.popleft()
+            constraint = self.constraints_to_solve.popleft()
+            self._log_pop_event(queue_mode="queue", remaining=len(self.constraints_to_solve))
+            return constraint
         elif self.constraints_collection_type == 'priority_queue':
             shap_value, constraint_id, position,  constraint = heapq.heappop(self.constraints_to_solve)
+            layer_number, indices = position
+            self._log_pop_event(
+                queue_mode="priority",
+                remaining=len(self.constraints_to_solve),
+                layer=layer_number,
+                indices=indices,
+                shap_value=f"{abs(shap_value):.6f}",
+            )
             log.debug(
                 "Popped constraint from queue (position=%s shap_value=%s constraint_id=%s)",
                 position,

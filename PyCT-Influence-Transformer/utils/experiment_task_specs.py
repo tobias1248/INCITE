@@ -1,3 +1,4 @@
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -5,6 +6,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set,
 import numpy as np
 
 from libct.shapInfl import ShapValuesCalculator
+
+log = logging.getLogger("ct.experiment")
 
 __all__ = [
     "get_save_dir_from_save_exp",
@@ -261,7 +264,7 @@ def fashion_mnist_transformer_shap(
         spec,
         skip_existing_override=not force,
     )
-    print(f"[DEBUG] built inputs={len(result.inputs)}, skipped={result.skipped}")
+    log.info("built inputs=%s skipped=%s", len(result.inputs), result.skipped)
     return result.inputs
 
 
@@ -334,7 +337,7 @@ def fashion_mnist_transformer_random(
         spec,
         skip_existing_override=not force,
     )
-    print(f"[DEBUG] built inputs={len(result.inputs)}, skipped={result.skipped}")
+    log.info("built inputs=%s skipped=%s", len(result.inputs), result.skipped)
     return result.inputs
 
 

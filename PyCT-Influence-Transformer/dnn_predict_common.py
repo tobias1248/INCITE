@@ -1,5 +1,6 @@
 import itertools
 import logging
+from pathlib import Path
 
 import keras
 import numpy as np
@@ -22,6 +23,7 @@ def init_model(model_path):
     if loaded_model_path is not None and loaded_model_path != model_path:
         keras.backend.clear_session()
     model = keras.models.load_model(model_path)
+    model._name = Path(model_path).stem  # improve model.summary() readability
     model.summary()
     layers = [l for l in model.layers if type(l).__name__ not in ['InputLayer','Embedding','Dropout']]
     myModel = NNModel()
