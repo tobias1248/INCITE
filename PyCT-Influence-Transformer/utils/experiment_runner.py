@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import logging
 import queue
 import traceback
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ from libct.random_assign_attack import (
     write_experiment_artifacts,
 )
 from libct.shapInfl import ShapValuesCalculator
+
+log = logging.getLogger("ct.runner")
 
 
 __all__ = [
@@ -32,12 +35,44 @@ class BaseRunner:
     def run_tasks(self, tasks: Sequence[Dict[str, Any]]) -> None:
         for payload in tasks:
             try:
-                self._run_single(payload)
+                log.info(
+                    "[PAYLOAD-START] idx=%s attack=%s mode=%s",
+                    payload.get("idx"),
+                    payload.get("popped_log_attack_mode"),
+                    payload.get("solve_order_stack"),
+                )
+                result = self._run_single(payload)
+                self._log_payload_end(payload, result)
+            except Exception:
+                log.exception(
+                    "[PAYLOAD-ERROR] idx=%s attack=%s",
+                    payload.get("idx"),
+                    payload.get("popped_log_attack_mode"),
+                )
+                raise
             finally:
                 self._cleanup(payload)
 
     def _run_single(self, payload: Dict[str, Any]) -> None:  # pragma: no cover - abstract
         raise NotImplementedError
+
+    def _log_payload_end(self, payload: Dict[str, Any], result: Any) -> None:
+        recorder = None
+        if isinstance(result, tuple) and len(result) >= 2:
+            recorder = result[1]
+        if recorder is not None and getattr(recorder, "is_timeout", False):
+            log.warning(
+                "[PAYLOAD-TIMEOUT] idx=%s attack=%s total_iter=%s",
+                payload.get("idx"),
+                payload.get("popped_log_attack_mode"),
+                getattr(recorder, "total_iter", "?"),
+            )
+        else:
+            log.info(
+                "[PAYLOAD-END] idx=%s attack=%s",
+                payload.get("idx"),
+                payload.get("popped_log_attack_mode"),
+            )
 
     def _cleanup(self, payload: Dict[str, Any]) -> None:
         payload.clear()
@@ -110,16 +145,24 @@ class QueueRunner(BaseRunner):
         model_name = payload["model_name"]
         exp_name = payload["save_exp"]["exp_name"]
         input_name = payload["save_exp"]["input_name"]
+        log.info(
+            "[QUEUE-ATTEMPT] model=%s queue=%s exp=%s input=%s",
+            model_name,
+            queue_mode,
+            exp_name,
+            input_name,
+        )
         with open(f"./log/{model_name}.log", "a") as handle:
             handle.write(f"{model_name} {queue_mode} {exp_name} {input_name}\n")
 
     @staticmethod
     def _log_success(payload: Dict[str, Any], queue_mode: str) -> None:
-        print("#" * 80)
-        print("攻擊成功，參數如下：")
-        print(payload["save_exp"])
-        print(queue_mode)
-        print("#" * 80)
+        log.info(
+            "[QUEUE-SUCCESS] model=%s queue=%s payload=%s",
+            payload["model_name"],
+            queue_mode,
+            payload["save_exp"],
+        )
 
     @staticmethod
     def _enqueue_next(
@@ -148,7 +191,7 @@ class ShapRunner(BaseRunner):
         self.model_type = model_type
 
     def _run_single(self, payload: Dict[str, Any]) -> None:
-        self._execute_attack(payload)
+        return self._execute_attack(payload)
 
 
 # class _ShapPrefetchRunner(BaseRunner):
@@ -219,6 +262,7 @@ class RandomAssignRunner(BaseRunner):
             raise RuntimeError("Random assign baseline failed to produce any attempt result.")
         final_result.attack_wall_time = time.monotonic() - start_time
         write_experiment_artifacts(final_result)
+        return final_result
 
 
 def run_attack_with_shap(

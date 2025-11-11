@@ -92,10 +92,10 @@ class ConcolicTestRecorder:
         self._start_wall_time = time.time()
         self._start_cpu_time = time.process_time()
 
-    def end(self, constraint_complexity=None):
+    def end(self, constraint_complexity=None, *, completed: bool = True):
         self.total_wall_time = time.time() - self._start_wall_time
         self.total_cpu_time = time.process_time() - self._start_cpu_time
-        self.is_finish = True
+        self.is_finish = completed
         
         self.save_stats_dict(constraint_complexity=constraint_complexity)
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from shap_cal import sort_pixel_converter
+import sort_pixel_converter
 
 
 def _build_sample_shap_values() -> np.ndarray:

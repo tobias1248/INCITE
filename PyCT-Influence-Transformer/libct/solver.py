@@ -156,10 +156,11 @@ class Solver:
                 position,
             )
             log.info(
-                "[SOLVER] idx=%s attack=%s ton=%s status=timeout sat=%d unsat=%d unknown=%d",
+                "[SOLVER] idx=%s attack=%s ton=%s position=%s status=timeout sat=%d unsat=%d unknown=%d",
                 idx,
                 cls._derive_attack_mode(engine),
                 cls._derive_attack_ton(engine),
+                position,
                 cls.stats["sat_number"],
                 cls.stats["unsat_number"],
                 cls.stats["otherwise_number"],
@@ -219,10 +220,11 @@ class Solver:
                 if "unsat" == status: cls.stats['unsat_number'] += 1; cls.stats['unsat_time'] += elapsed
                 else: status = "UNKNOWN"; cls.stats['otherwise_number'] += 1; cls.stats['otherwise_time'] += elapsed
         log.info(
-            "[SOLVER] idx=%s attack=%s ton=%s status=%s sat=%d unsat=%d unknown=%d",
+            "[SOLVER] idx=%s attack=%s ton=%s position=%s status=%s sat=%d unsat=%d unknown=%d",
             idx,
             cls._derive_attack_mode(engine),
             cls._derive_attack_ton(engine),
+            position,
             status,
             cls.stats["sat_number"],
             cls.stats["unsat_number"],

@@ -18,7 +18,7 @@ import cProfile
 import shap
 import numpy as np
 
-from typing import Any, Callable, Dict, List, Literal, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 from types import ModuleType
 from libct.constraint import Constraint
 from libct.shapInfl import ShapValuesComparator
@@ -119,7 +119,7 @@ class ExplorationEngine:
         self.previous_result = None
         self.original_args = None  # used to limit variable range
 
-    def _execution_loop(self, max_iterations: int, all_args, concolic_dict):
+    def _execution_loop(self, max_iterations: int, all_args, concolic_dict, *, deadline: Optional[float] = None) -> bool:
         recorder.start()
         Solver.norm = self.normalize
         Solver.limit_change_range = self.limit_change_range
@@ -127,6 +127,13 @@ class ExplorationEngine:
         tried_input_args = [all_args.copy()]  # .copy() is important!!
         iterations = 0
         cont = True
+        timed_out = False
+        log.info(
+            "[ITER-START] idx=%s iteration=%s queue_size=%s",
+            self.idx,
+            iterations,
+            len(self.constraints_to_solve),
+        )
 
         # this execution only for generating constraints
         log.info(f"=== Iterations: {iterations} ===")
@@ -148,9 +155,21 @@ class ExplorationEngine:
             log.info(
                 "[FIRST_NO_CONSTR] After first execution, no constraint to solve",
             )
-            return 0
+            return timed_out
+
+        def _check_deadline() -> bool:
+            if deadline is None:
+                return False
+            if time.monotonic() >= deadline:
+                log.warning("[TOTAL TIMEOUT] idx=%s exceeded total timeout", self.idx)
+                return True
+            return False
 
         while cont and (max_iterations == 0 or iterations < max_iterations):
+            if _check_deadline():
+                timed_out = True
+                recorder.total_timeout()
+                break
             ##############################################################
             # In each iteration, we take one constraint out of the queue
             # and try to solve for it. After that we'll obtain a model as
@@ -192,11 +211,25 @@ class ExplorationEngine:
             recorder.iter_end(Solver.stats, solve_constr_num)
             recorder.save_stats_dict()
             ##############################################################
+            log.info(
+                "[ITER-END] idx=%s iteration=%s sat=%s unsat=%s queue_size=%s",
+                self.idx,
+                iterations,
+                Solver.stats["sat_number"],
+                Solver.stats["unsat_number"],
+                len(self.constraints_to_solve),
+            )
 
             if len(self.constraints_to_solve) == 0:
                 recorder.no_ctr_to_solve()
                 log.info("[SOLVED_ALL_CONSTR] No constraints remain to solve")
                 break
+            if _check_deadline():
+                timed_out = True
+                recorder.total_timeout()
+                break
+
+        return timed_out
 
     def explore(
             self, modpath, all_args={}, /, *, root='.', funcname=None,
@@ -276,21 +309,30 @@ class ExplorationEngine:
         self.can_use_concolic_wrapper = self._can_use_concolic_wrapper(
             self.root, self.modpath)
 
+        deadline = time.monotonic() + self.total_timeout if self.total_timeout else None
+        timed_out = False
+        interrupted = False
         try:
-            func_timeout.func_timeout(
-                self.total_timeout, self._execution_loop, args=(
-                    max_iterations, all_args, concolic_dict)
+            timed_out = self._execution_loop(
+                max_iterations,
+                all_args,
+                concolic_dict,
+                deadline=deadline,
             )
-        except func_timeout.exceptions.FunctionTimedOut:
-            recorder.total_timeout()
-            log.info('[TOTAL TIMEOUT]: Total Timeout happened')
-
-        # importantly note that func_timeout.FunctionTimedOut is NOT inherited from the (general) Exception class.
+        except KeyboardInterrupt:
+            interrupted = True
+            log.warning("Exploration interrupted by user (idx=%s)", self.idx)
+            raise
         except BaseException:
+            interrupted = True
             log.exception("Exploration loop terminated unexpectedly")
-
-        # 結束後，將所有的統計資料存起來
-        recorder.end(constraint_complexity=Solver.ctr_size)
+        finally:
+            if timed_out:
+                log.info('[TOTAL TIMEOUT]: Total Timeout happened')
+            recorder.end(
+                constraint_complexity=Solver.ctr_size,
+                completed=not (timed_out or interrupted),
+            )
 
         # After finishing self._execution_loop, we can get total iteration from recorder
         iteration = recorder.total_iter
@@ -337,6 +379,20 @@ class ExplorationEngine:
 
         return {key: _sanitize(val) for key, val in inputs.items()}
 
+    def _record_result(self, inputs: Dict[str, Any], result: Any) -> bool:
+        """Update cached prediction and persist adversarial example if it changed."""
+        if self.previous_result is not None and self.previous_result != result:
+            log.warning(
+                "[RESULT_CHANGE] Previous result %s differs from current %s",
+                self.previous_result,
+                result,
+            )
+            recorder.find_adversarial_input(inputs, result)
+            return False
+
+        self.previous_result = result
+        return True
+
     def _one_execution(self, all_args, concolic_dict):
         """Run one concolic+primitive execution pair to advance exploration."""
         primitive_inputs = self._clone_primitive_inputs(all_args)
@@ -346,7 +402,7 @@ class ExplorationEngine:
         if not self.single_coverage:
             # .copy() is important! Think why.
             self.in_out.append((all_args.copy(), result))
-            return True  # continue iteration
+            return self._record_result(all_args, result)
         # we must measure the coverage in the primitive mode since self.constraints_to_solve would become unpicklable if measured in the concolic mode
         answer = self._one_execution_primitive(primitive_inputs)
 
@@ -372,18 +428,7 @@ class ExplorationEngine:
         log.info(
             f"Not Covered Yet: {self.target_file} {sorted(s) if s else '{}'}")
 
-        if self.previous_result != None and self.previous_result != result:
-            log.warning(
-                "[RESULT_CHANGE] Previous result %s differs from current %s",
-                self.previous_result,
-                result,
-            )
-            recorder.find_adversarial_input(all_args, result)
-            return False
-
-        self.previous_result = result
-
-        return True
+        return self._record_result(all_args, result)
         # return s # continue iteration only if the target file / function coverage is not full yet.
 
     def _one_execution_concolic(self, all_args: dict, concolic_dict: dict):
@@ -662,6 +707,13 @@ class ExplorationEngine:
                     self.var_to_types[k] = 'String'
                 else:
                     pass  # for some default values that cannot be concolic-ized
+        log.info(
+            "[WRAP] idx=%s concolic=%s primitive=%s queue_type=%s",
+            self.idx,
+            len(self.concolic_name_list),
+            len(prim_args),
+            self.constraints_collection_type,
+        )
 
         return ccc_args, ccc_kwargs
 
@@ -727,12 +779,22 @@ class ExplorationEngine:
         if self.constraints_collection_type == 'priority_queue':
             shap_value = self.get_shap_influence(position)
             heapq.heappush(self.constraints_to_solve, (-abs(shap_value), constraint.id, position, constraint))
-           
-           
-           
-        
+            log.info(
+                "[PUSH] idx=%s layer=%s position=%s shap=%.3e queue_size=%s",
+                self.idx,
+                position[0],
+                position[1],
+                abs(shap_value),
+                len(self.constraints_to_solve),
+            )
         else:
             self.constraints_to_solve.append(constraint)
+            log.info(
+                "[PUSH] idx=%s queue=%s total=%s",
+                self.idx,
+                self.constraints_collection_type,
+                len(self.constraints_to_solve),
+            )
     
     def _log_pop_event(
         self,
@@ -782,7 +844,7 @@ class ExplorationEngine:
                 remaining=len(self.constraints_to_solve),
                 layer=layer_number,
                 indices=indices,
-                shap_value=f"{abs(shap_value):.6f}",
+                shap_value=f"{abs(shap_value):.3e}",
             )
             log.debug(
                 "Popped constraint from queue (position=%s shap_value=%s constraint_id=%s)",

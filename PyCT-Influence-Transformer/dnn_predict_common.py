@@ -23,8 +23,10 @@ def init_model(model_path):
     if loaded_model_path is not None and loaded_model_path != model_path:
         keras.backend.clear_session()
     model = keras.models.load_model(model_path)
-    model._name = Path(model_path).stem  # improve model.summary() readability
+    model_stem = Path(model_path).stem
+    model._name = model_stem  # improve model.summary() readability
     model.summary()
+    log.info("Loaded model '%s' with input_shape=%s", model_stem, model.input_shape)
     layers = [l for l in model.layers if type(l).__name__ not in ['InputLayer','Embedding','Dropout']]
     myModel = NNModel()
 
@@ -74,7 +76,7 @@ def predict(**data):
 	
 
 	out_val = myModel.forward(X)
-	# print("[DEBUG]out_val:", out_val)
+	log.debug("Completed forward pass for input_shape=%s", input_shape)
  
 	# 用一顆神經元做二分類
 	if len(out_val) == 1:
@@ -94,5 +96,5 @@ def predict(**data):
 			if cl_val > max_val:
 				max_val, ret_class = cl_val, i
 
-	# print("[DEBUG]predicted class:", ret_class)
+	log.info("Forward prediction complete (class=%s)", ret_class)
 	return ret_class

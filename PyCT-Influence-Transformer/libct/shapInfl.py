@@ -51,7 +51,8 @@ class ShapValuesCalculator:
         self.output_dir = Path(output_root) / self.model_name
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self._model = load_model(model_path)
+        # Avoid recompiling saved models (optimizer state may be incompatible across TF/Keras versions).
+        self._model = load_model(model_path, compile=False)
         self._shap_values: Dict[str, float] | None = None
         self._layer_count = (
             len(self._model.layers)

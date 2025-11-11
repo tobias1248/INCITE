@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set,
 import numpy as np
 
 from libct.shapInfl import ShapValuesCalculator
+from libct.shap_pixel_provider import JsonShapPixelProvider
 
 log = logging.getLogger("ct.experiment")
 
@@ -221,8 +222,15 @@ def fashion_mnist_transformer_shap(
 ) -> List[Dict[str, Any]]:
     from utils.dataset import FashionMnistDataset
 
-    shap_pixels = np.load(f"./shap_value/{model_name}/{model_name}_sort_pixel_3d.npy")
+    pixel_provider = JsonShapPixelProvider(
+        model_name=model_name,
+        shap_root="shap_value_all_layer",
+        coordinate_dims=3,
+    )
     queue_mode = QueueMode("priority_queue", "priority_queue")
+
+    def attack_pixel_fn(idx: int, ton: int) -> List[Any]:
+        return pixel_provider.top_pixels(idx, ton)
 
     def payload_builder(
         dataset: Any,
@@ -248,7 +256,7 @@ def fashion_mnist_transformer_shap(
     prefix = f"{exp_prefix.strip('/')}/" if exp_prefix else ""
     spec = TaskGenerationSpec(
         dataset_factory=FashionMnistDataset,
-        attack_pixel_fn=_make_shap_provider(shap_pixels),
+        attack_pixel_fn=attack_pixel_fn,
         queue_modes=[queue_mode],
         ton_values=[1],
         save_exp_builder=lambda idx, ton, mode: {
