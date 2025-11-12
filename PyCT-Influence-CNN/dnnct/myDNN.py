@@ -502,23 +502,47 @@ class NNModel:
         self.layers = []
         self.originalLayerNumbers = dict()
         self.input_shape = None
+        self.my_layer_keys = []
+        self.keras_to_cache_key = {}
+        self.input_layer_names = []
+        self.multiple_inputs = False
+
+    def register_input_names(self, names):
+        self.input_layer_names = list(names or [])
+        if not self.input_layer_names:
+            return
+        if len(self.input_layer_names) > 1:
+            self.multiple_inputs = True
+            raise NotImplementedError(
+                "Multiple input tensors are not supported yet.")
+        self.keras_to_cache_key[self.input_layer_names[0]] = "layer_input"
+
+    def _resolve_cache_key(self, keras_name):
+        if keras_name not in self.keras_to_cache_key:
+            raise KeyError(f"Unknown inbound source: {keras_name}")
+        return self.keras_to_cache_key[keras_name]
+
+    def _register_cache_key(self, keras_name, cache_key):
+        if keras_name:
+            self.keras_to_cache_key[keras_name] = cache_key
+
+    def _append_layer(self, layer_obj, cache_key):
+        self.layers.append(layer_obj)
+        self.my_layer_keys.append(cache_key)
 
     def forward(self, tensor_in):
         logging.info("DNN start forwarding")
-        # cache用來存放每一層的輸出結果 方便AddLayer取用跨層資訊
         cache = {"layer_input": tensor_in}
         x = tensor_in
         for i, layer in enumerate(self.layers):
             register_current_layer_number(to_Keras_layer_number(i))
-            layer_name = f"layer_{i}"
+            layer_key = self.my_layer_keys[i]
             if hasattr(layer, "input_from"):
-                inputs = [cache[name]
-                          for name in layer.input_from]  # 取得該層的所有輸入來源名稱
-                # 將這些輸入餵入 forward（多個輸入 如 AddLayer將會接受 list）
+                inputs = [cache[name] for name in layer.input_from]
                 x = layer.forward(inputs)
             else:
                 x = layer.forward(x)
-            cache[layer_name] = x
+            cache[layer_key] = x
 
         logging.info("DNN finish forwarding")
         return x
@@ -531,7 +555,10 @@ class NNModel:
 
     # turn one Keras layer into my layers and add them to my model
     # @returns the number of my layers added
-    def addLayer(self, layer) -> int:
+    def addLayer(self, layer, inbound_names=None) -> int:
+        inbound_names = inbound_names or []
+        keras_name = getattr(layer, "name", f"layer_{len(self.layers)}")
+        created = 0
 
         if type(layer) == Conv2D:
             # print("Conv2D")
@@ -540,10 +567,12 @@ class NNModel:
             biases = layer.get_weights()[1]
             activation = layer.get_config()['activation']
 
-            self.layers.append(Conv2DLayer(weights, biases, weights.shape))
-            # print("Add Activation Layer:", activation)
-            self.layers.append(ActivationLayer(activation))
-            return 2
+            self._append_layer(
+                Conv2DLayer(weights, biases, weights.shape), f"{keras_name}__conv")
+            created += 1
+            self._append_layer(ActivationLayer(activation), keras_name)
+            created += 1
+            self._register_cache_key(keras_name, keras_name)
         elif type(layer) == Dense:
             # print("Dense")
             # shape: (outputs, inputs)
@@ -551,34 +580,49 @@ class NNModel:
             biases = layer.get_weights()[1]
             activation = layer.get_config()['activation']
 
-            self.layers.append(DenseLayer(weights, biases, weights.shape))
-            # print("Add Activation Layer:", activation)
-            self.layers.append(ActivationLayer(activation))
-            return 2
+            self._append_layer(
+                DenseLayer(weights, biases, weights.shape), f"{keras_name}__linear")
+            created += 1
+            self._append_layer(ActivationLayer(activation), keras_name)
+            created += 1
+            self._register_cache_key(keras_name, keras_name)
         elif type(layer) == MaxPool2D:
             # print("MaxPool2D")
             pool_size = layer.get_config()['pool_size']
             # print(pool_size)
-            self.layers.append(MaxPool2DLayer(pool_size))
-            return 1
+            self._append_layer(MaxPool2DLayer(pool_size), keras_name)
+            created += 1
+            self._register_cache_key(keras_name, keras_name)
         elif type(layer) == Flatten:
             # print("Flatten")
-            self.layers.append(FlattenLayer())
-            return 1
+            self._append_layer(FlattenLayer(), keras_name)
+            created += 1
+            self._register_cache_key(keras_name, keras_name)
         elif type(layer) == Activation:
             activation = layer.get_config()['activation']
-            self.layers.append(ActivationLayer(activation))
-            return 1
+            self._append_layer(ActivationLayer(activation), keras_name)
+            created += 1
+            self._register_cache_key(keras_name, keras_name)
         elif type(layer) == SimpleRNN:
             input_dim = layer.input_shape[-1]
             activation = layer.get_config()['activation']
-            self.layers.append(SimpleRNNLayer(
-                input_dim, weights=layer.get_weights(), activation=activation))
-            return 1
+            self._append_layer(SimpleRNNLayer(
+                input_dim, weights=layer.get_weights(), activation=activation), keras_name)
+            created += 1
+            self._register_cache_key(keras_name, keras_name)
         elif type(layer) == LSTM:
             input_dim = layer.input_shape[-1]
-            self.layers.append(
-                LSTMLayer(input_dim, weights=layer.get_weights()))
-            return 1
+            self._append_layer(
+                LSTMLayer(input_dim, weights=layer.get_weights()), keras_name)
+            created += 1
+            self._register_cache_key(keras_name, keras_name)
+        elif type(layer) == Add:
+            resolved = [self._resolve_cache_key(name)
+                        for name in inbound_names]
+            self._append_layer(AddLayer(resolved), keras_name)
+            created += 1
+            self._register_cache_key(keras_name, keras_name)
         else:
             raise NotImplementedError()
+
+        return created
