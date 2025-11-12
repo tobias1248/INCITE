@@ -1,0 +1,123 @@
+ Layer (type)                Output Shape                 Param #   Connected to                  
+==================================================================================================
+ input_tensor (InputLayer)   [(None, 8, 8, 1)]            0         []                            
+                                                                                                  
+ block1_conv (Conv2D)        (None, 8, 8, 4)              40        ['input_tensor[0][0]']        
+                                                                                                  
+ block1_relu (Activation)    (None, 8, 8, 4)              0         ['block1_conv[0][0]']         
+                                                                                                  
+ block2_conv (Conv2D)        (None, 8, 8, 4)              148       ['block1_relu[0][0]']         
+                                                                                                  
+ shortcut_conv (Conv2D)      (None, 8, 8, 4)              8         ['input_tensor[0][0]']        
+                                                                                                  
+ block2_relu (Activation)    (None, 8, 8, 4)              0         ['block2_conv[0][0]']         
+                                                                                                  
+ shortcut_relu (Activation)  (None, 8, 8, 4)              0         ['shortcut_conv[0][0]']       
+                                                                                                  
+ residual_add (Add)          (None, 8, 8, 4)              0         ['block2_relu[0][0]',         
+                                                                     'shortcut_relu[0][0]']       
+                                                                                                  
+ flatten (Flatten)           (None, 256)                  0         ['residual_add[0][0]']        
+                                                                                                  
+ pred (Dense)                (None, 2)                    514       ['flatten[0][0]']             
+                                                                                                  
+==================================================================================================
+Total params: 710 (2.77 KB)
+Trainable params: 710 (2.77 KB)
+Non-trainable params: 0 (0.00 Byte)
+__________________________________________________________________________________________________
+=== Keras model.layers order ===
+[000] input_tensor                   InputLayer                   output=[(None, 8, 8, 1)] inbound=[]
+[001] block1_conv                    Conv2D                       output=(None, 8, 8, 4) inbound=['input_tensor']
+[002] block1_relu                    Activation                   output=(None, 8, 8, 4) inbound=['block1_conv']
+[003] block2_conv                    Conv2D                       output=(None, 8, 8, 4) inbound=['block1_relu']
+[004] shortcut_conv                  Conv2D                       output=(None, 8, 8, 4) inbound=['input_tensor']
+[005] block2_relu                    Activation                   output=(None, 8, 8, 4) inbound=['block2_conv']
+[006] shortcut_relu                  Activation                   output=(None, 8, 8, 4) inbound=['shortcut_conv']
+[007] residual_add                   Add                          output=(None, 8, 8, 4) inbound=['block2_relu', 'shortcut_relu']
+[008] flatten                        Flatten                      output=(None, 256) inbound=['residual_add']
+[009] pred                           Dense                        output=(None, 2) inbound=['flatten']
+=== Collected execution order ===
+[000] block1_conv                    Conv2D                       output=(None, 8, 8, 4) inbound=['input_tensor']
+[001] block1_relu                    Activation                   output=(None, 8, 8, 4) inbound=['block1_conv']
+[002] block2_conv                    Conv2D                       output=(None, 8, 8, 4) inbound=['block1_relu']
+[003] shortcut_conv                  Conv2D                       output=(None, 8, 8, 4) inbound=['input_tensor']
+[004] block2_relu                    Activation                   output=(None, 8, 8, 4) inbound=['block2_conv']
+[005] shortcut_relu                  Activation                   output=(None, 8, 8, 4) inbound=['shortcut_conv']
+[006] residual_add                   Add                          output=(None, 8, 8, 4) inbound=['block2_relu', 'shortcut_relu']
+[007] flatten                        Flatten                      output=(None, 256) inbound=['residual_add']
+[008] pred                           Dense                        output=(None, 2) inbound=['flatten']
+Model: "toy_resnet"
+__________________________________________________________________________________________________
+ Layer (type)                Output Shape                 Param #   Connected to                  
+==================================================================================================
+ input_tensor (InputLayer)   [(None, 8, 8, 1)]            0         []                            
+                                                                                                  
+ block1_conv (Conv2D)        (None, 8, 8, 4)              40        ['input_tensor[0][0]']        
+                                                                                                  
+ block1_relu (Activation)    (None, 8, 8, 4)              0         ['block1_conv[0][0]']         
+                                                                                                  
+ block2_conv (Conv2D)        (None, 8, 8, 4)              148       ['block1_relu[0][0]']         
+                                                                                                  
+ shortcut_conv (Conv2D)      (None, 8, 8, 4)              8         ['input_tensor[0][0]']        
+                                                                                                  
+ block2_relu (Activation)    (None, 8, 8, 4)              0         ['block2_conv[0][0]']         
+                                                                                                  
+ shortcut_relu (Activation)  (None, 8, 8, 4)              0         ['shortcut_conv[0][0]']       
+                                                                                                  
+ residual_add (Add)          (None, 8, 8, 4)              0         ['block2_relu[0][0]',         
+                                                                     'shortcut_relu[0][0]']       
+                                                                                                  
+ flatten (Flatten)           (None, 256)                  0         ['residual_add[0][0]']        
+                                                                                                  
+ pred (Dense)                (None, 2)                    514       ['flatten[0][0]']             
+                                                                                                  
+==================================================================================================
+Total params: 710 (2.77 KB)
+Trainable params: 710 (2.77 KB)
+Non-trainable params: 0 (0.00 Byte)
+__________________________________________________________________________________________________
+Number of layers in my model: 13
+Number of layers in original Keras model: 9
+Correspondence between layers in Keras model and my model:
+My:  0 Keras:  0
+My:  1 Keras:  0
+My:  2 Keras:  1
+My:  3 Keras:  2
+My:  4 Keras:  2
+My:  5 Keras:  3
+My:  6 Keras:  3
+My:  7 Keras:  4
+My:  8 Keras:  5
+My:  9 Keras:  6
+My:  10 Keras:  7
+My:  11 Keras:  8
+My:  12 Keras:  8
+<class 'dnnct.myDNN.Conv2DLayer'>
+<class 'dnnct.myDNN.ActivationLayer'>
+<class 'dnnct.myDNN.ActivationLayer'>
+<class 'dnnct.myDNN.Conv2DLayer'>
+<class 'dnnct.myDNN.ActivationLayer'>
+<class 'dnnct.myDNN.Conv2DLayer'>
+<class 'dnnct.myDNN.ActivationLayer'>
+<class 'dnnct.myDNN.ActivationLayer'>
+<class 'dnnct.myDNN.ActivationLayer'>
+<class 'dnnct.myDNN.AddLayer'>
+<class 'dnnct.myDNN.FlattenLayer'>
+<class 'dnnct.myDNN.DenseLayer'>
+<class 'dnnct.myDNN.ActivationLayer'>
+=== SSA keys in myModel ===
+000: Conv2DLayer_0
+001: ActivationLayer_0
+002: ActivationLayer_1
+003: Conv2DLayer_1
+004: ActivationLayer_2
+005: Conv2DLayer_2
+006: ActivationLayer_3
+007: ActivationLayer_4
+008: ActivationLayer_5
+009: AddLayer_0
+010: FlattenLayer_0
+011: DenseLayer_0
+012: ActivationLayer_6
+SSA test passed: unique keys and valid residual inputs.

@@ -506,6 +506,7 @@ class NNModel:
         self.keras_to_cache_key = {}
         self.input_layer_names = []
         self.multiple_inputs = False
+        self.layer_type_counter = {}
 
     def register_input_names(self, names):
         self.input_layer_names = list(names or [])
@@ -526,9 +527,14 @@ class NNModel:
         if keras_name:
             self.keras_to_cache_key[keras_name] = cache_key
 
-    def _append_layer(self, layer_obj, cache_key):
+    def _append_layer(self, layer_obj):
+        type_name = type(layer_obj).__name__
+        count = self.layer_type_counter.get(type_name, 0)
+        cache_key = f"{type_name}_{count}"
+        self.layer_type_counter[type_name] = count + 1
         self.layers.append(layer_obj)
         self.my_layer_keys.append(cache_key)
+        return cache_key
 
     def forward(self, tensor_in):
         logging.info("DNN start forwarding")
@@ -560,68 +566,59 @@ class NNModel:
         keras_name = getattr(layer, "name", f"layer_{len(self.layers)}")
         created = 0
 
-        if type(layer) == Conv2D:
-            # print("Conv2D")
-            # shape: (outputs, rows, cols, channel)
+        if isinstance(layer, Conv2D):
             weights = layer.get_weights()[0].transpose(3, 0, 1, 2)
             biases = layer.get_weights()[1]
             activation = layer.get_config()['activation']
 
-            self._append_layer(
-                Conv2DLayer(weights, biases, weights.shape), f"{keras_name}__conv")
+            self._append_layer(Conv2DLayer(weights, biases, weights.shape))
             created += 1
-            self._append_layer(ActivationLayer(activation), keras_name)
+            activation_key = self._append_layer(ActivationLayer(activation))
             created += 1
-            self._register_cache_key(keras_name, keras_name)
-        elif type(layer) == Dense:
-            # print("Dense")
-            # shape: (outputs, inputs)
+            self._register_cache_key(keras_name, activation_key)
+        elif isinstance(layer, Dense):
             weights = layer.get_weights()[0].transpose()
             biases = layer.get_weights()[1]
             activation = layer.get_config()['activation']
 
-            self._append_layer(
-                DenseLayer(weights, biases, weights.shape), f"{keras_name}__linear")
+            self._append_layer(DenseLayer(weights, biases, weights.shape))
             created += 1
-            self._append_layer(ActivationLayer(activation), keras_name)
+            activation_key = self._append_layer(ActivationLayer(activation))
             created += 1
-            self._register_cache_key(keras_name, keras_name)
-        elif type(layer) == MaxPool2D:
-            # print("MaxPool2D")
+            self._register_cache_key(keras_name, activation_key)
+        elif isinstance(layer, MaxPool2D):
             pool_size = layer.get_config()['pool_size']
-            # print(pool_size)
-            self._append_layer(MaxPool2DLayer(pool_size), keras_name)
+            key = self._append_layer(MaxPool2DLayer(pool_size))
             created += 1
-            self._register_cache_key(keras_name, keras_name)
-        elif type(layer) == Flatten:
-            # print("Flatten")
-            self._append_layer(FlattenLayer(), keras_name)
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, Flatten):
+            key = self._append_layer(FlattenLayer())
             created += 1
-            self._register_cache_key(keras_name, keras_name)
-        elif type(layer) == Activation:
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, Activation):
             activation = layer.get_config()['activation']
-            self._append_layer(ActivationLayer(activation), keras_name)
+            key = self._append_layer(ActivationLayer(activation))
             created += 1
-            self._register_cache_key(keras_name, keras_name)
-        elif type(layer) == SimpleRNN:
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, SimpleRNN):
             input_dim = layer.input_shape[-1]
             activation = layer.get_config()['activation']
-            self._append_layer(SimpleRNNLayer(
-                input_dim, weights=layer.get_weights(), activation=activation), keras_name)
+            key = self._append_layer(SimpleRNNLayer(
+                input_dim, weights=layer.get_weights(), activation=activation))
             created += 1
-            self._register_cache_key(keras_name, keras_name)
-        elif type(layer) == LSTM:
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, LSTM):
             input_dim = layer.input_shape[-1]
-            self._append_layer(
-                LSTMLayer(input_dim, weights=layer.get_weights()), keras_name)
+            key = self._append_layer(
+                LSTMLayer(input_dim, weights=layer.get_weights()))
             created += 1
-            self._register_cache_key(keras_name, keras_name)
-        elif type(layer) == Add:
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, Add):
             resolved = [self._resolve_cache_key(name)
                         for name in inbound_names]
-            self._append_layer(AddLayer(resolved), keras_name)
+            key = self._append_layer(AddLayer(resolved))
             created += 1
-            self._register_cache_key(keras_name, keras_name)
+            self._register_cache_key(keras_name, key)
         else:
             raise NotImplementedError()
 
