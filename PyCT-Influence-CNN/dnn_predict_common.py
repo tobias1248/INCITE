@@ -27,6 +27,7 @@ def _collect_execution_order(model):  # 取得模型中所有神經層的執行�
     all_layers = list(model.layers)
     layer_index = {layer: idx for idx, layer in enumerate(all_layers)}
     reachable = set()
+    inbound_map = {}
 
     def mark_reachable(layer):
         if layer is None or layer in reachable:
@@ -67,13 +68,15 @@ def _collect_execution_order(model):  # 取得模型中所有神經層的執行�
         seen.add(current)
         if type(current).__name__ not in excluded:
             execution_order.append(current)
+            inbound_map[current.name] = [
+                parent.name for parent in _get_inbound_layers(current)]
         for nxt in graph.get(current, ()):
             indegree[nxt] -= 1
             if indegree[nxt] == 0:
                 queue.append(nxt)
         queue.sort(key=lambda l: layer_index.get(l, 0))
 
-    return execution_order
+    return execution_order, inbound_map
 
 
 def _format_shape(shape):
@@ -110,18 +113,23 @@ def init_model(model_path):
     global myModel
     model = keras.models.load_model(model_path)
     model.summary()
-    layers = _collect_execution_order(model)
+    layers, inbound_map = _collect_execution_order(model)
     _describe_model_graph(model, layers)
     if not layers:
         layers = [l for l in model.layers if type(
             l).__name__ not in ['Dropout']]
     myModel = NNModel()
+    input_layer_names = [
+        layer.name for layer in model.layers if type(layer).__name__ == "InputLayer"]
+    myModel.register_input_names(input_layer_names)
 
     # 1: is because 1st dim of input shape of Keras model is batch size (None)
     myModel.input_shape = model.input_shape[1:]
     myLayerCount = 0
     for i, layer in enumerate(layers):
-        numberOfMyLayers = myModel.addLayer(layer)
+        inbound_names = inbound_map.get(layer.name, [])
+        numberOfMyLayers = myModel.addLayer(
+            layer, inbound_names=inbound_names)
         # maintain the mapping of layers between Keras model and my model
         for j in range(numberOfMyLayers):
             register_layer_number_mapping(i, myLayerCount)
