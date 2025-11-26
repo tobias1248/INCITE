@@ -1,3 +1,21 @@
+2025-11-18 21:39:41.245153: I tensorflow/core/util/port.cc:110] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2025-11-18 21:39:41.246405: I tensorflow/tsl/cuda/cudart_stub.cc:28] Could not find cuda drivers on your machine, GPU will not be used.
+2025-11-18 21:39:41.270111: I tensorflow/tsl/cuda/cudart_stub.cc:28] Could not find cuda drivers on your machine, GPU will not be used.
+2025-11-18 21:39:41.270402: I tensorflow/core/platform/cpu_feature_guard.cc:182] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2025-11-18 21:39:41.680424: W tensorflow/compiler/tf2tensorrt/utils/py_utils.cc:38] TF-TRT Warning: Could not find TensorRT
+2025-11-18 21:39:42.111802: E tensorflow/compiler/xla/stream_executor/cuda/cuda_driver.cc:268] failed call to cuInit: CUDA_ERROR_OPERATING_SYSTEM: OS call failed or operation not supported on this OS
+2025-11-18 21:39:42.111822: I tensorflow/compiler/xla/stream_executor/cuda/cuda_diagnostics.cc:168] retrieving CUDA diagnostic information for host: soslab-kj
+2025-11-18 21:39:42.111826: I tensorflow/compiler/xla/stream_executor/cuda/cuda_diagnostics.cc:175] hostname: soslab-kj
+2025-11-18 21:39:42.111875: I tensorflow/compiler/xla/stream_executor/cuda/cuda_diagnostics.cc:199] libcuda reported version is: 580.95.5
+2025-11-18 21:39:42.111885: I tensorflow/compiler/xla/stream_executor/cuda/cuda_diagnostics.cc:203] kernel reported version is: 580.65.6
+2025-11-18 21:39:42.111887: E tensorflow/compiler/xla/stream_executor/cuda/cuda_diagnostics.cc:312] kernel version 580.65.6 does not match DSO version 580.95.5 -- cannot find working devices in this configuration
+/home/soslab-kj/miniconda3/envs/pyct39/lib/python3.9/site-packages/keras/src/engine/training.py:3000: UserWarning: You are saving your model as an HDF5 file via `model.save()`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')`.
+  saving_api.save_model(
+WARNING:tensorflow:Compiled the loaded model, but the compiled metrics have yet to be built. `model.compile_metrics` will be empty until you train or evaluate the model.
+WARNING:tensorflow:No training configuration found in the save file, so the model was *not* compiled. Compile it manually.
+Model: "toy_resnet"
+__________________________________________________________________________________________________
  Layer (type)                Output Shape                 Param #   Connected to                  
 ==================================================================================================
  input_tensor (InputLayer)   [(None, 8, 8, 1)]            0         []                            
@@ -37,16 +55,6 @@ ________________________________________________________________________________
 [007] residual_add                   Add                          output=(None, 8, 8, 4) inbound=['block2_relu', 'shortcut_relu']
 [008] flatten                        Flatten                      output=(None, 256) inbound=['residual_add']
 [009] pred                           Dense                        output=(None, 2) inbound=['flatten']
-=== Collected execution order ===
-[000] block1_conv                    Conv2D                       output=(None, 8, 8, 4) inbound=['input_tensor']
-[001] block1_relu                    Activation                   output=(None, 8, 8, 4) inbound=['block1_conv']
-[002] block2_conv                    Conv2D                       output=(None, 8, 8, 4) inbound=['block1_relu']
-[003] shortcut_conv                  Conv2D                       output=(None, 8, 8, 4) inbound=['input_tensor']
-[004] block2_relu                    Activation                   output=(None, 8, 8, 4) inbound=['block2_conv']
-[005] shortcut_relu                  Activation                   output=(None, 8, 8, 4) inbound=['shortcut_conv']
-[006] residual_add                   Add                          output=(None, 8, 8, 4) inbound=['block2_relu', 'shortcut_relu']
-[007] flatten                        Flatten                      output=(None, 256) inbound=['residual_add']
-[008] pred                           Dense                        output=(None, 2) inbound=['flatten']
 Model: "toy_resnet"
 __________________________________________________________________________________________________
  Layer (type)                Output Shape                 Param #   Connected to                  
@@ -120,4 +128,6 @@ My:  12 Keras:  8
 010: FlattenLayer_0
 011: DenseLayer_0
 012: ActivationLayer_6
+=== AddLayer inbound (SSA keys) ===
+['ActivationLayer_4', 'ActivationLayer_5']
 SSA test passed: unique keys and valid residual inputs.

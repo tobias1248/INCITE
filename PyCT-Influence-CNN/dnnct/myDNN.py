@@ -22,7 +22,9 @@ from keras.layers import (
     Embedding,
     BatchNormalization,
     SimpleRNN,
-    Add
+    Add,
+    ZeroPadding2D,
+    GlobalAveragePooling2D
 )
 
 LAYERS = (
@@ -36,7 +38,9 @@ LAYERS = (
     LSTM,
     Embedding,
     BatchNormalization,
-    Add
+    Add,
+    ZeroPadding2D,
+    GlobalAveragePooling2D
 )
 
 ACTIVATIONS = (
@@ -73,10 +77,27 @@ def act_sigmoid(x):
 # return the dimension of a python list
 
 
-def dim(a):
+def dim(a):  # 遞迴求list的shape
     if not type(a) == list:
         return []
     return [len(a)] + dim(a[0])
+
+
+# 將padding參數標準化成(top, bottom, left, right)的形式
+def _normalize_padding_2d(padding):
+    # Keras ZeroPadding2D padding can be int, tuple of 2 ints, or tuple of 2 tuples
+    if isinstance(padding, int):  # padding is an int
+        return padding, padding, padding, padding
+    if isinstance(padding, (list, tuple)):
+        if len(padding) == 2 and all(isinstance(x, int) for x in padding):  # padding is tuple of 2 ints
+            top = bottom = padding[0]
+            left = right = padding[1]
+            return top, bottom, left, right
+        # padding is tuple of 2 tuples ((top, bottom), (left, right))
+        if len(padding) == 2 and all(isinstance(x, (list, tuple)) for x in padding):
+            (top, bottom), (left, right) = padding
+            return int(top), int(bottom), int(left), int(right)
+    raise ValueError(f"Unsupported padding format: {padding}")
 
 # 實現多個tensor相加
 
@@ -177,6 +198,7 @@ class AddLayer:
         if not isinstance(input_from, (list, tuple)) or len(input_from) < 2:
             raise ValueError("AddLayer requires at least two input sources")
         self.input_from = list(input_from)
+        self.multi_input = True
         self._output = None
 
     def forward(self, tensors):
@@ -235,13 +257,17 @@ class DenseLayer:
 
 
 class Conv2DLayer:
-    def __init__(self, weights, bias, shape, activation="None", stride=1, padding='valid'):
+    def __init__(self, weights, bias, shape, activation="None", stride=(1, 1), padding='valid', name=None):
         self.weights = weights.astype(float)
         self.shape = shape
         self.bias = bias
         self.padding = padding
-        self.stride = stride
+        if isinstance(stride, (list, tuple)):
+            self.stride = (int(stride[0]), int(stride[1]))
+        else:
+            self.stride = (int(stride), int(stride))
         self.activation = activation
+        self.name = name or "Conv2D"
         self._output = None
 
     def addActivation(self, activation):
@@ -249,32 +275,53 @@ class Conv2DLayer:
 
     def forward(self, tensor_in):
         in_shape = dim(tensor_in)
-        assert in_shape[2] == self.shape[3], "Conv2DLayer, channel length mismatching!"
-        # For now, we assume stride=1 and padding='valid'
-        # TODO  stride!=1 and padding!='valid'
-        out_shape = [in_shape[0]-self.shape[1]+1,
-                     in_shape[1]-self.shape[2]+1,
-                     self.shape[0]]
-        # tensor_out = np.zeros( out_shape ).tolist()
-        tensor_out = []
-        for _ in range(out_shape[0]):
-            tensor_out.append([
-                [0.0]*out_shape[2] for i in range(out_shape[1])
-            ])
+        if in_shape[2] != self.shape[3]:
+            raise ValueError(
+                f"Conv2DLayer({self.name}) channel mismatch: input shape {in_shape} has {in_shape[2]} channels, "
+                f"but weights expect {self.shape[3]}"
+            )
+        kernel_h, kernel_w, _ = self.shape[1], self.shape[2], self.shape[3]
+        stride_h, stride_w = self.stride
+
+        if self.padding.lower() == 'same':
+            out_h = math.ceil(in_shape[0] / stride_h)
+            out_w = math.ceil(in_shape[1] / stride_w)
+            pad_along_height = max((out_h - 1) * stride_h + kernel_h - in_shape[0], 0)
+            pad_along_width = max((out_w - 1) * stride_w + kernel_w - in_shape[1], 0)
+            pad_top = pad_along_height // 2
+            pad_bottom = pad_along_height - pad_top
+            pad_left = pad_along_width // 2
+            pad_right = pad_along_width - pad_left
+            tensor_in = self._pad_tensor(
+                tensor_in, pad_top, pad_bottom, pad_left, pad_right)
+            padded_shape = dim(tensor_in)
+        else:
+            out_h = (in_shape[0] - kernel_h) // stride_h + 1
+            out_w = (in_shape[1] - kernel_w) // stride_w + 1
+            padded_shape = in_shape
+
+        out_shape = [out_h, out_w, self.shape[0]]
+        tensor_out = [[[0.0 for _ in range(out_shape[2])]
+                       for _ in range(out_shape[1])]
+                      for _ in range(out_shape[0])]
 
         for channel in range(0, out_shape[2]):
             filter_weights = self.weights[channel]
-            num_row, num_col, num_depth = self.shape[1], self.shape[2], self.shape[3]
-            for row in range(0, out_shape[0]):
-                for col in range(0, out_shape[1]):
+            num_row, num_col, num_depth = kernel_h, kernel_w, self.shape[3]
+            for row in range(out_shape[0]):
+                for col in range(out_shape[1]):
                     register_current_indices((row, col, channel))
                     tensor_out[row][col][channel] = float(self.bias[channel])
+                    base_i = row * stride_h
+                    base_j = col * stride_w
                     # inner product of the filter and the input image segments
-                    for i, j, k in product(range(row, row+num_row),
-                                           range(col, col+num_col),
-                                           range(0, num_depth)):
-                        tensor_out[row][col][channel] += tensor_in[i][j][k] * float(
-                            filter_weights[i-row][j-col][k])
+                    for i, j, k in product(range(num_row),
+                                           range(num_col),
+                                           range(num_depth)):
+                        input_i = base_i + i
+                        input_j = base_j + j
+                        tensor_out[row][col][channel] += tensor_in[input_i][input_j][k] * float(
+                            filter_weights[i][j][k])
                     if self.activation != "None":
                         tensor_out[row][col][channel] = actFunc(
                             tensor_out[row][col][channel], self.activation)
@@ -290,6 +337,18 @@ class Conv2DLayer:
 
     def getOutput(self):
         return self._output
+
+    def _pad_tensor(self, tensor_in, top, bottom, left, right):
+        h, w, c = dim(tensor_in)
+        new_h = h + top + bottom
+        new_w = w + left + right
+        tensor_out = [[[0.0 for _ in range(c)] for _ in range(new_w)]
+                      for _ in range(new_h)]
+        for i in range(h):
+            for j in range(w):
+                for k in range(c):
+                    tensor_out[i + top][j + left][k] = tensor_in[i][j][k]
+        return tensor_out
 
 
 class MaxPool2DLayer:
@@ -360,6 +419,90 @@ class FlattenLayer:
             return [a for i in x for a in self._flatten(i)]
         else:
             return [x]
+
+    def getOutput(self):
+        return self._output
+
+
+# Zero padding for channels_last tensors
+class ZeroPadding2DLayer:
+    def __init__(self, padding):
+        self.padding = _normalize_padding_2d(padding)
+        self._output = None
+
+    def forward(self, tensor_in):
+        top, bottom, left, right = self.padding
+        in_shape = dim(tensor_in)
+        assert len(in_shape) == 3, "ZeroPadding2D expects 3D input [H][W][C]"
+        h, w, c = in_shape
+        out_h = h + top + bottom  # top-padding + bottom-padding + height
+        out_w = w + left + right
+        tensor_out = [[[0.0 for _ in range(c)] for _ in range(out_w)]
+                      for _ in range(out_h)]
+        for i in range(h):
+            for j in range(w):
+                for k in range(c):
+                    tensor_out[i + top][j + left][k] = tensor_in[i][j][k]
+        self._output = tensor_out
+        return tensor_out
+
+    def getOutput(self):
+        return self._output
+
+# 只做推論重現前向傳播結果 把keras層保存的參數傳進來（假設學習率1e-3）
+
+
+class BatchNormalization2DLayer:
+    def __init__(self, gamma, beta, moving_mean, moving_var, epsilon=1e-3):
+        self.gamma = gamma
+        self.beta = beta
+        self.moving_mean = moving_mean
+        self.moving_var = moving_var
+        self.epsilon = epsilon
+        self._output = None
+
+    def forward(self, tensor_in):
+        in_shape = dim(tensor_in)
+        assert len(
+            in_shape) == 3, "BatchNormalization2D expects 3D input [H][W][C]"
+        h, w, c = in_shape  # height, width, channels
+        tensor_out = [[[0.0 for _ in range(c)] for _ in range(w)]
+                      for _ in range(h)]
+        for i in range(h):
+            for j in range(w):
+                for ch in range(c):
+                    x = tensor_in[i][j][ch]
+                    norm = (
+                        x - self.moving_mean[ch]) / math.sqrt(self.moving_var[ch] + self.epsilon)
+                    tensor_out[i][j][ch] = self.gamma[ch] * \
+                        norm + self.beta[ch]
+        self._output = tensor_out
+        return tensor_out
+
+    def getOutput(self):
+        return self._output
+
+
+# 把每個 feature map 壓成單一數值，維持通道維度，後面接Dense 做分類
+class GlobalAveragePooling2DLayer:
+    def __init__(self):
+        self._output = None
+
+    def forward(self, tensor_in):
+        in_shape = dim(tensor_in)
+        assert len(
+            in_shape) == 3, "GlobalAveragePooling2D expects 3D input [H][W][C]"
+        h, w, c = in_shape
+        out = [0.0 for _ in range(c)]
+        total = h * w
+        for ch in range(c):
+            acc = 0.0
+            for i in range(h):
+                for j in range(w):
+                    acc += tensor_in[i][j][ch]
+            out[ch] = acc / total
+        self._output = out
+        return out
 
     def getOutput(self):
         return self._output
@@ -543,9 +686,12 @@ class NNModel:
         for i, layer in enumerate(self.layers):
             register_current_layer_number(to_Keras_layer_number(i))
             layer_key = self.my_layer_keys[i]
-            if hasattr(layer, "input_from"):
+            if hasattr(layer, "input_from") and layer.input_from:
                 inputs = [cache[name] for name in layer.input_from]
-                x = layer.forward(inputs)
+                if getattr(layer, "multi_input", False):
+                    x = layer.forward(inputs)
+                else:
+                    x = layer.forward(inputs[0])
             else:
                 x = layer.forward(x)
             cache[layer_key] = x
@@ -564,59 +710,116 @@ class NNModel:
     def addLayer(self, layer, inbound_names=None) -> int:
         inbound_names = inbound_names or []
         keras_name = getattr(layer, "name", f"layer_{len(self.layers)}")
+        resolved_inbounds = [self._resolve_cache_key(
+            name) for name in inbound_names] if inbound_names else []
         created = 0
 
         if isinstance(layer, Conv2D):
-            weights = layer.get_weights()[0].transpose(3, 0, 1, 2)
-            biases = layer.get_weights()[1]
+            raw_weights = layer.get_weights()
+            weights = raw_weights[0].transpose(3, 0, 1, 2)
+            if len(raw_weights) > 1:
+                biases = raw_weights[1]
+            else:
+                biases = np.zeros(weights.shape[0], dtype=weights.dtype)
             activation = layer.get_config()['activation']
-
-            self._append_layer(Conv2DLayer(weights, biases, weights.shape))
+            strides = layer.get_config().get('strides', (1, 1))
+            padding = layer.get_config().get('padding', 'valid')
+            conv_layer = Conv2DLayer(
+                weights, biases, weights.shape, stride=strides,
+                padding=padding, name=keras_name)
+            if resolved_inbounds:
+                conv_layer.input_from = resolved_inbounds
+            self._append_layer(conv_layer)
             created += 1
             activation_key = self._append_layer(ActivationLayer(activation))
             created += 1
             self._register_cache_key(keras_name, activation_key)
         elif isinstance(layer, Dense):
-            weights = layer.get_weights()[0].transpose()
-            biases = layer.get_weights()[1]
+            raw_weights = layer.get_weights()
+            weights = raw_weights[0].transpose()
+            if len(raw_weights) > 1:
+                biases = raw_weights[1]
+            else:
+                biases = np.zeros(weights.shape[0], dtype=weights.dtype)
             activation = layer.get_config()['activation']
 
-            self._append_layer(DenseLayer(weights, biases, weights.shape))
+            dense_layer = DenseLayer(weights, biases, weights.shape)
+            if resolved_inbounds:
+                dense_layer.input_from = resolved_inbounds
+            self._append_layer(dense_layer)
             created += 1
             activation_key = self._append_layer(ActivationLayer(activation))
             created += 1
             self._register_cache_key(keras_name, activation_key)
         elif isinstance(layer, MaxPool2D):
             pool_size = layer.get_config()['pool_size']
-            key = self._append_layer(MaxPool2DLayer(pool_size))
+            maxpool_layer = MaxPool2DLayer(pool_size)
+            if resolved_inbounds:
+                maxpool_layer.input_from = resolved_inbounds
+            key = self._append_layer(maxpool_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, ZeroPadding2D):
+            padding = layer.get_config()['padding']
+            zp_layer = ZeroPadding2DLayer(padding)
+            if resolved_inbounds:
+                zp_layer.input_from = resolved_inbounds
+            key = self._append_layer(zp_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, BatchNormalization):
+            gamma, beta, moving_mean, moving_var = (
+                arr.tolist() for arr in layer.get_weights())
+            epsilon = layer.epsilon
+            bn_layer = BatchNormalization2DLayer(
+                gamma, beta, moving_mean, moving_var, epsilon)
+            if resolved_inbounds:
+                bn_layer.input_from = resolved_inbounds
+            key = self._append_layer(bn_layer)
             created += 1
             self._register_cache_key(keras_name, key)
         elif isinstance(layer, Flatten):
-            key = self._append_layer(FlattenLayer())
+            flatten_layer = FlattenLayer()
+            if resolved_inbounds:
+                flatten_layer.input_from = resolved_inbounds
+            key = self._append_layer(flatten_layer)
             created += 1
             self._register_cache_key(keras_name, key)
         elif isinstance(layer, Activation):
             activation = layer.get_config()['activation']
-            key = self._append_layer(ActivationLayer(activation))
+            act_layer = ActivationLayer(activation)
+            if resolved_inbounds:
+                act_layer.input_from = resolved_inbounds
+            key = self._append_layer(act_layer)
             created += 1
             self._register_cache_key(keras_name, key)
         elif isinstance(layer, SimpleRNN):
             input_dim = layer.input_shape[-1]
             activation = layer.get_config()['activation']
-            key = self._append_layer(SimpleRNNLayer(
-                input_dim, weights=layer.get_weights(), activation=activation))
+            rnn_layer = SimpleRNNLayer(
+                input_dim, weights=layer.get_weights(), activation=activation)
+            if resolved_inbounds:
+                rnn_layer.input_from = resolved_inbounds
+            key = self._append_layer(rnn_layer)
             created += 1
             self._register_cache_key(keras_name, key)
         elif isinstance(layer, LSTM):
             input_dim = layer.input_shape[-1]
-            key = self._append_layer(
-                LSTMLayer(input_dim, weights=layer.get_weights()))
+            lstm_layer = LSTMLayer(input_dim, weights=layer.get_weights())
+            if resolved_inbounds:
+                lstm_layer.input_from = resolved_inbounds
+            key = self._append_layer(lstm_layer)
             created += 1
             self._register_cache_key(keras_name, key)
         elif isinstance(layer, Add):
-            resolved = [self._resolve_cache_key(name)
-                        for name in inbound_names]
-            key = self._append_layer(AddLayer(resolved))
+            key = self._append_layer(AddLayer(resolved_inbounds))
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, GlobalAveragePooling2D):
+            gap_layer = GlobalAveragePooling2DLayer()
+            if resolved_inbounds:
+                gap_layer.input_from = resolved_inbounds
+            key = self._append_layer(gap_layer)
             created += 1
             self._register_cache_key(keras_name, key)
         else:

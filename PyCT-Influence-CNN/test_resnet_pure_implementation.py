@@ -60,7 +60,9 @@ def run_test():
         raise AssertionError("No AddLayer instances were registered.")
 
     key_set = set(keys)
+    print("=== AddLayer inbound (SSA keys) ===")
     for add in add_layers:
+        print(add.input_from)
         for source in add.input_from:
             if source not in key_set and source != "layer_input":
                 raise AssertionError(f"AddLayer references missing source {source}")

@@ -1,3 +1,5 @@
+import os
+import re
 import keras
 from dnnct.myDNN import NNModel
 import numpy as np
@@ -19,64 +21,15 @@ def _get_inbound_layers(layer):  # 取得某層的上一層神經層的資訊
         inbound.extend(l for l in inbound_layers if l is not None)
     return inbound
 
-# 拓撲排序的核心是 indegree ＝ 0 的節點：只要前驅都處理完，就能進 queue。
-# 如果同時有好幾個候選要進 queue，layer_index 只是拿來決定先拿誰，目的是保持 deterministic。
 
-
-def _collect_execution_order(model):  # 取得模型中所有神經層的執行順序(拓樸排序)
-    all_layers = list(model.layers)
-    layer_index = {layer: idx for idx, layer in enumerate(all_layers)}
-    reachable = set()
+def _collect_layers_and_inbound(model):  # 收集模型的所有層及其上一層關係
+    layers = [l for l in model.layers if type(l).__name__ not in [
+        'Dropout', 'InputLayer']]
     inbound_map = {}
-
-    def mark_reachable(layer):
-        if layer is None or layer in reachable:
-            return
-        reachable.add(layer)
-        for parent in _get_inbound_layers(layer):
-            mark_reachable(parent)
-
-    for output_tensor in model.outputs:
-        history = getattr(output_tensor, "_keras_history", None)
-        if history:
-            mark_reachable(history[0])
-
-    if not reachable:
-        reachable = set(all_layers)
-
-    graph = {layer: set() for layer in reachable}
-    indegree = {layer: 0 for layer in reachable}
-    for layer in reachable:
-        for parent in _get_inbound_layers(layer):
-            if parent in reachable:
-                graph[parent].add(layer)
-                indegree[layer] += 1
-
-    # kahn's algorithm
-    # indegree代表依賴項目 ＃ 每次從DAG中移除indegree為0的節點
-    queue = [layer for layer, deg in indegree.items() if deg == 0]
-    queue.sort(key=lambda l: layer_index.get(l, 0))
-
-    execution_order = []
-    excluded = {"Dropout", "InputLayer"}
-    seen = set()
-
-    while queue:
-        current = queue.pop(0)
-        if current in seen:
-            continue
-        seen.add(current)
-        if type(current).__name__ not in excluded:
-            execution_order.append(current)
-            inbound_map[current.name] = [
-                parent.name for parent in _get_inbound_layers(current)]
-        for nxt in graph.get(current, ()):
-            indegree[nxt] -= 1
-            if indegree[nxt] == 0:
-                queue.append(nxt)
-        queue.sort(key=lambda l: layer_index.get(l, 0))
-
-    return execution_order, inbound_map
+    for layer in layers:
+        inbound_map[layer.name] = [
+            parent.name for parent in _get_inbound_layers(layer)]
+    return layers, inbound_map
 
 
 def _format_shape(shape):
@@ -85,8 +38,8 @@ def _format_shape(shape):
     return str(shape)
 
 
-# 純粹對照keras 模型定義層 與 執行的神經層執行順序
-def _describe_model_graph(model, execution_order):
+# 純粹對照 keras 模型定義層
+def _describe_model_layers(model, layers):
     print("=== Keras model.layers order ===")
     for idx, layer in enumerate(model.layers):
         inbound = [parent.name for parent in _get_inbound_layers(layer)]
@@ -96,14 +49,105 @@ def _describe_model_graph(model, execution_order):
             f"inbound={inbound}"
         )
 
-    print("=== Collected execution order ===")
-    for idx, layer in enumerate(execution_order):
-        inbound = [parent.name for parent in _get_inbound_layers(layer)]
-        print(
-            f"[{idx:03d}] {layer.name:<30} {layer.__class__.__name__:<28} "
-            f"output={_format_shape(getattr(layer, 'output_shape', None))} "
-            f"inbound={inbound}"
+
+RESNET_BUILDER_BY_DEPTH = {
+    18: "ResNet18",
+    34: "ResNet34",
+    50: "ResNet50",
+    101: "ResNet101",
+    152: "ResNet152",
+}
+
+KNOWN_RESNET_SPECS = {
+    "resnet18_mnist": {"depth": 18, "input_shape": (28, 28, 1), "num_classes": 10},
+    "resnet50_imagenet": {"depth": 50, "input_shape": (224, 224, 3), "num_classes": 1000},
+}
+
+
+def _get_resnet_custom_objects():
+    custom_objects = {}
+    try:
+        from keras_resnet.models import ResNet2D18
+        from keras_resnet.layers import BatchNormalization as ResNetBatchNorm
+
+        class ResNetBatchNormCompat(ResNetBatchNorm):
+            def __init__(self, *args, freeze=False, **kwargs):
+                super().__init__(*args, freeze=freeze, **kwargs)
+
+            @classmethod
+            def from_config(cls, config):
+                config = dict(config)
+                config.setdefault("freeze", False)
+                return super(ResNetBatchNormCompat, cls).from_config(config)
+
+        custom_objects["ResNet2D18"] = ResNet2D18
+        custom_objects["BatchNormalization"] = ResNetBatchNormCompat
+    except ModuleNotFoundError:
+        pass
+    return custom_objects
+
+
+def _needs_resnet_fallback(exc):
+    msg = str(exc)
+    return ("Unknown layer: 'ResNet2D" in msg
+            or "missing 1 required positional argument: 'inputs'" in msg)
+
+
+def _infer_resnet_specs(basename, input_shape_override=None, num_classes_override=None):
+    specs = KNOWN_RESNET_SPECS.get(basename, {}).copy()
+    if input_shape_override is not None:
+        specs["input_shape"] = input_shape_override
+    if num_classes_override is not None:
+        specs["num_classes"] = num_classes_override
+    if "depth" not in specs:
+        match = re.search(r"resnet(\d+)", basename)
+        if match:
+            specs["depth"] = int(match.group(1))
+    if "input_shape" not in specs or "num_classes" not in specs or "depth" not in specs:
+        return None
+    return specs
+
+
+def _build_resnet_model(depth, input_shape, num_classes):
+    try:
+        from keras_resnet import models as kr_models
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            "載入 ResNet 權重需要 `keras-resnet` 套件，請先安裝 `pip install keras-resnet`。"
+        ) from exc
+
+    builder_name = RESNET_BUILDER_BY_DEPTH.get(depth)
+    if builder_name is None:
+        raise ValueError(f"不支援的 ResNet 深度: {depth}")
+    builder = getattr(kr_models, builder_name, None)
+    if builder is None:
+        raise ValueError(f"在 keras_resnet 中找不到建構函式 {builder_name}")
+
+    inputs = keras.layers.Input(shape=input_shape)
+    return builder(inputs=inputs, classes=num_classes, include_top=True, freeze_bn=False)
+
+
+def load_keras_model(model_path, input_shape_override=None, num_classes_override=None):
+    """載入 Keras 模型，必要時改以建立 ResNet 架構後匯入權重。"""
+    custom_objects = _get_resnet_custom_objects()
+    try:
+        return keras.models.load_model(
+            model_path, custom_objects=custom_objects, compile=False)
+    except (ValueError, TypeError) as exc:
+        if not _needs_resnet_fallback(exc):
+            raise
+        basename = os.path.splitext(os.path.basename(model_path))[0]
+        specs = _infer_resnet_specs(
+            basename, input_shape_override=input_shape_override,
+            num_classes_override=num_classes_override
         )
+        if specs is None:
+            raise ValueError(
+                f"無法解析 {basename} 的輸入形狀或分類數，請提供 input_shape / num_classes。"
+            ) from exc
+        model = _build_resnet_model(specs["depth"], specs["input_shape"], specs["num_classes"])
+        model.load_weights(model_path)
+        return model
 
 
 myModel = None
@@ -111,13 +155,10 @@ myModel = None
 
 def init_model(model_path):
     global myModel
-    model = keras.models.load_model(model_path)
+    model = load_keras_model(model_path)
     model.summary()
-    layers, inbound_map = _collect_execution_order(model)
-    _describe_model_graph(model, layers)
-    if not layers:
-        layers = [l for l in model.layers if type(
-            l).__name__ not in ['Dropout']]
+    layers, inbound_map = _collect_layers_and_inbound(model)
+    _describe_model_layers(model, layers)
     myModel = NNModel()
     input_layer_names = [
         layer.name for layer in model.layers if type(layer).__name__ == "InputLayer"]
@@ -145,24 +186,9 @@ def init_model(model_path):
         print(type(myLayer))
 
 
-myInput = None
-
-
-def init_input(input):
-    global myInput
-    myInput = input
-
-
-def predict_2(**weights):
-    # TODO: make a new model with the weights
-    # TODO: run the globally defined input through the model
-    pass
-
-
-def predict(**data):
-    # cast the flattened input dict 'data' back to the original shape and save to X
+def _forward_from_flat_data(data):
+    """將扁平輸入還原成 tensor 並回傳 NNModel logits。"""
     input_shape = myModel.input_shape
-
     iter_args = (range(dim) for dim in input_shape)
     X = np.zeros(input_shape).tolist()
     data_name_prefix = "v_"
@@ -175,9 +201,17 @@ def predict(**data):
         elif len(i) == 4:
             X[i[0]][i[1]][i[2]][i[3]
                                 ] = data[f"{data_name_prefix}{i[0]}_{i[1]}_{i[2]}_{i[3]}"]
-    # calculate the output of the model
+    return myModel.forward(X)
 
-    out_val = myModel.forward(X)
+
+def predict_logits(**data):
+    """回傳 NNModel 的 logits，方便和 Keras 模型做數值比對。"""
+    return _forward_from_flat_data(data)
+
+
+def predict(**data):
+    # calculate the output of the model
+    out_val = _forward_from_flat_data(data)
 
     # 用一顆神經元做二分類
     if len(out_val) == 1:
