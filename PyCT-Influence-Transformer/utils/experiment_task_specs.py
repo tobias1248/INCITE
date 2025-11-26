@@ -88,6 +88,28 @@ def _normalize_indices(first_n_img: Any) -> List[int]:
     raise TypeError(f"Unsupported type for first_n_img: {type(first_n_img)!r}")
 
 
+def _normalize_ton_sequence(
+    ton_values: Optional[Sequence[int]],
+    *,
+    fallback: Optional[int] = None,
+) -> Tuple[int, ...]:
+    if ton_values is None:
+        ton_values = [fallback] if fallback is not None else None
+    if ton_values is None:
+        raise ValueError("ton_values must be provided or fallback must be set.")
+
+    sequence: List[int] = []
+    for value in ton_values:
+        ton = int(value)
+        if ton < 1:
+            raise ValueError("ton_values must all be >= 1.")
+        if ton not in sequence:
+            sequence.append(ton)
+    if not sequence:
+        raise ValueError("ton_values must contain at least one value.")
+    return tuple(sequence)
+
+
 def _make_shap_provider(shap_array: np.ndarray) -> Callable[[int, int], List[Any]]:
     def provider(idx: int, ton: int) -> List[Any]:
         return shap_array[idx, :ton].tolist()
@@ -218,13 +240,13 @@ def fashion_mnist_transformer_shap(
     first_n_img: Iterable[int],
     force: bool = False,
     *,
-    ton: int = 1,
+    ton_values: Optional[Sequence[int]] = None,
+    ton: Optional[int] = None,
     exp_prefix: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     from utils.dataset import FashionMnistDataset
 
-    if ton < 1:
-        raise ValueError("ton must be >= 1 for SHAP-guided attacks.")
+    ton_sequence = _normalize_ton_sequence(ton_values, fallback=ton or 1)
 
     pixel_provider = JsonShapPixelProvider(
         model_name=model_name,
@@ -233,51 +255,69 @@ def fashion_mnist_transformer_shap(
     )
     queue_mode = QueueMode("priority_queue", "priority_queue")
 
-    def attack_pixel_fn(idx: int, ton: int) -> List[Any]:
-        return pixel_provider.top_pixels(idx, ton)
+    prefix = f"{exp_prefix.strip('/')}/" if exp_prefix else ""
+    dataset = FashionMnistDataset()
+    indices = _normalize_indices(first_n_img)
 
-    def payload_builder(
-        dataset: Any,
-        idx: int,
-        attack_pixels: List[Any],
-        ton: int,
-        mode: QueueMode,
-    ) -> Dict[str, Any]:
-        in_dict, con_dict, input_for_shap, background_dataset_for_shap = (
-            dataset.get_fashion_mnist_test_data_and_set_condict(idx, attack_pixels)
-        )
-        return {
+    inputs: List[Dict[str, Any]] = []
+    skipped = 0
+
+    for idx in indices:
+        ton_plans: List[Dict[str, Any]] = []
+        base_in_dict: Optional[Dict[str, Any]] = None
+        input_for_shap = None
+        background_dataset_for_shap = None
+
+        for ton_value in ton_sequence:
+            save_exp = {
+                "input_name": f"fashion_mnist_test_{idx}",
+                "exp_name": f"{prefix}shap_{ton_value}",
+            }
+            save_dir = get_save_dir_from_save_exp(
+                save_exp,
+                model_name,
+                queue_mode.identifier,
+                only_first_forward=False,
+            )
+            if not force and os.path.exists(save_dir):
+                skipped += 1
+                continue
+
+            attack_pixels = pixel_provider.top_pixels(idx, ton_value)
+            (
+                in_dict,
+                con_dict,
+                input_for_shap,
+                background_dataset_for_shap,
+            ) = dataset.get_fashion_mnist_test_data_and_set_condict(idx, attack_pixels)
+            if base_in_dict is None:
+                base_in_dict = in_dict
+            ton_plans.append(
+                {
+                    "ton": ton_value,
+                    "con_dict": con_dict,
+                    "save_exp": save_exp,
+                }
+            )
+
+        if not ton_plans or base_in_dict is None:
+            continue
+
+        entry: Dict[str, Any] = {
+            "model_name": model_name,
             "idx": idx,
-            "in_dict": in_dict,
-            "con_dict": con_dict,
+            "in_dict": base_in_dict,
             "input_for_shap": input_for_shap,
             "background_dataset_for_shap": background_dataset_for_shap,
-            "solve_order_stack": mode.solve_order_stack,
+            "solve_order_stack": queue_mode.solve_order_stack,
             "shap_value_pre_calculated": True,
             "popped_log_attack_mode": "shap",
+            "ton_plans": ton_plans,
         }
+        inputs.append(entry)
 
-    prefix = f"{exp_prefix.strip('/')}/" if exp_prefix else ""
-    spec = TaskGenerationSpec(
-        dataset_factory=FashionMnistDataset,
-        attack_pixel_fn=attack_pixel_fn,
-        queue_modes=[queue_mode],
-        ton_values=[ton],
-        save_exp_builder=lambda idx, ton, mode: {
-            "input_name": f"fashion_mnist_test_{idx}",
-            "exp_name": f"{prefix}shap_{ton}",
-        },
-        payload_builder=payload_builder,
-    )
-
-    result = _generate_inputs(
-        model_name,
-        first_n_img,
-        spec,
-        skip_existing_override=not force,
-    )
-    log.info("built inputs=%s skipped=%s", len(result.inputs), result.skipped)
-    return result.inputs
+    log.info("built inputs=%s skipped=%s", len(inputs), skipped)
+    return inputs
 
 
 def fashion_mnist_transformer_random(
@@ -291,66 +331,78 @@ def fashion_mnist_transformer_random(
 ) -> List[Dict[str, Any]]:
     from utils.dataset import FashionMnistDataset
 
-    ton_values = tuple(ton_values)
-    if not ton_values:
-        raise ValueError("ton_values must contain at least one value.")
+    ton_sequence = _normalize_ton_sequence(ton_values)
 
     dataset = FashionMnistDataset()
     sample_shape = tuple(int(dim) for dim in dataset.x_test.shape[1:])
-    coordinate_provider = _make_coordinate_provider(sample_shape, ton_values, base_seed=base_seed)
+    coordinate_provider = _make_coordinate_provider(sample_shape, ton_sequence, base_seed=base_seed)
     queue_mode = QueueMode("priority_queue", "priority_queue")
 
-    def attack_pixel_fn(idx: int, ton: int) -> List[Any]:
-        return [list(coord) for coord in coordinate_provider(idx, ton)]
+    prefix = exp_prefix.strip("/") if exp_prefix else "random_select"
+    indices = _normalize_indices(first_n_img)
 
-    def payload_builder(
-        dataset_obj: Any,
-        idx: int,
-        attack_pixels: List[Any],
-        ton: int,
-        mode: QueueMode,
-    ) -> Dict[str, Any]:
-        (
-            in_dict,
-            con_dict,
-            input_for_shap,
-            background_dataset_for_shap,
-        ) = dataset_obj.get_fashion_mnist_test_data_and_set_condict(
-            idx,
-            [tuple(pixel) for pixel in attack_pixels],
-        )
-        return {
+    inputs: List[Dict[str, Any]] = []
+    skipped = 0
+
+    for idx in indices:
+        ton_plans: List[Dict[str, Any]] = []
+        base_in_dict: Optional[Dict[str, Any]] = None
+        input_for_shap = None
+        background_dataset_for_shap = None
+
+        for ton_value in ton_sequence:
+            save_exp = {
+                "input_name": f"fashion_mnist_test_{idx}",
+                "exp_name": f"{prefix}/random_{ton_value}",
+            }
+            save_dir = get_save_dir_from_save_exp(
+                save_exp,
+                model_name,
+                queue_mode.identifier,
+                only_first_forward=False,
+            )
+            if not force and os.path.exists(save_dir):
+                skipped += 1
+                continue
+
+            attack_pixels = [list(coord) for coord in coordinate_provider(idx, ton_value)]
+            (
+                in_dict,
+                con_dict,
+                input_for_shap,
+                background_dataset_for_shap,
+            ) = dataset.get_fashion_mnist_test_data_and_set_condict(
+                idx,
+                [tuple(pixel) for pixel in attack_pixels],
+            )
+            if base_in_dict is None:
+                base_in_dict = in_dict
+            ton_plans.append(
+                {
+                    "ton": ton_value,
+                    "con_dict": con_dict,
+                    "save_exp": save_exp,
+                }
+            )
+
+        if not ton_plans or base_in_dict is None:
+            continue
+
+        entry: Dict[str, Any] = {
+            "model_name": model_name,
             "idx": idx,
-            "in_dict": in_dict,
-            "con_dict": con_dict,
+            "in_dict": base_in_dict,
             "input_for_shap": input_for_shap,
             "background_dataset_for_shap": background_dataset_for_shap,
-            "solve_order_stack": mode.solve_order_stack,
+            "solve_order_stack": queue_mode.solve_order_stack,
             "shap_value_pre_calculated": True,
             "popped_log_attack_mode": "random",
+            "ton_plans": ton_plans,
         }
+        inputs.append(entry)
 
-    prefix = exp_prefix.strip("/") if exp_prefix else "random_select"
-    spec = TaskGenerationSpec(
-        dataset_factory=lambda: dataset,
-        attack_pixel_fn=attack_pixel_fn,
-        queue_modes=[queue_mode],
-        ton_values=list(ton_values),
-        save_exp_builder=lambda idx, ton, mode: {
-            "input_name": f"fashion_mnist_test_{idx}",
-            "exp_name": f"{prefix}/random_{ton}",
-        },
-        payload_builder=payload_builder,
-    )
-
-    result = _generate_inputs(
-        model_name,
-        first_n_img,
-        spec,
-        skip_existing_override=not force,
-    )
-    log.info("built inputs=%s skipped=%s", len(result.inputs), result.skipped)
-    return result.inputs
+    log.info("built inputs=%s skipped=%s", len(inputs), skipped)
+    return inputs
 
 
 def fashion_mnist_transformer_shap_calculate_all(

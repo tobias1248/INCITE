@@ -191,7 +191,41 @@ class ShapRunner(BaseRunner):
         self.model_type = model_type
 
     def _run_single(self, payload: Dict[str, Any]) -> None:
-        return self._execute_attack(payload)
+        ton_plans = payload.pop("ton_plans", None)
+        if not ton_plans:
+            return self._execute_attack(payload)
+
+        base_payload = dict(payload)
+        last_result = None
+
+        for plan in ton_plans:
+            plan_payload = dict(base_payload)
+            plan_payload["con_dict"] = plan["con_dict"]
+            plan_payload["save_exp"] = plan["save_exp"]
+
+            start_time = time.monotonic()
+            result = self._execute_attack(plan_payload)
+            last_result = result
+
+            recorder = None
+            if isinstance(result, tuple) and len(result) >= 2:
+                recorder = result[1]
+            if recorder is not None:
+                recorder.attack_wall_time = time.monotonic() - start_time  # type: ignore[attr-defined]
+                attack_label = getattr(recorder, "attack_label", None)
+                solved_all = getattr(recorder, "solve_all_ctr", False)
+                is_timeout = getattr(recorder, "is_timeout", False)
+
+                if attack_label is not None:
+                    break  # success
+                if solved_all:
+                    continue  # fully explored, move to next ton
+                # If not solved_all (likely timeout or unfinished), stop trying higher tons.
+                if is_timeout:
+                    break
+                break
+
+        return last_result
 
 
 # class _ShapPrefetchRunner(BaseRunner):
@@ -237,6 +271,28 @@ class RandomAssignRunner(BaseRunner):
         self.model_type = model_type
 
     def _run_single(self, payload: Dict[str, Any]) -> None:
+        ton_plans = payload.pop("ton_plans", None)
+        if not ton_plans:
+            return self._run_random_assign_for_plan(payload)
+
+        base_payload = dict(payload)
+        last_result = None
+
+        for plan in ton_plans:
+            plan_payload = dict(base_payload)
+            plan_payload["con_dict"] = plan["con_dict"]
+            plan_payload["save_exp"] = plan["save_exp"]
+
+            result = self._run_random_assign_for_plan(plan_payload)
+            last_result = result
+            if result.success:
+                break
+
+        if last_result is None:
+            raise RuntimeError("Random assign baseline failed to produce any attempt result.")
+        return last_result
+
+    def _run_random_assign_for_plan(self, payload: Dict[str, Any]) -> Any:
         start_time = time.monotonic()
         attempt = 0
         final_result = None

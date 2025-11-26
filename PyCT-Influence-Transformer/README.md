@@ -8,15 +8,18 @@ This project extends **[PyCT](https://github.com/kupl/PyCT)** by implementing SH
 
 The project environment consists of three main steps:
 
-### 1. CVC5 Setup
-This project requires **[CVC5](https://github.com/cvc5/cvc5)**. 
+### 1. CVC4 Setup
+This project currently requires **[CVC4](https://github.com/cvc5/cvc4)** (we have not migrated to CVC5 yet). 
 
-> **Note:** Compiling CVC5 requires a **Linux system** (e.g., Ubuntu) or **WSL** on Windows.  
+> **Note:** Building CVC4 requires a **Linux system** (e.g., Ubuntu) or **WSL** on Windows.  
 
 Run the following commands in your terminal:
 ```bash
-git clone https://github.com/cvc5/cvc5.git
-./configure.sh
+git clone https://github.com/cvc5/cvc4.git
+cd cvc4
+contrib/get-antlr-3.4
+contrib/get-sources.sh
+./configure.sh --optimized
 cd build
 make -j$(nporc)
 make check
@@ -24,7 +27,7 @@ sudo make install
 ```
 Verify installation:
 ```bash
-cvc5 --version
+cvc4 --version
 ```
 
 ### 2. Create a Python 3.9 Virtual Environment
@@ -49,6 +52,9 @@ conda activate shap-concolic
 ├─ shap_value/ 
 ├─ shap_value_all_layer/ 
 ├─ utils/
+├─ start_cli.py
+├─ start_config.py
+├─ start_launch.py
 ├─ .gitignore
 ├─ dnnct_predict_common.py
 ├─ shap_map_calculator.py
@@ -66,10 +72,14 @@ conda activate shap-concolic
 ---
 
 ## Running the Attack
-Execute the SHAP-guided concolic test on a Transformer model:
+The entrypoint is now split: `start_cli.py` parses CLI flags, `start_launch.py` schedules work, and `start_test.py` is the thin wrapper you execute.
+
+Execute a SHAP-guided concolic test on a Transformer model (default pixel search `1,2,4,8,16,32`):
 
 ```bash
-python3 start_test.py
+python3 start_test.py \
+  --model-name transformer_fashion_mnist \
+  --attack-mode shap
 ```
 If the setup is successful, you should see logs similar to:
 
@@ -88,4 +98,36 @@ ________________________________________________________________________________
 ```
 ---
 
+### CLI flags of interest
 
+| Flag | Description |
+| ---- | ----------- |
+| `--model-name` | Selects which saved model (under `model/`) to attack, e.g. `transformer_fashion_mnist` or `mnist_sep_act_m6_9628`. |
+| `--attack-mode` | `shap`, `random`, or `random-assign`. |
+| `--pixel-search` | Comma-separated ton sequence to try per input (default `1,2,4,8,16,32`). |
+| `--pixel-source` | Only used with `--attack-mode random-assign`; choose `random` for RNG pixels or `shap` to reuse the SHAP ranking. |
+| `--first-n` | Upper bound on dataset indices to enqueue (default 100). Combined with resume logic to skip finished inputs. |
+| `--num-process` | Number of worker processes to spawn (default 1). |
+| `--force-refresh` | Regenerate experiment folders even if `exp/<model>/<queue>/<exp_name>/fashion_mnist_test_*` already exists. |
+| `--timeout`, `--spawn-delay`, `--random-seed`, `--norm-01`/`--no-norm-01`, `--log-level`, `--explore-log-level`, `--solver-log-level`, `--log-file` | Miscellaneous runtime/logging knobs. See `python start_test.py --help` for full details. |
+
+Example random baseline with multi-pixel perturbations:
+
+```bash
+python3 start_test.py \
+  --model-name transformer_fashion_mnist \
+  --attack-mode random \
+  --pixel-search 8 \
+  --num-process 4 \
+  --first-n 200
+```
+
+Example SHAP-guided run that resumes from prior progress:
+
+```bash
+python3 start_test.py \
+  --model-name mnist_sep_act_m6_9628 \
+  --attack-mode shap \
+  --pixel-search 2 \
+  --first-n 50
+```
