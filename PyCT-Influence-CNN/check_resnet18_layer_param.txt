@@ -1,0 +1,543 @@
+Loaded model: res_net2d18
+================================================================================
+[000] (InputLayer) input_1
+  config keys: ['batch_input_shape', 'dtype', 'name', 'ragged', 'sparse']
+--------------------------------------------------------------------------------
+[001] (Conv2D) conv1
+  kernel_size: (7, 7)
+  strides: (2, 2)
+  padding: same
+  filters: 64
+  use_bias: False
+    weight: conv1/kernel:0 shape=(7, 7, 1, 64)
+--------------------------------------------------------------------------------
+[002] (BatchNormalization) bn_conv1
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn_conv1/gamma:0 shape=(64,)
+    weight: bn_conv1/beta:0 shape=(64,)
+    weight: bn_conv1/moving_mean:0 shape=(64,)
+    weight: bn_conv1/moving_variance:0 shape=(64,)
+--------------------------------------------------------------------------------
+[003] (Activation) conv1_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[004] (MaxPooling2D) pool1
+  pool_size: (3, 3)
+  strides: (2, 2)
+  padding: same
+--------------------------------------------------------------------------------
+[005] (ZeroPadding2D) padding2a_branch2a
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[006] (Conv2D) res2a_branch2a
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 64
+  use_bias: False
+    weight: res2a_branch2a/kernel:0 shape=(3, 3, 64, 64)
+--------------------------------------------------------------------------------
+[007] (BatchNormalization) bn2a_branch2a
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn2a_branch2a/gamma:0 shape=(64,)
+    weight: bn2a_branch2a/beta:0 shape=(64,)
+    weight: bn2a_branch2a/moving_mean:0 shape=(64,)
+    weight: bn2a_branch2a/moving_variance:0 shape=(64,)
+--------------------------------------------------------------------------------
+[008] (Activation) res2a_branch2a_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[009] (ZeroPadding2D) padding2a_branch2b
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[010] (Conv2D) res2a_branch2b
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 64
+  use_bias: False
+    weight: res2a_branch2b/kernel:0 shape=(3, 3, 64, 64)
+--------------------------------------------------------------------------------
+[011] (Conv2D) res2a_branch1
+  kernel_size: (1, 1)
+  strides: (1, 1)
+  padding: valid
+  filters: 64
+  use_bias: False
+    weight: res2a_branch1/kernel:0 shape=(1, 1, 64, 64)
+--------------------------------------------------------------------------------
+[012] (BatchNormalization) bn2a_branch2b
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn2a_branch2b/gamma:0 shape=(64,)
+    weight: bn2a_branch2b/beta:0 shape=(64,)
+    weight: bn2a_branch2b/moving_mean:0 shape=(64,)
+    weight: bn2a_branch2b/moving_variance:0 shape=(64,)
+--------------------------------------------------------------------------------
+[013] (BatchNormalization) bn2a_branch1
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn2a_branch1/gamma:0 shape=(64,)
+    weight: bn2a_branch1/beta:0 shape=(64,)
+    weight: bn2a_branch1/moving_mean:0 shape=(64,)
+    weight: bn2a_branch1/moving_variance:0 shape=(64,)
+--------------------------------------------------------------------------------
+[014] (Add) res2a
+  config keys: ['dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[015] (Activation) res2a_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[016] (ZeroPadding2D) padding2b1_branch2a
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[017] (Conv2D) res2b1_branch2a
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 64
+  use_bias: False
+    weight: res2b1_branch2a/kernel:0 shape=(3, 3, 64, 64)
+--------------------------------------------------------------------------------
+[018] (BatchNormalization) bn2b1_branch2a
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn2b1_branch2a/gamma:0 shape=(64,)
+    weight: bn2b1_branch2a/beta:0 shape=(64,)
+    weight: bn2b1_branch2a/moving_mean:0 shape=(64,)
+    weight: bn2b1_branch2a/moving_variance:0 shape=(64,)
+--------------------------------------------------------------------------------
+[019] (Activation) res2b1_branch2a_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[020] (ZeroPadding2D) padding2b1_branch2b
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[021] (Conv2D) res2b1_branch2b
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 64
+  use_bias: False
+    weight: res2b1_branch2b/kernel:0 shape=(3, 3, 64, 64)
+--------------------------------------------------------------------------------
+[022] (BatchNormalization) bn2b1_branch2b
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn2b1_branch2b/gamma:0 shape=(64,)
+    weight: bn2b1_branch2b/beta:0 shape=(64,)
+    weight: bn2b1_branch2b/moving_mean:0 shape=(64,)
+    weight: bn2b1_branch2b/moving_variance:0 shape=(64,)
+--------------------------------------------------------------------------------
+[023] (Add) res2b1
+  config keys: ['dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[024] (Activation) res2b1_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[025] (ZeroPadding2D) padding3a_branch2a
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[026] (Conv2D) res3a_branch2a
+  kernel_size: (3, 3)
+  strides: (2, 2)
+  padding: valid
+  filters: 128
+  use_bias: False
+    weight: res3a_branch2a/kernel:0 shape=(3, 3, 64, 128)
+--------------------------------------------------------------------------------
+[027] (BatchNormalization) bn3a_branch2a
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn3a_branch2a/gamma:0 shape=(128,)
+    weight: bn3a_branch2a/beta:0 shape=(128,)
+    weight: bn3a_branch2a/moving_mean:0 shape=(128,)
+    weight: bn3a_branch2a/moving_variance:0 shape=(128,)
+--------------------------------------------------------------------------------
+[028] (Activation) res3a_branch2a_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[029] (ZeroPadding2D) padding3a_branch2b
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[030] (Conv2D) res3a_branch2b
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 128
+  use_bias: False
+    weight: res3a_branch2b/kernel:0 shape=(3, 3, 128, 128)
+--------------------------------------------------------------------------------
+[031] (Conv2D) res3a_branch1
+  kernel_size: (1, 1)
+  strides: (2, 2)
+  padding: valid
+  filters: 128
+  use_bias: False
+    weight: res3a_branch1/kernel:0 shape=(1, 1, 64, 128)
+--------------------------------------------------------------------------------
+[032] (BatchNormalization) bn3a_branch2b
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn3a_branch2b/gamma:0 shape=(128,)
+    weight: bn3a_branch2b/beta:0 shape=(128,)
+    weight: bn3a_branch2b/moving_mean:0 shape=(128,)
+    weight: bn3a_branch2b/moving_variance:0 shape=(128,)
+--------------------------------------------------------------------------------
+[033] (BatchNormalization) bn3a_branch1
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn3a_branch1/gamma:0 shape=(128,)
+    weight: bn3a_branch1/beta:0 shape=(128,)
+    weight: bn3a_branch1/moving_mean:0 shape=(128,)
+    weight: bn3a_branch1/moving_variance:0 shape=(128,)
+--------------------------------------------------------------------------------
+[034] (Add) res3a
+  config keys: ['dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[035] (Activation) res3a_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[036] (ZeroPadding2D) padding3b1_branch2a
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[037] (Conv2D) res3b1_branch2a
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 128
+  use_bias: False
+    weight: res3b1_branch2a/kernel:0 shape=(3, 3, 128, 128)
+--------------------------------------------------------------------------------
+[038] (BatchNormalization) bn3b1_branch2a
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn3b1_branch2a/gamma:0 shape=(128,)
+    weight: bn3b1_branch2a/beta:0 shape=(128,)
+    weight: bn3b1_branch2a/moving_mean:0 shape=(128,)
+    weight: bn3b1_branch2a/moving_variance:0 shape=(128,)
+--------------------------------------------------------------------------------
+[039] (Activation) res3b1_branch2a_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[040] (ZeroPadding2D) padding3b1_branch2b
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[041] (Conv2D) res3b1_branch2b
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 128
+  use_bias: False
+    weight: res3b1_branch2b/kernel:0 shape=(3, 3, 128, 128)
+--------------------------------------------------------------------------------
+[042] (BatchNormalization) bn3b1_branch2b
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn3b1_branch2b/gamma:0 shape=(128,)
+    weight: bn3b1_branch2b/beta:0 shape=(128,)
+    weight: bn3b1_branch2b/moving_mean:0 shape=(128,)
+    weight: bn3b1_branch2b/moving_variance:0 shape=(128,)
+--------------------------------------------------------------------------------
+[043] (Add) res3b1
+  config keys: ['dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[044] (Activation) res3b1_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[045] (ZeroPadding2D) padding4a_branch2a
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[046] (Conv2D) res4a_branch2a
+  kernel_size: (3, 3)
+  strides: (2, 2)
+  padding: valid
+  filters: 256
+  use_bias: False
+    weight: res4a_branch2a/kernel:0 shape=(3, 3, 128, 256)
+--------------------------------------------------------------------------------
+[047] (BatchNormalization) bn4a_branch2a
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn4a_branch2a/gamma:0 shape=(256,)
+    weight: bn4a_branch2a/beta:0 shape=(256,)
+    weight: bn4a_branch2a/moving_mean:0 shape=(256,)
+    weight: bn4a_branch2a/moving_variance:0 shape=(256,)
+--------------------------------------------------------------------------------
+[048] (Activation) res4a_branch2a_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[049] (ZeroPadding2D) padding4a_branch2b
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[050] (Conv2D) res4a_branch2b
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 256
+  use_bias: False
+    weight: res4a_branch2b/kernel:0 shape=(3, 3, 256, 256)
+--------------------------------------------------------------------------------
+[051] (Conv2D) res4a_branch1
+  kernel_size: (1, 1)
+  strides: (2, 2)
+  padding: valid
+  filters: 256
+  use_bias: False
+    weight: res4a_branch1/kernel:0 shape=(1, 1, 128, 256)
+--------------------------------------------------------------------------------
+[052] (BatchNormalization) bn4a_branch2b
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn4a_branch2b/gamma:0 shape=(256,)
+    weight: bn4a_branch2b/beta:0 shape=(256,)
+    weight: bn4a_branch2b/moving_mean:0 shape=(256,)
+    weight: bn4a_branch2b/moving_variance:0 shape=(256,)
+--------------------------------------------------------------------------------
+[053] (BatchNormalization) bn4a_branch1
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn4a_branch1/gamma:0 shape=(256,)
+    weight: bn4a_branch1/beta:0 shape=(256,)
+    weight: bn4a_branch1/moving_mean:0 shape=(256,)
+    weight: bn4a_branch1/moving_variance:0 shape=(256,)
+--------------------------------------------------------------------------------
+[054] (Add) res4a
+  config keys: ['dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[055] (Activation) res4a_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[056] (ZeroPadding2D) padding4b1_branch2a
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[057] (Conv2D) res4b1_branch2a
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 256
+  use_bias: False
+    weight: res4b1_branch2a/kernel:0 shape=(3, 3, 256, 256)
+--------------------------------------------------------------------------------
+[058] (BatchNormalization) bn4b1_branch2a
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn4b1_branch2a/gamma:0 shape=(256,)
+    weight: bn4b1_branch2a/beta:0 shape=(256,)
+    weight: bn4b1_branch2a/moving_mean:0 shape=(256,)
+    weight: bn4b1_branch2a/moving_variance:0 shape=(256,)
+--------------------------------------------------------------------------------
+[059] (Activation) res4b1_branch2a_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[060] (ZeroPadding2D) padding4b1_branch2b
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[061] (Conv2D) res4b1_branch2b
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 256
+  use_bias: False
+    weight: res4b1_branch2b/kernel:0 shape=(3, 3, 256, 256)
+--------------------------------------------------------------------------------
+[062] (BatchNormalization) bn4b1_branch2b
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn4b1_branch2b/gamma:0 shape=(256,)
+    weight: bn4b1_branch2b/beta:0 shape=(256,)
+    weight: bn4b1_branch2b/moving_mean:0 shape=(256,)
+    weight: bn4b1_branch2b/moving_variance:0 shape=(256,)
+--------------------------------------------------------------------------------
+[063] (Add) res4b1
+  config keys: ['dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[064] (Activation) res4b1_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[065] (ZeroPadding2D) padding5a_branch2a
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[066] (Conv2D) res5a_branch2a
+  kernel_size: (3, 3)
+  strides: (2, 2)
+  padding: valid
+  filters: 512
+  use_bias: False
+    weight: res5a_branch2a/kernel:0 shape=(3, 3, 256, 512)
+--------------------------------------------------------------------------------
+[067] (BatchNormalization) bn5a_branch2a
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn5a_branch2a/gamma:0 shape=(512,)
+    weight: bn5a_branch2a/beta:0 shape=(512,)
+    weight: bn5a_branch2a/moving_mean:0 shape=(512,)
+    weight: bn5a_branch2a/moving_variance:0 shape=(512,)
+--------------------------------------------------------------------------------
+[068] (Activation) res5a_branch2a_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[069] (ZeroPadding2D) padding5a_branch2b
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[070] (Conv2D) res5a_branch2b
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 512
+  use_bias: False
+    weight: res5a_branch2b/kernel:0 shape=(3, 3, 512, 512)
+--------------------------------------------------------------------------------
+[071] (Conv2D) res5a_branch1
+  kernel_size: (1, 1)
+  strides: (2, 2)
+  padding: valid
+  filters: 512
+  use_bias: False
+    weight: res5a_branch1/kernel:0 shape=(1, 1, 256, 512)
+--------------------------------------------------------------------------------
+[072] (BatchNormalization) bn5a_branch2b
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn5a_branch2b/gamma:0 shape=(512,)
+    weight: bn5a_branch2b/beta:0 shape=(512,)
+    weight: bn5a_branch2b/moving_mean:0 shape=(512,)
+    weight: bn5a_branch2b/moving_variance:0 shape=(512,)
+--------------------------------------------------------------------------------
+[073] (BatchNormalization) bn5a_branch1
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn5a_branch1/gamma:0 shape=(512,)
+    weight: bn5a_branch1/beta:0 shape=(512,)
+    weight: bn5a_branch1/moving_mean:0 shape=(512,)
+    weight: bn5a_branch1/moving_variance:0 shape=(512,)
+--------------------------------------------------------------------------------
+[074] (Add) res5a
+  config keys: ['dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[075] (Activation) res5a_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[076] (ZeroPadding2D) padding5b1_branch2a
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[077] (Conv2D) res5b1_branch2a
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 512
+  use_bias: False
+    weight: res5b1_branch2a/kernel:0 shape=(3, 3, 512, 512)
+--------------------------------------------------------------------------------
+[078] (BatchNormalization) bn5b1_branch2a
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn5b1_branch2a/gamma:0 shape=(512,)
+    weight: bn5b1_branch2a/beta:0 shape=(512,)
+    weight: bn5b1_branch2a/moving_mean:0 shape=(512,)
+    weight: bn5b1_branch2a/moving_variance:0 shape=(512,)
+--------------------------------------------------------------------------------
+[079] (Activation) res5b1_branch2a_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[080] (ZeroPadding2D) padding5b1_branch2b
+  padding: ((1, 1), (1, 1))
+--------------------------------------------------------------------------------
+[081] (Conv2D) res5b1_branch2b
+  kernel_size: (3, 3)
+  strides: (1, 1)
+  padding: valid
+  filters: 512
+  use_bias: False
+    weight: res5b1_branch2b/kernel:0 shape=(3, 3, 512, 512)
+--------------------------------------------------------------------------------
+[082] (BatchNormalization) bn5b1_branch2b
+  axis: ListWrapper([3])
+  momentum: 0.99
+  epsilon: 1e-05
+  center: True
+  scale: True
+    weight: bn5b1_branch2b/gamma:0 shape=(512,)
+    weight: bn5b1_branch2b/beta:0 shape=(512,)
+    weight: bn5b1_branch2b/moving_mean:0 shape=(512,)
+    weight: bn5b1_branch2b/moving_variance:0 shape=(512,)
+--------------------------------------------------------------------------------
+[083] (Add) res5b1
+  config keys: ['dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[084] (Activation) res5b1_relu
+  config keys: ['activation', 'dtype', 'name', 'trainable']
+--------------------------------------------------------------------------------
+[085] (GlobalAveragePooling2D) pool5
+  name: pool5
+  trainable: True
+  dtype: float32
+  data_format: channels_last
+  keepdims: False
+--------------------------------------------------------------------------------
+[086] (Dense) fc1000
+  config keys: ['activation', 'activity_regularizer', 'bias_constraint', 'bias_initializer', 'bias_regularizer', 'dtype', 'kernel_constraint', 'kernel_initializer', 'kernel_regularizer', 'name', 'trainable', 'units', 'use_bias']
+    weight: fc1000/kernel:0 shape=(512, 10)
+    weight: fc1000/bias:0 shape=(10,)
