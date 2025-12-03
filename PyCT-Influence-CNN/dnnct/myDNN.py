@@ -286,8 +286,10 @@ class Conv2DLayer:
         if self.padding.lower() == 'same':
             out_h = math.ceil(in_shape[0] / stride_h)
             out_w = math.ceil(in_shape[1] / stride_w)
-            pad_along_height = max((out_h - 1) * stride_h + kernel_h - in_shape[0], 0)
-            pad_along_width = max((out_w - 1) * stride_w + kernel_w - in_shape[1], 0)
+            pad_along_height = max(
+                (out_h - 1) * stride_h + kernel_h - in_shape[0], 0)
+            pad_along_width = max(
+                (out_w - 1) * stride_w + kernel_w - in_shape[1], 0)
             pad_top = pad_along_height // 2
             pad_bottom = pad_along_height - pad_top
             pad_left = pad_along_width // 2
@@ -352,44 +354,63 @@ class Conv2DLayer:
 
 
 class MaxPool2DLayer:
-    def __init__(self, shape, stride=1, padding='valid'):
-        self.pool_size = shape
-        self.stride = stride
-        self.padding = padding
+    def __init__(self, shape, stride=None, padding='valid'):
+        if isinstance(shape, int):
+            self.pool_size = (shape, shape)
+        elif isinstance(shape, (list, tuple)):
+            self.pool_size = tuple(shape)
+        else:
+            raise TypeError("Unsupported pool_size type")
+        if stride is None:
+            self.stride = self.pool_size
+        elif isinstance(stride, int):
+            self.stride = (stride, stride)
+        else:
+            self.stride = tuple(stride)
+        self.padding = padding.lower()
         self._output = None
 
     def forward(self, tensor_in):
         in_shape = dim(tensor_in)
-        assert (len(in_shape) == 3)
+        assert len(in_shape) == 3
 
-        # For now, we assume stride=1 and padding='valid'
-        # TODO  stride!=1 and padding!='valid'
-        r, c = self.pool_size[0], self.pool_size[1]
-        out_shape = [in_shape[0] // r,
-                     in_shape[1] // c,
-                     in_shape[2]]
-        # tensor_out = np.zeros(out_shape).tolist()
-        tensor_out = []
-        for _ in range(out_shape[0]):
-            tensor_out.append([[0.0]*out_shape[2]
-                              for i in range(out_shape[1])])
+        pool_h, pool_w = self.pool_size
+        stride_h, stride_w = self.stride
 
-        for row in range(0, out_shape[0]):
-            for col in range(0, out_shape[1]):
-                for depth in range(0, out_shape[2]):
+        if self.padding == 'same':
+            out_h = math.ceil(in_shape[0] / stride_h)
+            out_w = math.ceil(in_shape[1] / stride_w)
+            pad_along_height = max(
+                (out_h - 1) * stride_h + pool_h - in_shape[0], 0)
+            pad_along_width = max(
+                (out_w - 1) * stride_w + pool_w - in_shape[1], 0)
+            pad_top = pad_along_height // 2
+            pad_bottom = pad_along_height - pad_top
+            pad_left = pad_along_width // 2
+            pad_right = pad_along_width - pad_left
+            tensor_in = self._pad_tensor(
+                tensor_in, pad_top, pad_bottom, pad_left, pad_right)
+        else:
+            out_h = (in_shape[0] - pool_h) // stride_h + 1
+            out_w = (in_shape[1] - pool_w) // stride_w + 1
+
+        tensor_out = [[[0.0 for _ in range(in_shape[2])]
+                       for _ in range(out_w)]
+                      for _ in range(out_h)]
+
+        for row in range(out_h):
+            for col in range(out_w):
+                base_i = row * stride_h
+                base_j = col * stride_w
+                for depth in range(in_shape[2]):
                     register_current_indices((row, col, depth))
-                    max_val = -10000
-                    if tensor_in[row*r][col*c][depth] > max_val:
-                        max_val = tensor_in[row*r][col*c][depth]
-                    if tensor_in[row*r+1][col*c][depth] > max_val:
-                        max_val = tensor_in[row*r+1][col*c][depth]
-                    if tensor_in[row*r][col*c+1][depth] > max_val:
-                        max_val = tensor_in[row*r][col*c+1][depth]
-                    if tensor_in[row*r+1][col*c+1][depth] > max_val:
-                        max_val = tensor_in[row*r+1][col*c+1][depth]
+                    max_val = -float("inf")
+                    for i in range(pool_h):
+                        for j in range(pool_w):
+                            val = tensor_in[base_i + i][base_j + j][depth]
+                            if val > max_val:
+                                max_val = val
                     tensor_out[row][col][depth] = max_val
-                    # print(type(tensor_out[row][col][depth]))
-        # fix the shape of tensor_out
 
         if debug:
             print("[DEBUG]Finish MaxPool2D Layer forwarding!!")
@@ -400,6 +421,18 @@ class MaxPool2DLayer:
 
     def getOutput(self):
         return self._output
+
+    def _pad_tensor(self, tensor_in, top, bottom, left, right):
+        h, w, c = dim(tensor_in)
+        new_h = h + top + bottom
+        new_w = w + left + right
+        tensor_out = [[[0.0 for _ in range(c)] for _ in range(new_w)]
+                      for _ in range(new_h)]
+        for i in range(h):
+            for j in range(w):
+                for k in range(c):
+                    tensor_out[i + top][j + left][k] = tensor_in[i][j][k]
+        return tensor_out
 
 
 class FlattenLayer:
@@ -753,7 +786,10 @@ class NNModel:
             self._register_cache_key(keras_name, activation_key)
         elif isinstance(layer, MaxPool2D):
             pool_size = layer.get_config()['pool_size']
-            maxpool_layer = MaxPool2DLayer(pool_size)
+            strides = layer.get_config().get('strides')
+            padding = layer.get_config().get('padding', 'valid')
+            maxpool_layer = MaxPool2DLayer(
+                pool_size, stride=strides, padding=padding)
             if resolved_inbounds:
                 maxpool_layer.input_from = resolved_inbounds
             key = self._append_layer(maxpool_layer)
@@ -770,7 +806,15 @@ class NNModel:
         elif isinstance(layer, BatchNormalization):
             gamma, beta, moving_mean, moving_var = (
                 arr.tolist() for arr in layer.get_weights())
-            epsilon = layer.epsilon
+            cfg_epsilon = layer.get_config().get('epsilon')
+            epsilon = layer.epsilon if layer.epsilon is not None else cfg_epsilon
+            if epsilon is None:
+                epsilon = 1e-3
+            if cfg_epsilon is not None and abs(cfg_epsilon - epsilon) > 1e-12:
+                logging.warning(
+                    "BatchNormalization epsilon mismatch (%s vs %s) for layer %s",
+                    cfg_epsilon, epsilon, keras_name
+                )
             bn_layer = BatchNormalization2DLayer(
                 gamma, beta, moving_mean, moving_var, epsilon)
             if resolved_inbounds:

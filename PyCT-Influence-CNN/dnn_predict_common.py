@@ -153,10 +153,11 @@ def load_keras_model(model_path, input_shape_override=None, num_classes_override
 myModel = None
 
 
-def init_model(model_path):
+def init_model(model_path, verbose=True):
     global myModel
     model = load_keras_model(model_path)
-    model.summary()
+    if verbose:
+        model.summary()
     layers, inbound_map = _collect_layers_and_inbound(model)
     _describe_model_layers(model, layers)
     myModel = NNModel()
@@ -175,15 +176,16 @@ def init_model(model_path):
         for j in range(numberOfMyLayers):
             register_layer_number_mapping(i, myLayerCount)
             myLayerCount += 1
-    model.summary()
-    print('Number of layers in my model:', len(myModel.layers))
-    print('Number of layers in original Keras model:', len(layers))
-    print('Correspondence between layers in Keras model and my model:')
-    for myLayerNumber in range(myLayerCount):
-        print('My: ', myLayerNumber, 'Keras: ',
-              to_Keras_layer_number(myLayerNumber))
-    for myLayer in myModel.layers:
-        print(type(myLayer))
+    if verbose:
+        model.summary()
+        print('Number of layers in my model:', len(myModel.layers))
+        print('Number of layers in original Keras model:', len(layers))
+        print('Correspondence between layers in Keras model and my model:')
+        for myLayerNumber in range(myLayerCount):
+            print('My: ', myLayerNumber, 'Keras: ',
+                  to_Keras_layer_number(myLayerNumber))
+        for myLayer in myModel.layers:
+            print(type(myLayer))
 
 
 def _forward_from_flat_data(data):
