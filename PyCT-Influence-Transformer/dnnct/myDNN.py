@@ -7,7 +7,7 @@ from itertools import product
 import collections.abc
 from functools import reduce  
 import logging
-from typing import Tuple
+from typing import Tuple, Optional, List, Any
 from libct.position import register_current_indices, register_current_layer_number, to_Keras_layer_number
 
 from keras.layers import (
@@ -721,8 +721,8 @@ class GlobalAveragePooling1DLayer:
 
 class NNModel:
     def __init__(self):
-        self.layers = []
-        self.input_shape = None
+        self.layers: List[Any] = []
+        self.input_shape: Optional[Tuple[int, ...]] = None
 
     def forward(self, tensor_in):
         log.info("DNN start forwarding")

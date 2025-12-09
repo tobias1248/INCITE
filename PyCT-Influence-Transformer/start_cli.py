@@ -52,6 +52,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Per-wave timeout in seconds; resets every time ton value increases.",
     )
     parser.add_argument(
+        "--no-constraint-build-timeout",
+        dest="constraint_build_timeout",
+        action="store_false",
+        help="Disable the 30s timeout when constructing SMT formulas (default: enabled).",
+    )
+    parser.set_defaults(constraint_build_timeout=True)
+    parser.add_argument(
         "--pixel-search",
         type=_parse_pixel_search,
         default=_parse_pixel_search(",".join(str(v) for v in _DEFAULT_PIXEL_SEARCH)),
@@ -132,7 +139,7 @@ def configure_logging(args: argparse.Namespace) -> None:
     """Initialize logging once per invocation."""
     log_kwargs: Dict[str, Any] = {
         "level": getattr(logging, args.log_level.upper(), logging.INFO),
-        "format": "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        "format": "%(levelname)s | %(name)s | %(message)s",
     }
     if args.log_file:
         log_kwargs["filename"] = args.log_file

@@ -97,6 +97,7 @@ def _derive_resume_plan(
 def _worker(
     task_queue: Queue,
     timeout: int,
+    constraint_build_timeout: bool,
     norm_01: bool,
     attack_mode: str,
     pixel_source: str,
@@ -123,8 +124,9 @@ def _worker(
 
                 run_attack_with_random_assign(
                     [task],
-                    timeout,
-                    norm_01,
+                    timeout=timeout,
+                    constraint_build_timeout=constraint_build_timeout,
+                    norm=norm_01,
                     pixel_source=pixel_source,
                     base_seed=base_seed,
                 )
@@ -133,8 +135,9 @@ def _worker(
 
                 run_attack_with_shap(
                     [task],
-                    timeout,
-                    norm_01,
+                    timeout=timeout,
+                    constraint_build_timeout=constraint_build_timeout,
+                    norm=norm_01,
                 )
     except KeyboardInterrupt:
         logger.info("[WORKER-INTERRUPT] pid=%s received interrupt", worker_pid)
@@ -143,6 +146,7 @@ def _worker(
 
 
 def run_launcher(args: Any) -> None:
+    interrupted = False
     shutdown_event = Event()
     running_processes: List[Process] = []
 
@@ -263,6 +267,7 @@ def run_launcher(args: Any) -> None:
                 args=(
                     task_queue,
                     args.timeout,
+                    args.constraint_build_timeout,
                     args.norm_01,
                     args.attack_mode,
                     args.pixel_source,
@@ -289,6 +294,7 @@ def run_launcher(args: Any) -> None:
             logger.info("[WORKER-DONE] pid=%s exitcode=%s", process.pid, process.exitcode)
     except KeyboardInterrupt:
         logger.warning("Main loop interrupted; shutting down workers")
+        interrupted = True
         shutdown_event.set()
     finally:
         for process in running_processes:
@@ -296,7 +302,10 @@ def run_launcher(args: Any) -> None:
                 process.terminate()
             process.join()
 
-    logger.info("All tasks completed")
+    if interrupted or shutdown_event.is_set():
+        logger.info("Tasks interrupted; shutdown requested")
+    else:
+        logger.info("All tasks completed")
 
 
 __all__ = [

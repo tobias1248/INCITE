@@ -9,6 +9,15 @@ class Concolic:
         self.expr = expr if expr is not None and self.engine is not None else self.value
         self.formula = None
 
+    def __getstate__(self):
+        """Drop engine references when pickling to avoid carrying unpicklable objects (e.g., models)."""
+        state = self.__dict__.copy()
+        state["engine"] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
     @staticmethod
     def find_engine_in_expr(expr):
         if isinstance(expr, Concolic):

@@ -73,6 +73,7 @@ class ExplorationEngine:
     def __init__(self, *,
                  solver='cvc4',
                  timeout=20,
+                 constraint_build_timeout=True,
                  safety=0,
                  store=None,
                  verbose=1,
@@ -101,7 +102,7 @@ class ExplorationEngine:
         if self.statsdir:
             os.system(f"rm -rf '{statsdir}'")
             os.system(f"mkdir -p '{statsdir}'")
-        Solver.set_basic_configurations(solver, timeout, safety, store, smtdir)
+        Solver.set_basic_configurations(solver, timeout, safety, store, smtdir, constraint_build_timeout)
         _ensure_smtlib2_logger()
 
     def __init2__(self):
@@ -526,7 +527,10 @@ class ExplorationEngine:
             if (t := r3.recv()) is not self.Unpicklable:
                 Constraint.global_constraints, self.constraints_to_solve, self.path = t
             else:
-                assert t is not self.Unpicklable
+                log.warning(
+                    "Constraints payload contains unpicklable objects; skipping constraint transfer",
+                )
+                self.constraints_to_solve = deque()
 
         r2.close()
         s2.close()

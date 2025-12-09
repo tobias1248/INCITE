@@ -5,7 +5,7 @@ import os
 import gc
 import libct.explore
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Literal
 from types import ModuleType
 
 from utils.experiment_task_specs import get_save_dir_from_save_exp
@@ -27,6 +27,7 @@ class ExplorerConfig:
     execute: Callable[..., Any]
     solver: str = DEFAULT_SOLVER
     timeout: int = 900
+    constraint_build_timeout: bool = True
     safety: int = 0
     verbose: int = 1
     logfile: Optional[str] = None
@@ -46,7 +47,7 @@ def _resolve_model_artifacts(model_name: str) -> tuple[str, str, str]:
     return model_path, module_path, root
 
 
-def _load_predictor(module_path: str, root: str) -> tuple[ModuleType, Callable[..., Any]]:
+def _load_predictor(module_path: str, root: str) -> tuple[ModuleType, Callable[..., Any], Callable[..., Any]]:
     module = get_module_from_rootdir_and_modpath(root, module_path)
     func_init_model = get_function_from_module_and_funcname(module, "init_model")
     execute = get_function_from_module_and_funcname(module, "predict")
@@ -80,7 +81,7 @@ def _prepare_experiment_paths(
     return save_dir, smt_dir, input_name
 
 
-def _validate_collect_mode(collect_mode: str) -> str:
+def _validate_collect_mode(collect_mode: str) -> Literal["priority_queue", "queue", "stack"]:
     if collect_mode not in VALID_COLLECT_MODES:
         valid = ", ".join(sorted(VALID_COLLECT_MODES))
         raise ValueError(f"Unsupported collect_constraints_with='{collect_mode}'. Expected one of: {valid}")
@@ -91,6 +92,7 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
     return libct.explore.ExplorationEngine(
         solver=explorer_cfg.solver,
         timeout=explorer_cfg.timeout,
+        constraint_build_timeout=explorer_cfg.constraint_build_timeout,
         safety=explorer_cfg.safety,
         store=None,
         verbose=explorer_cfg.verbose,
@@ -108,13 +110,14 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
 def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         save_exp: dict[str, str] | None = None,
         max_iter=0, single_timeout=900, timeout=900, total_timeout=900, verbose=1,
+        constraint_build_timeout: bool = True,
         limit_change_range=None,
         only_first_forward=False,
         collect_constraints_with='priority_queue',
-        input_for_shap=None, background_dataset_for_shap=None, shap_value_pre_calculated=None,
-        popped_log_attack_mode=None):
+        input_for_shap=None, background_dataset_for_shap=None, shap_value_pre_calculated: Optional[bool] = None,
+        popped_log_attack_mode=None) -> tuple[int, Any]:
 
-    collect_mode = _validate_collect_mode(collect_constraints_with)
+    collect_mode: Literal["priority_queue", "queue", "stack"] = _validate_collect_mode(collect_constraints_with)
     model_path, module_path, root = _resolve_model_artifacts(model_name)
 
     module, func_init_model, execute = _load_predictor(module_path, root)
@@ -132,6 +135,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         module=module,
         execute=execute,
         timeout=timeout,
+        constraint_build_timeout=constraint_build_timeout,
         verbose=verbose,
         smtdir=smtdir,
         save_dir=save_dir,
@@ -141,7 +145,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
 
     engine = _build_explorer(explorer_cfg)
 
-    result = engine.explore(
+    result: tuple[int, Any] = engine.explore(
         module_path,
         in_dict,
         idx=idx,
@@ -161,7 +165,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         model_path=model_path,
         input_for_shap=input_for_shap,
         background_dataset_for_shap=background_dataset_for_shap,
-        shap_value_pre_calculated=shap_value_pre_calculated,
+        shap_value_pre_calculated=bool(shap_value_pre_calculated) if shap_value_pre_calculated is not None else False,
         collect_constraints_with=collect_mode,
         popped_log_attack_mode=popped_log_attack_mode or "unknown",
     )

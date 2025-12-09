@@ -40,12 +40,14 @@ class Solver:
     norm = None
     iter = None # for the filename of saved smt constraint
     iter_count = 1 # for the filename of saved smt constraint
+    build_timeout_enabled = True
     
 
     @classmethod # similar to our constructor
-    def set_basic_configurations(cls, solver, timeout, safety, store, smtdir):
+    def set_basic_configurations(cls, solver, timeout, safety, store, smtdir, constraint_build_timeout=True):
         cls.safety = safety; cls.smtdir = smtdir
         cls.stats = {'sat_number': 0, 'sat_time': 0, 'unsat_number': 0, 'unsat_time': 0, 'otherwise_number': 0, 'otherwise_time': 0}
+        cls.build_timeout_enabled = bool(constraint_build_timeout)
         
         # assert_len 是一個二維的list，第一個維度是每個iteration，第二個維度是該iteration的每個assert的長度
         cls.ctr_size = {'type':[], 'time': [], 'byte': [], 'assert_num': [], 'assert_len':[]}
@@ -132,10 +134,13 @@ class Solver:
             shap_value,
         )
         log_path = cls._resolve_constraint_log_path(engine, idx)
-        #limit_constraint_time_start  
+        #limit_constraint_time_start
         try:
             build_formula_start = time.time()
-            formulas = func_timeout.func_timeout(30, Solver._build_formulas_from_constraint, args=(engine, constraint, ori_args))
+            if cls.build_timeout_enabled:
+                formulas = func_timeout.func_timeout(30, Solver._build_formulas_from_constraint, args=(engine, constraint, ori_args))
+            else:
+                formulas = Solver._build_formulas_from_constraint(engine, constraint, ori_args)
             build_formula_end = time.time()
             cls._append_constraint_log(
                 log_path,
@@ -166,9 +171,9 @@ class Solver:
                 cls.stats["otherwise_number"],
             )
             return None
-       #limit_constraint_time_end
+        #limit_constraint_time_end
 
-       #skip_last_start
+        #skip_last_start
         # with open(f"./popped_constraint_position/transformer_fashion_mnist_two_mha/skip_last/shap-constraint-{idx}.txt", "a") as file:
         #         file.write("\n")
         #         file.write(f"popped constraint with position: {position}\n")

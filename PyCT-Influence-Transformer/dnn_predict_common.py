@@ -8,12 +8,13 @@ from dnnct.myDNN import NNModel
 from dnnct.tnnDNN import NNModel as tnnNNModel
 
 from libct.position import register_layer_number_mapping, to_Keras_layer_number
+from typing import Optional, cast, Tuple
 
 log = logging.getLogger("ct.model")
 
 
-myModel = None
-loaded_model_path = None
+myModel: Optional[NNModel] = None
+loaded_model_path: Optional[str] = None
 
 
 def init_model(model_path):
@@ -22,7 +23,7 @@ def init_model(model_path):
         return
     if loaded_model_path is not None and loaded_model_path != model_path:
         keras.backend.clear_session()
-    model = keras.models.load_model(model_path)
+    model = keras.models.load_model(model_path, compile=False)
     model_stem = Path(model_path).stem
     model._name = model_stem  # improve model.summary() readability
     model.summary()
@@ -60,12 +61,14 @@ def init_model(model_path):
     loaded_model_path = model_path
 
 def predict(**data):
-	input_shape = myModel.input_shape
-	# print("[DEBUG]input_shape:", input_shape)
+	if myModel is None or myModel.input_shape is None:
+		raise RuntimeError("Model not initialized. Call init_model() before predict().")
+
+	model = cast(NNModel, myModel)
+	input_shape = cast(Tuple[int, ...], model.input_shape)
 	iter_args = (range(dim) for dim in input_shape)
 	X = np.zeros(input_shape).tolist()
 	data_name_prefix = "v_"
-	# print("data",data.keys())
 	for i in itertools.product(*iter_args):
 		if len(i) == 2:
 			X[i[0]][i[1]] = data[f"{data_name_prefix}{i[0]}_{i[1]}"]
@@ -73,11 +76,10 @@ def predict(**data):
 			X[i[0]][i[1]][i[2]] = data[f"{data_name_prefix}{i[0]}_{i[1]}_{i[2]}"]
 		elif len(i) == 4:
 			X[i[0]][i[1]][i[2]][i[3]] = data[f"{data_name_prefix}{i[0]}_{i[1]}_{i[2]}_{i[3]}"]
-	
 
-	out_val = myModel.forward(X)
+	out_val = model.forward(X)
 	log.debug("Completed forward pass for input_shape=%s", input_shape)
- 
+
 	# 用一顆神經元做二分類
 	if len(out_val) == 1:
 		if isinstance(out_val[0], list):

@@ -31,6 +31,7 @@ __all__ = [
 class BaseRunner:
     timeout: int
     norm: bool
+    constraint_build_timeout: bool = True
 
     def run_tasks(self, tasks: Sequence[Dict[str, Any]]) -> None:
         for payload in tasks:
@@ -88,12 +89,13 @@ class BaseRunner:
             total_timeout=self.timeout,
             single_timeout=self.timeout,
             timeout=self.timeout,
+            constraint_build_timeout=self.constraint_build_timeout,
         )
 
 
 class QueueRunner(BaseRunner):
-    def __init__(self, timeout: int, norm: bool) -> None:
-        super().__init__(timeout, norm)
+    def __init__(self, timeout: int, norm: bool, constraint_build_timeout: bool = True) -> None:
+        super().__init__(timeout, norm, constraint_build_timeout)
 
     def run_queue(
         self,
@@ -186,8 +188,9 @@ class ShapRunner(BaseRunner):
         norm: bool,
         *,
         model_type: str = "transformer",
+        constraint_build_timeout: bool = True,
     ) -> None:
-        super().__init__(timeout=timeout or 0, norm=norm)
+        super().__init__(timeout=timeout or 0, norm=norm, constraint_build_timeout=constraint_build_timeout)
         self.model_type = model_type
 
     def _run_single(self, payload: Dict[str, Any]) -> None:
@@ -264,8 +267,9 @@ class RandomAssignRunner(BaseRunner):
         pixel_source: str,
         base_seed: int,
         model_type: str = "transformer",
+        constraint_build_timeout: bool = True,
     ) -> None:
-        super().__init__(timeout=timeout or 0, norm=norm)
+        super().__init__(timeout=timeout or 0, norm=norm, constraint_build_timeout=constraint_build_timeout)
         self.pixel_source = pixel_source
         self.base_seed = base_seed
         self.model_type = model_type
@@ -325,9 +329,15 @@ def run_attack_with_shap(
     args: Sequence[Dict[str, Any]],
     timeout: int,
     norm: bool,
+    constraint_build_timeout: bool = True,
     model_type: str = "transformer",
 ) -> None:
-    ShapRunner(timeout=timeout, norm=norm, model_type=model_type).run_tasks(args)
+    ShapRunner(
+        timeout=timeout,
+        norm=norm,
+        model_type=model_type,
+        constraint_build_timeout=constraint_build_timeout,
+    ).run_tasks(args)
 
 
 def run_attack_with_queue(
@@ -335,14 +345,16 @@ def run_attack_with_queue(
     hierarchical_input: Dict[str, Any],
     timeout: int,
     norm: bool,
+    constraint_build_timeout: bool = True,
 ) -> None:
-    QueueRunner(timeout=timeout, norm=norm).run_queue(task_queue, hierarchical_input)
+    QueueRunner(timeout=timeout, norm=norm, constraint_build_timeout=constraint_build_timeout).run_queue(task_queue, hierarchical_input)
 
 
 def run_attack_with_random_assign(
     args: Sequence[Dict[str, Any]],
     timeout: int,
     norm: bool,
+    constraint_build_timeout: bool = True,
     *,
     pixel_source: str,
     base_seed: int,
@@ -350,6 +362,7 @@ def run_attack_with_random_assign(
 ) -> None:
     RandomAssignRunner(
         timeout=timeout,
+        constraint_build_timeout=constraint_build_timeout,
         norm=norm,
         pixel_source=pixel_source,
         base_seed=base_seed,
