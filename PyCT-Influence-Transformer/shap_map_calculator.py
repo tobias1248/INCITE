@@ -14,6 +14,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Model identifier used to locate weights and SHAP artifacts.",
     )
     parser.add_argument(
+        "--dataset",
+        choices=("fashion_mnist", "cifar10"),
+        help="Dataset to use when preparing inputs/backgrounds for SHAP ['fashion_mnist', 'cifar10'].",
+    )
+    parser.add_argument(
         "--first-n",
         type=int,
         default=100,
@@ -56,12 +61,19 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     # Import heavy dependencies lazily to keep startup fast.
     from utils.experiment_task_specs import (
         fashion_mnist_transformer_shap_calculate_all,
+        cifar10_cal_shap_specs,
     )
 
     if args.sleep_seconds:
         time.sleep(args.sleep_seconds)
 
-    artifacts = fashion_mnist_transformer_shap_calculate_all(
+    dataset_handlers = {
+        "fashion_mnist": fashion_mnist_transformer_shap_calculate_all,
+        "cifar10": cifar10_cal_shap_specs,
+    }
+    handler = dataset_handlers[args.dataset]
+
+    artifacts = handler(
         args.model_name,
         first_n_img=args.first_n,
         force_refresh=args.force_refresh,

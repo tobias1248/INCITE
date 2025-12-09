@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import gc
+import json
 import logging
 import queue
 import traceback
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence, Literal
 import time
+from pathlib import Path
 
 from libct.random_assign_attack import (
     run_random_assign_step,
@@ -31,6 +33,7 @@ __all__ = [
 class BaseRunner:
     timeout: int
     norm: bool
+    collect_constraints_with: Literal["priority_queue", "queue"]
     constraint_build_timeout: bool = True
 
     def run_tasks(self, tasks: Sequence[Dict[str, Any]]) -> None:
@@ -90,108 +93,45 @@ class BaseRunner:
             single_timeout=self.timeout,
             timeout=self.timeout,
             constraint_build_timeout=self.constraint_build_timeout,
+            collect_constraints_with=self.collect_constraints_with,
         )
+
+    @staticmethod
+    def _write_ton_sequence(recorder: Any, ton_sequence: Sequence[int]) -> None:
+        if not recorder or not ton_sequence:
+            return
+        save_dir = getattr(recorder, "save_dir", None)
+        if not save_dir:
+            return
+        stats_path = Path(save_dir) / "stats.json"
+        if not stats_path.is_file():
+            return
+        try:
+            with stats_path.open("r", encoding="utf-8") as handle:
+                stats = json.load(handle)
+            stats.setdefault("meta", {})["ton_sequence"] = list(ton_sequence)
+            stats["ton_sequence"] = list(ton_sequence)
+            with stats_path.open("w", encoding="utf-8") as handle:
+                json.dump(stats, handle)
+        except (OSError, json.JSONDecodeError):
+            return
 
 
 class QueueRunner(BaseRunner):
-    def __init__(self, timeout: int, norm: bool, constraint_build_timeout: bool = True) -> None:
-        super().__init__(timeout, norm, constraint_build_timeout)
-
-    def run_queue(
-        self,
-        task_queue: "queue.Queue[tuple[int, Dict[str, Any]]]",
-        hierarchical_input: Dict[str, Any],
-    ) -> None:
-        while True:
-            try:
-                atk_feature_num, payload = task_queue.get(timeout=1)
-            except queue.Empty:
-                break
-
-            try:
-                q_or_s = self._resolve_queue_mode(payload.get("solve_order_stack"))
-                self._log_attempt(payload, q_or_s)
-
-                result = self._execute_attack(payload)
-                recorder = result[1]
-                del result
-                gc.collect()
-
-                if recorder.attack_label is not None:
-                    self._log_success(payload, q_or_s)
-                else:
-                    self._enqueue_next(
-                        hierarchical_input,
-                        q_or_s,
-                        payload["save_exp"]["input_name"],
-                        atk_feature_num,
-                        task_queue,
-                    )
-            except Exception:
-                print("#" * 50, "Exception", "#" * 50)
-                traceback.print_exc()
-                print("#" * 100)
-            finally:
-                self._cleanup(payload)
-
-    @staticmethod
-    def _resolve_queue_mode(solve_order_stack: Optional[bool]) -> str:
-        if solve_order_stack is True:
-            return "stack"
-        if solve_order_stack is False:
-            return "queue"
-        return "queue"
-
-    @staticmethod
-    def _log_attempt(payload: Dict[str, Any], queue_mode: str) -> None:
-        model_name = payload["model_name"]
-        exp_name = payload["save_exp"]["exp_name"]
-        input_name = payload["save_exp"]["input_name"]
-        log.info(
-            "[QUEUE-ATTEMPT] model=%s queue=%s exp=%s input=%s",
-            model_name,
-            queue_mode,
-            exp_name,
-            input_name,
-        )
-        with open(f"./log/{model_name}.log", "a") as handle:
-            handle.write(f"{model_name} {queue_mode} {exp_name} {input_name}\n")
-
-    @staticmethod
-    def _log_success(payload: Dict[str, Any], queue_mode: str) -> None:
-        log.info(
-            "[QUEUE-SUCCESS] model=%s queue=%s payload=%s",
-            payload["model_name"],
-            queue_mode,
-            payload["save_exp"],
-        )
-
-    @staticmethod
-    def _enqueue_next(
-        hierarchical_input: Dict[str, Any],
-        queue_mode: str,
-        input_name: str,
-        atk_feature_num: int,
-        task_queue: "queue.Queue[tuple[int, Dict[str, Any]]]",
-    ) -> None:
-        next_dict = hierarchical_input[queue_mode][input_name]["next_input_dict"]
-        if atk_feature_num in next_dict:
-            task_queue.put(next_dict[atk_feature_num])
-
-
-class ShapRunner(BaseRunner):
-    """Execute SHAP-guided attacks while respecting CLI-provided options."""
-
     def __init__(
         self,
         timeout: int,
         norm: bool,
-        *,
-        model_type: str = "transformer",
         constraint_build_timeout: bool = True,
+        collect_constraints_with: Literal["priority_queue", "queue"] = "queue",
     ) -> None:
-        super().__init__(timeout=timeout or 0, norm=norm, constraint_build_timeout=constraint_build_timeout)
-        self.model_type = model_type
+        super().__init__(
+            timeout=timeout,
+            norm=norm,
+            collect_constraints_with=collect_constraints_with,
+            constraint_build_timeout=constraint_build_timeout,
+        )
+        self.collect_constraints_with = collect_constraints_with
 
     def _run_single(self, payload: Dict[str, Any]) -> None:
         ton_plans = payload.pop("ton_plans", None)
@@ -200,6 +140,7 @@ class ShapRunner(BaseRunner):
 
         base_payload = dict(payload)
         last_result = None
+        ton_sequence = [plan.get("ton") for plan in ton_plans if "ton" in plan]
 
         for plan in ton_plans:
             plan_payload = dict(base_payload)
@@ -215,6 +156,66 @@ class ShapRunner(BaseRunner):
                 recorder = result[1]
             if recorder is not None:
                 recorder.attack_wall_time = time.monotonic() - start_time  # type: ignore[attr-defined]
+                attack_label = getattr(recorder, "attack_label", None)
+                solved_all = getattr(recorder, "solve_all_ctr", False)
+                is_timeout = getattr(recorder, "is_timeout", False)
+                self._write_ton_sequence(recorder, ton_sequence)
+                if attack_label is not None:
+                    break  # success
+                if solved_all:
+                    continue  # fully explored, move to next ton
+                if is_timeout:
+                    break
+                break
+
+        return last_result
+
+
+class ShapRunner(BaseRunner):
+    """Execute SHAP-guided attacks while respecting CLI-provided options."""
+
+    def __init__(
+        self,
+        timeout: int,
+        norm: bool,
+        *,
+        model_type: str = "transformer",
+        collect_constraints_with: Literal["priority_queue", "queue"] = "priority_queue",
+        constraint_build_timeout: bool = True,
+    ) -> None:
+        super().__init__(
+            timeout=timeout or 0,
+            norm=norm,
+            collect_constraints_with=collect_constraints_with,
+            constraint_build_timeout=constraint_build_timeout,
+        )
+        self.collect_constraints_with = collect_constraints_with
+        self.model_type = model_type
+
+    def _run_single(self, payload: Dict[str, Any]) -> None:
+        ton_plans = payload.pop("ton_plans", None)
+        if not ton_plans:
+            return self._execute_attack(payload)
+
+        base_payload = dict(payload)
+        last_result = None
+        ton_sequence = [plan.get("ton") for plan in ton_plans if "ton" in plan]
+
+        for plan in ton_plans:
+            plan_payload = dict(base_payload)
+            plan_payload["con_dict"] = plan["con_dict"]
+            plan_payload["save_exp"] = plan["save_exp"]
+
+            start_time = time.monotonic()
+            result = self._execute_attack(plan_payload)
+            last_result = result
+
+            recorder = None
+            if isinstance(result, tuple) and len(result) >= 2:
+                recorder = result[1]
+            if recorder is not None:
+                recorder.attack_wall_time = time.monotonic() - start_time  # type: ignore[attr-defined]
+                self._write_ton_sequence(recorder, ton_sequence)
                 attack_label = getattr(recorder, "attack_label", None)
                 solved_all = getattr(recorder, "solve_all_ctr", False)
                 is_timeout = getattr(recorder, "is_timeout", False)
@@ -267,12 +268,19 @@ class RandomAssignRunner(BaseRunner):
         pixel_source: str,
         base_seed: int,
         model_type: str = "transformer",
+        collect_constraints_with: Literal["priority_queue", "queue"] = "priority_queue",
         constraint_build_timeout: bool = True,
     ) -> None:
-        super().__init__(timeout=timeout or 0, norm=norm, constraint_build_timeout=constraint_build_timeout)
+        super().__init__(
+            timeout=timeout or 0,
+            norm=norm,
+            collect_constraints_with=collect_constraints_with,
+            constraint_build_timeout=constraint_build_timeout,
+        )
         self.pixel_source = pixel_source
         self.base_seed = base_seed
         self.model_type = model_type
+        self.collect_constraints_with = collect_constraints_with
 
     def _run_single(self, payload: Dict[str, Any]) -> None:
         ton_plans = payload.pop("ton_plans", None)
@@ -281,6 +289,7 @@ class RandomAssignRunner(BaseRunner):
 
         base_payload = dict(payload)
         last_result = None
+        ton_sequence = [plan.get("ton") for plan in ton_plans if "ton" in plan]
 
         for plan in ton_plans:
             plan_payload = dict(base_payload)
@@ -294,6 +303,8 @@ class RandomAssignRunner(BaseRunner):
 
         if last_result is None:
             raise RuntimeError("Random assign baseline failed to produce any attempt result.")
+        if hasattr(last_result, "__setattr__"):
+            last_result.ton_sequence = ton_sequence or None
         return last_result
 
     def _run_random_assign_for_plan(self, payload: Dict[str, Any]) -> Any:
@@ -331,23 +342,30 @@ def run_attack_with_shap(
     norm: bool,
     constraint_build_timeout: bool = True,
     model_type: str = "transformer",
+    collect_constraints_with: Literal["priority_queue", "queue"] = "priority_queue",
 ) -> None:
     ShapRunner(
         timeout=timeout,
         norm=norm,
         model_type=model_type,
+        collect_constraints_with=collect_constraints_with,
         constraint_build_timeout=constraint_build_timeout,
     ).run_tasks(args)
 
 
 def run_attack_with_queue(
-    task_queue: "queue.Queue[tuple[int, Dict[str, Any]]]",
-    hierarchical_input: Dict[str, Any],
+    args: Sequence[Dict[str, Any]],
     timeout: int,
     norm: bool,
     constraint_build_timeout: bool = True,
+    collect_constraints_with: Literal["priority_queue", "queue"] = "queue",
 ) -> None:
-    QueueRunner(timeout=timeout, norm=norm, constraint_build_timeout=constraint_build_timeout).run_queue(task_queue, hierarchical_input)
+    QueueRunner(
+        timeout=timeout,
+        norm=norm,
+        constraint_build_timeout=constraint_build_timeout,
+        collect_constraints_with=collect_constraints_with,
+    ).run_tasks(args)
 
 
 def run_attack_with_random_assign(
@@ -359,6 +377,7 @@ def run_attack_with_random_assign(
     pixel_source: str,
     base_seed: int,
     model_type: str = "transformer",
+    collect_constraints_with: Literal["priority_queue", "queue"] = "priority_queue",
 ) -> None:
     RandomAssignRunner(
         timeout=timeout,
@@ -367,6 +386,7 @@ def run_attack_with_random_assign(
         pixel_source=pixel_source,
         base_seed=base_seed,
         model_type=model_type,
+        collect_constraints_with=collect_constraints_with,
     ).run_tasks(args)
 
 

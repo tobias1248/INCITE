@@ -10,7 +10,7 @@ import queue as py_queue
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from start_config import _INPUT_PREFIX, _QUEUE_TYPE
+from start_config import _INPUT_PREFIX
 from utils.experiment_task_specs import (
     fashion_mnist_transformer_random,
     fashion_mnist_transformer_shap,
@@ -24,21 +24,12 @@ def _resolve_experiment_layout(
     ton_values: Sequence[int],
     *,
     pixel_source: str = "random",
-) -> Tuple[str, str]:
+) -> str:
     if not ton_values:
         raise ValueError("ton_values must be non-empty.")
-    primary_ton = ton_values[0]
-    if attack_mode == "shap":
-        return _QUEUE_TYPE, f"shap_{primary_ton}"
-    if attack_mode == "random":
-        return _QUEUE_TYPE, f"random_select/random_{primary_ton}"
-    if attack_mode == "random-assign":
-        if pixel_source == "random":
-            return _QUEUE_TYPE, f"random_assign_random/random_{primary_ton}"
-        if pixel_source == "shap":
-            return _QUEUE_TYPE, f"random_assign_shap/shap_{primary_ton}"
-        raise ValueError(f"Unsupported pixel source: {pixel_source}")
-    raise ValueError(f"Unsupported attack mode: {attack_mode}")
+    if attack_mode not in ("shap", "random", "random-assign", "queue"):
+        raise ValueError(f"Unsupported attack mode: {attack_mode}")
+    return attack_mode
 
 
 def _stats_indicate_completion(payload: Dict[str, Any]) -> bool:
@@ -52,11 +43,10 @@ def _stats_indicate_completion(payload: Dict[str, Any]) -> bool:
 
 def _derive_resume_plan(
     model_name: str,
-    queue_type: str,
-    experiment_name: str,
+    attack_mode: str,
     first_n: int,
 ) -> Tuple[int, bool]:
-    base_dir = Path("exp") / model_name / queue_type / experiment_name
+    base_dir = Path("exp") / model_name / attack_mode
     if not base_dir.is_dir():
         return 0, False
 
@@ -180,7 +170,7 @@ def run_launcher(args: Any) -> None:
     if args.spawn_delay < 0:
         raise ValueError("--spawn-delay must be non-negative")
 
-    queue_type, exp_name = _resolve_experiment_layout(
+    attack_mode = _resolve_experiment_layout(
         args.attack_mode,
         args.pixel_search,
         pixel_source=args.pixel_source,
@@ -188,12 +178,7 @@ def run_launcher(args: Any) -> None:
     resume_index = 0
     force_refresh = args.force_refresh
     if not args.force_refresh:
-        resume_index, require_force = _derive_resume_plan(
-            args.model_name,
-            queue_type,
-            exp_name,
-            args.first_n,
-        )
+        resume_index, require_force = _derive_resume_plan(args.model_name, attack_mode, args.first_n)
         force_refresh = require_force
         if resume_index >= args.first_n:
             logger.info("All requested inputs already completed; nothing to do.")
@@ -210,6 +195,7 @@ def run_launcher(args: Any) -> None:
             first_n_img=first_n_range,
             force=force_refresh,
             ton_values=args.pixel_search,
+            attack_mode="shap",
         )
     elif args.attack_mode == "random":
         inputs = fashion_mnist_transformer_random(
@@ -218,6 +204,7 @@ def run_launcher(args: Any) -> None:
             ton_values=args.pixel_search,
             force=force_refresh,
             base_seed=args.random_seed,
+            attack_mode="random",
         )
     elif args.attack_mode == "random-assign":
         exp_prefix = f"random_assign_{args.pixel_source}"
@@ -229,6 +216,7 @@ def run_launcher(args: Any) -> None:
                 force=force_refresh,
                 base_seed=args.random_seed,
                 exp_prefix=exp_prefix,
+                attack_mode="random-assign",
             )
         else:
             inputs = fashion_mnist_transformer_shap(
@@ -237,7 +225,33 @@ def run_launcher(args: Any) -> None:
                 force=force_refresh,
                 ton_values=args.pixel_search,
                 exp_prefix=exp_prefix,
+                attack_mode="random-assign",
             )
+    elif args.attack_mode == "queue":
+        # For queue mode, reuse SHAP task generation and execute via QueueRunner inline.
+        inputs = fashion_mnist_transformer_shap(
+            args.model_name,
+            first_n_img=first_n_range,
+            force=force_refresh,
+            ton_values=args.pixel_search,
+            exp_prefix="queue",
+            attack_mode="queue",
+        )
+        from utils.experiment_runner import run_attack_with_queue
+
+        logger.info("Starting queue-mode run with %s task(s)", len(inputs))
+        try:
+            run_attack_with_queue(
+                inputs,
+                timeout=args.timeout,
+                constraint_build_timeout=args.constraint_build_timeout,
+                norm=args.norm_01,
+                collect_constraints_with="queue",
+            )
+            logger.info("Queue-mode run completed")
+        except KeyboardInterrupt:
+            logger.warning("Queue-mode interrupted by user; stopping tasks")
+        return
     else:
         raise ValueError(f"Unsupported attack mode: {args.attack_mode}")
 

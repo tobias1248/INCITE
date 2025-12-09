@@ -181,7 +181,13 @@ class ExplorationEngine:
             recorder.solve_constr_start()
             solve_constr_num = len(self.constraints_to_solve)
             while len(self.constraints_to_solve) > 0:
-                constraint, shap_value, position = self.pop_constraint()
+                popped = self.pop_constraint()
+                if isinstance(popped, tuple) and len(popped) == 3:
+                    constraint, shap_value, position = popped
+                else:
+                    constraint = popped
+                    shap_value = None
+                    position = None
                 model = Solver.find_model_from_constraint(
                     self, constraint, shap_value, position, self.idx, self.original_args)
                 if model is not None and not self.only_first_forward:
@@ -774,9 +780,9 @@ class ExplorationEngine:
                 log.debug("Missing lines for %s: %s", file, sorted(lines))
     
     def get_shap_influence(self, position):
+        if position is None or not hasattr(self, "comparator") or self.comparator is None:
+            return 0
         layer_number, indices = position
-        # print('layer_number:', layer_number)
-        # print('indices:', indices)
         return self.comparator.get_shap_influence(layer_number, indices)
     
     def push_constraint(self, constraint: Constraint, position):
@@ -792,11 +798,14 @@ class ExplorationEngine:
                 len(self.constraints_to_solve),
             )
         else:
+            shap_value = self.get_shap_influence(position)
             self.constraints_to_solve.append(constraint)
             log.info(
-                "[PUSH] idx=%s queue=%s total=%s",
+                "[PUSH] idx=%s queue=%s position=%s shap=%.3e total=%s",
                 self.idx,
                 self.constraints_collection_type,
+                position,
+                abs(shap_value),
                 len(self.constraints_to_solve),
             )
     

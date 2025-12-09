@@ -1,5 +1,5 @@
-_INPUT_PREFIX = "fashion_mnist_test_"
-_QUEUE_TYPE = "priority_queue"
+_INPUT_PREFIX = "case_"
+_QUEUE_TYPE = "unused_queue_type"
 _LOG_LEVEL_CHOICES = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")
 _DEFAULT_PIXEL_SEARCH = (1, 2, 4, 8, 16, 32)
 

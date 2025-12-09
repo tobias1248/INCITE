@@ -56,7 +56,7 @@ def _load_predictor(module_path: str, root: str) -> tuple[ModuleType, Callable[.
 
 def _prepare_experiment_paths(
     model_name: str,
-    collect_mode: str,
+    attack_mode: str,
     save_exp: Optional[dict[str, str]],
     only_first_forward: bool,
 ) -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -70,7 +70,7 @@ def _prepare_experiment_paths(
     path_kwargs = {
         "save_exp": save_exp,
         "model_name": model_name,
-        "s_or_q": collect_mode,
+        "attack_mode": attack_mode,
         "only_first_forward": only_first_forward,
     }
     save_dir = get_save_dir_from_save_exp(**path_kwargs)
@@ -123,9 +123,10 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
     module, func_init_model, execute = _load_predictor(module_path, root)
     func_init_model(model_path)
 
+    attack_mode = popped_log_attack_mode or (save_exp.get("attack_mode") if save_exp else "unknown")
     save_dir, smtdir, input_name = _prepare_experiment_paths(
         model_name,
-        collect_mode,
+        attack_mode,
         save_exp,
         only_first_forward,
     )

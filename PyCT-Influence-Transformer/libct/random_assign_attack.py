@@ -47,6 +47,7 @@ class RandomAssignResult:
     base_seed: int
     attempt: int
     attack_wall_time: float = 0.0
+    ton_sequence: List[int] | None = None
 
 
 def extract_target_pixels(con_dict: Dict[str, Any]) -> List[PixelCoordinates]:
@@ -179,7 +180,7 @@ def write_experiment_artifacts(result: RandomAssignResult) -> None:
         get_save_dir_from_save_exp(
             result.save_exp,
             result.model_name,
-            "priority_queue",
+            result.save_exp.get("attack_mode", "random-assign"),
         )
     )
     os.makedirs(save_dir, exist_ok=True)
@@ -198,6 +199,7 @@ def write_experiment_artifacts(result: RandomAssignResult) -> None:
             "attempts": result.attempt + 1,
             "attack_wall_time": result.attack_wall_time,
             "is_finish": True,
+            "ton_sequence": result.ton_sequence if result.ton_sequence is not None else [result.ton],
         },
         "assignments": [
             {

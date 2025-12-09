@@ -28,6 +28,7 @@ __all__ = [
     "sentiment_lstm_lstm_15_1_2_3_4_8_range02",
     "fashion_mnist_transformer_shap",
     "fashion_mnist_transformer_shap_calculate_all",
+    "cifar10_cal_shap_specs",
     "fashion_mnist_transformer_random",
 ]
 
@@ -35,19 +36,24 @@ __all__ = [
 def get_save_dir_from_save_exp(
     save_exp: Dict[str, str],
     model_name: str,
-    s_or_q: str,
+    attack_mode: str,
     *,
     only_first_forward: bool = False,
 ) -> str:
-    if only_first_forward:
-        return os.path.join(
-            "exp",
-            f"{model_name}_only_first_forward",
-            s_or_q,
-            save_exp["exp_name"],
-            save_exp["input_name"],
-        )
-    return os.path.join("exp", model_name, s_or_q, save_exp["exp_name"], save_exp["input_name"])
+    base_model = f"{model_name}_only_first_forward" if only_first_forward else model_name
+    idx = save_exp.get("idx")
+    if idx is None:
+        # try to infer from input_name fallback
+        input_name = save_exp.get("input_name", "")
+        if input_name.startswith("case_"):
+            try:
+                idx = int(input_name.split("_")[-1])
+            except ValueError:
+                idx = "unknown"
+        else:
+            idx = "unknown"
+    case_name = save_exp.get("input_name", f"case_{idx}")
+    return os.path.join("exp", base_model, attack_mode, case_name)
 
 
 def _always_false(_: Dict[str, Any], __: Any) -> bool:
@@ -214,10 +220,12 @@ def _generate_inputs(
         for ton in spec.ton_values:
             for idx in indices:
                 save_exp = spec.save_exp_builder(idx, ton, mode)
+                save_exp.setdefault("idx", idx)
+                attack_mode = save_exp.get("attack_mode", mode.identifier)
                 save_dir = get_save_dir_from_save_exp(
                     save_exp,
                     model_name,
-                    mode.identifier,
+                    attack_mode,
                     only_first_forward=spec.save_dir_flag(save_exp, mode),
                 )
                 if skip_existing and os.path.exists(save_dir):
@@ -243,6 +251,7 @@ def fashion_mnist_transformer_shap(
     ton_values: Optional[Sequence[int]] = None,
     ton: Optional[int] = None,
     exp_prefix: Optional[str] = None,
+    attack_mode: str = "shap",
 ) -> List[Dict[str, Any]]:
     from utils.dataset import FashionMnistDataset
 
@@ -267,16 +276,19 @@ def fashion_mnist_transformer_shap(
         base_in_dict: Optional[Dict[str, Any]] = None
         input_for_shap = None
         background_dataset_for_shap = None
+        input_name = f"case_{idx}"
 
         for ton_value in ton_sequence:
             save_exp = {
-                "input_name": f"fashion_mnist_test_{idx}",
+                "input_name": input_name,
                 "exp_name": f"{prefix}shap_{ton_value}",
+                "idx": idx,
+                "attack_mode": attack_mode,
             }
             save_dir = get_save_dir_from_save_exp(
                 save_exp,
                 model_name,
-                queue_mode.identifier,
+                attack_mode,
                 only_first_forward=False,
             )
             if not force and os.path.exists(save_dir):
@@ -311,7 +323,7 @@ def fashion_mnist_transformer_shap(
             "background_dataset_for_shap": background_dataset_for_shap,
             "solve_order_stack": queue_mode.solve_order_stack,
             "shap_value_pre_calculated": True,
-            "popped_log_attack_mode": "shap",
+            "popped_log_attack_mode": attack_mode,
             "ton_plans": ton_plans,
         }
         inputs.append(entry)
@@ -328,6 +340,7 @@ def fashion_mnist_transformer_random(
     force: bool = False,
     base_seed: int = 2024,
     exp_prefix: Optional[str] = None,
+    attack_mode: str = "random",
 ) -> List[Dict[str, Any]]:
     from utils.dataset import FashionMnistDataset
 
@@ -349,16 +362,19 @@ def fashion_mnist_transformer_random(
         base_in_dict: Optional[Dict[str, Any]] = None
         input_for_shap = None
         background_dataset_for_shap = None
+        input_name = f"case_{idx}"
 
         for ton_value in ton_sequence:
             save_exp = {
-                "input_name": f"fashion_mnist_test_{idx}",
+                "input_name": input_name,
                 "exp_name": f"{prefix}/random_{ton_value}",
+                "idx": idx,
+                "attack_mode": attack_mode,
             }
             save_dir = get_save_dir_from_save_exp(
                 save_exp,
                 model_name,
-                queue_mode.identifier,
+                attack_mode,
                 only_first_forward=False,
             )
             if not force and os.path.exists(save_dir):
@@ -396,7 +412,7 @@ def fashion_mnist_transformer_random(
             "background_dataset_for_shap": background_dataset_for_shap,
             "solve_order_stack": queue_mode.solve_order_stack,
             "shap_value_pre_calculated": True,
-            "popped_log_attack_mode": "random",
+            "popped_log_attack_mode": attack_mode,
             "ton_plans": ton_plans,
         }
         inputs.append(entry)
@@ -426,6 +442,52 @@ def fashion_mnist_transformer_shap_calculate_all(
             input_for_shap,
             background_dataset_for_shap,
         ) = dataset.get_fashion_mnist_test_data_and_set_condict(idx, [])
+
+        calculator = ShapValuesCalculator(
+            model_path=f"./model/{model_name}.h5",
+            background_dataset=background_dataset_for_shap,
+            input_data=np.expand_dims(input_for_shap, axis=0),
+            idx=idx,
+            explainer_type=explainer_type,
+            output_root=output_root,
+        )
+        cache_exists = calculator.cache_path.is_file()
+        calculator.ensure(
+            assume_cached=cache_exists and not force_refresh,
+            force_refresh=force_refresh,
+        )
+        artifacts.append(
+            {
+                "idx": idx,
+                "output_path": str(calculator.cache_path),
+                "was_cached": cache_exists and not force_refresh,
+            }
+        )
+
+    return artifacts
+
+
+def cifar10_cal_shap_specs(
+    model_name: str,
+    first_n_img: int,
+    *,
+    force_refresh: bool = False,
+    explainer_type: str = "gradient",
+    output_root: str = "shap_value_all_layer",
+) -> List[Dict[str, Any]]:
+    from utils.dataset import Cifar10Dataset
+
+    dataset = Cifar10Dataset()
+    indices = _normalize_indices(first_n_img)
+    artifacts: List[Dict[str, Any]] = []
+
+    for idx in indices:
+        (
+            _,
+            _,
+            input_for_shap,
+            background_dataset_for_shap,
+        ) = dataset.get_cifar10_test_data_and_set_condict(idx, [])
 
         calculator = ShapValuesCalculator(
             model_path=f"./model/{model_name}.h5",

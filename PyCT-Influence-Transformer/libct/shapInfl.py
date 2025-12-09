@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING, Callable, Dict, Literal, Tuple
 
 import numpy as np
 import shap
-from keras import Model
-from keras.models import Sequential, load_model
+from tensorflow.keras import Model
 from tensorflow.keras.layers import Input, Reshape
+from tensorflow.keras.models import Sequential, load_model
 
 from libct.constraint import Constraint
 

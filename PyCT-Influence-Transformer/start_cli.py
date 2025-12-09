@@ -67,7 +67,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--attack-mode",
         default="shap",
-        choices=("shap", "random", "random-assign"),
+        choices=("shap", "random", "random-assign", "queue"),
         help="Select attack strategy.",
     )
     parser.add_argument(
