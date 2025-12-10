@@ -78,6 +78,7 @@ def _needs_resnet_fallback(exc):
             or "missing 1 required positional argument: 'inputs'" in msg)
 
 
+# 此時h5模型還沒被讀 不能直接get_config
 def _read_model_config(model_path):
     try:
         with h5py.File(model_path, 'r') as f:
@@ -91,30 +92,86 @@ def _read_model_config(model_path):
         return None
 
 
-def _extract_specs_from_h5(model_path):
-    config = _read_model_config(model_path)
+def _extract_specs_from_weights(model_path):
     specs = {}
-    if not config:
-        return specs
-    class_name = config.get('class_name', '')
-    match = re.search(r'(\d+)', class_name)
-    if match:
-        specs['depth'] = int(match.group(1))
+    try:
+        with h5py.File(model_path, 'r') as f:
+            weights_group = f.get('model_weights')
+            if weights_group is None:
+                return specs
 
-    conf = config.get('config', {})
-    layers = conf.get('layers', [])
-    for layer in layers:
-        class_name = layer.get('class_name')
-        layer_conf = layer.get('config', {})
-        if specs.get('input_shape') is None and class_name == 'InputLayer':
-            batch_shape = layer_conf.get('batch_input_shape')
-            if batch_shape:
-                specs['input_shape'] = tuple(int(dim)
-                                             for dim in batch_shape[1:])
-        if class_name == 'Dense':
-            units = layer_conf.get('units')
-            if units is not None:
-                specs['num_classes'] = int(units)
+            input_channels = None
+            dense_candidates = []
+
+            def visitor(name, obj):
+                nonlocal input_channels
+                if not isinstance(obj, h5py.Dataset):
+                    return
+                if not name.endswith('kernel:0'):
+                    return
+                shape = obj.shape
+                lname = name.lower()
+                if len(shape) == 4 and input_channels is None:
+                    input_channels = shape[2]
+                elif len(shape) == 2:
+                    hint = 0 if any(tag in lname for tag in (
+                        'pred', 'logit', 'fc', 'dense', 'classifier')) else 1
+                    dense_candidates.append((hint, int(shape[1])))
+
+            weights_group.visititems(visitor)
+
+            if input_channels is not None:
+                specs['input_shape'] = (None, None, int(input_channels))
+
+            h_guess = w_guess = None
+            if 'conv1' in weights_group:
+                conv1_group = weights_group['conv1']['conv1']
+                kernel = conv1_group.get('kernel:0')
+                if kernel is not None:
+                    _, _, _, filters = kernel.shape
+                    if filters == 64:
+                        h_guess = w_guess = 224
+            if h_guess and w_guess:
+                specs['input_shape'] = (h_guess, w_guess, int(input_channels or 3))
+            # 分類模型中，最後一個 Dense 層的權重矩陣大小正好是 (特徵數, 類別數)，所以只要抓到那個權重，就能把 final_out 視為 num_classes
+            if dense_candidates:
+                dense_candidates.sort(key=lambda tup: (tup[0], tup[1]))
+                specs['num_classes'] = dense_candidates[0][1]
+
+    except Exception:
+        return specs
+
+    return specs
+
+
+def _extract_specs_from_h5(model_path):
+    specs = {}
+    config = _read_model_config(model_path)
+    if config:
+        class_name = config.get('class_name', '')
+        matches = re.findall(r'(\d+)', class_name)
+        if matches:
+            specs['depth'] = int(matches[-1])
+
+        conf = config.get('config', {})
+        layers = conf.get('layers', [])
+        for layer in layers:
+            class_name = layer.get('class_name')
+            layer_conf = layer.get('config', {})
+            if specs.get('input_shape') is None and class_name == 'InputLayer':
+                batch_shape = layer_conf.get('batch_input_shape')
+                if batch_shape:
+                    specs['input_shape'] = tuple(
+                        None if dim is None else int(dim) for dim in batch_shape[1:])
+            if class_name == 'Dense':
+                units = layer_conf.get('units')
+                if units is not None:
+                    specs['num_classes'] = int(units)
+
+    weight_specs = _extract_specs_from_weights(model_path)
+    for key, value in weight_specs.items():
+        specs.setdefault(key, value)
+
     return specs
 
 
@@ -124,6 +181,15 @@ def _infer_resnet_specs(model_path, input_shape_override=None, num_classes_overr
         specs["input_shape"] = input_shape_override
     if num_classes_override is not None:
         specs["num_classes"] = num_classes_override
+
+    input_shape = specs.get("input_shape")
+    if input_shape is not None:
+        if any(dim is None for dim in input_shape):
+            if input_shape_override is not None:
+                specs["input_shape"] = input_shape_override
+            else:
+                specs.pop("input_shape", None)
+
     if "depth" not in specs:
         basename = os.path.splitext(os.path.basename(model_path))[0]
         match = re.search(r"resnet(\d+)", basename)
@@ -174,7 +240,8 @@ def load_keras_model(model_path, input_shape_override=None, num_classes_override
             raise ValueError(
                 f"無法解析 {basename} 的輸入形狀或分類數，請提供 input_shape / num_classes。"
             ) from exc
-        model = _build_resnet_model(specs["depth"], specs["input_shape"], specs["num_classes"])
+        model = _build_resnet_model(
+            specs["depth"], specs["input_shape"], specs["num_classes"])
         model.load_weights(model_path)
         return model
 
@@ -182,9 +249,11 @@ def load_keras_model(model_path, input_shape_override=None, num_classes_override
 myModel = None
 
 
-def init_model(model_path, verbose=True):
+def init_model(model_path, verbose=True, input_shape_override=None, num_classes_override=None):
     global myModel
-    model = load_keras_model(model_path)
+    model = load_keras_model(model_path,
+                             input_shape_override=input_shape_override,
+                             num_classes_override=num_classes_override)
     if verbose:
         model.summary()
     layers, inbound_map = _collect_layers_and_inbound(model)
