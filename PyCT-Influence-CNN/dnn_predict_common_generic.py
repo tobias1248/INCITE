@@ -122,6 +122,17 @@ def _extract_specs_from_weights(model_path):
 
             if input_channels is not None:
                 specs['input_shape'] = (None, None, int(input_channels))
+
+            h_guess = w_guess = None
+            if 'conv1' in weights_group:
+                conv1_group = weights_group['conv1']['conv1']
+                kernel = conv1_group.get('kernel:0')
+                if kernel is not None:
+                    _, _, _, filters = kernel.shape
+                    if filters == 64:
+                        h_guess = w_guess = 224
+            if h_guess and w_guess:
+                specs['input_shape'] = (h_guess, w_guess, int(input_channels or 3))
             # 分類模型中，最後一個 Dense 層的權重矩陣大小正好是 (特徵數, 類別數)，所以只要抓到那個權重，就能把 final_out 視為 num_classes
             if dense_candidates:
                 dense_candidates.sort(key=lambda tup: (tup[0], tup[1]))
