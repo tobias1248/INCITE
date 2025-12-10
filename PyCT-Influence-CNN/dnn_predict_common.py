@@ -1,6 +1,8 @@
 import os
 import re
+import json
 import keras
+import h5py
 from dnnct.myDNN import NNModel
 import numpy as np
 import itertools
@@ -8,21 +10,19 @@ import itertools
 from libct.position import register_layer_number_mapping, to_Keras_layer_number
 
 
-def _get_inbound_layers(layer):  # 取得某層的上一層神經層的資訊
+def _get_inbound_layers(layer):
     inbound = []
-    for node in getattr(layer, "_inbound_nodes", []):  # keras把上一層的所有資訊存在_inbound_nodes
-        inbound_layers = getattr(
-            node, "inbound_layers", None)  # 取得上一層layer name
+    for node in getattr(layer, "_inbound_nodes", []):
+        inbound_layers = getattr(node, "inbound_layers", None)
         if inbound_layers is None:
             continue
         if not isinstance(inbound_layers, list):
             inbound_layers = [inbound_layers]
-        # 保證神經層依照資料流動順序維護神經層關係
         inbound.extend(l for l in inbound_layers if l is not None)
     return inbound
 
 
-def _collect_layers_and_inbound(model):  # 收集模型的所有層及其上一層關係
+def _collect_layers_and_inbound(model):
     layers = [l for l in model.layers if type(l).__name__ not in [
         'Dropout', 'InputLayer']]
     inbound_map = {}
@@ -38,7 +38,6 @@ def _format_shape(shape):
     return str(shape)
 
 
-# 純粹對照 keras 模型定義層
 def _describe_model_layers(model, layers):
     print("=== Keras model.layers order ===")
     for idx, layer in enumerate(model.layers):
@@ -48,20 +47,6 @@ def _describe_model_layers(model, layers):
             f"output={_format_shape(getattr(layer, 'output_shape', None))} "
             f"inbound={inbound}"
         )
-
-
-RESNET_BUILDER_BY_DEPTH = {
-    18: "ResNet18",
-    34: "ResNet34",
-    50: "ResNet50",
-    101: "ResNet101",
-    152: "ResNet152",
-}
-
-KNOWN_RESNET_SPECS = {
-    "resnet18_mnist": {"depth": 18, "input_shape": (28, 28, 1), "num_classes": 10},
-    "resnet50_imagenet": {"depth": 50, "input_shape": (224, 224, 3), "num_classes": 1000},
-}
 
 
 def _get_resnet_custom_objects():
@@ -93,13 +78,109 @@ def _needs_resnet_fallback(exc):
             or "missing 1 required positional argument: 'inputs'" in msg)
 
 
-def _infer_resnet_specs(basename, input_shape_override=None, num_classes_override=None):
-    specs = KNOWN_RESNET_SPECS.get(basename, {}).copy()
+# 此時h5模型還沒被讀 不能直接get_config
+def _read_model_config(model_path):
+    try:
+        with h5py.File(model_path, 'r') as f:
+            if 'model_config' not in f.attrs:
+                return None
+            config = f.attrs['model_config']
+            if isinstance(config, bytes):
+                config = config.decode('utf-8')
+            return json.loads(config)
+    except Exception:
+        return None
+
+
+def _extract_specs_from_weights(model_path):
+    specs = {}
+    try:
+        with h5py.File(model_path, 'r') as f:
+            weights_group = f.get('model_weights')
+            if weights_group is None:
+                return specs
+
+            input_channels = None
+            dense_candidates = []
+
+            def visitor(name, obj):
+                nonlocal input_channels
+                if not isinstance(obj, h5py.Dataset):
+                    return
+                if not name.endswith('kernel:0'):
+                    return
+                shape = obj.shape
+                lname = name.lower()
+                if len(shape) == 4 and input_channels is None:
+                    input_channels = shape[2]
+                elif len(shape) == 2:
+                    hint = 0 if any(tag in lname for tag in (
+                        'pred', 'logit', 'fc', 'dense', 'classifier')) else 1
+                    dense_candidates.append((hint, int(shape[1])))
+
+            weights_group.visititems(visitor)
+
+            if input_channels is not None:
+                specs['input_shape'] = (None, None, int(input_channels))
+            # 分類模型中，最後一個 Dense 層的權重矩陣大小正好是 (特徵數, 類別數)，所以只要抓到那個權重，就能把 final_out 視為 num_classes
+            if dense_candidates:
+                dense_candidates.sort(key=lambda tup: (tup[0], tup[1]))
+                specs['num_classes'] = dense_candidates[0][1]
+
+    except Exception:
+        return specs
+
+    return specs
+
+
+def _extract_specs_from_h5(model_path):
+    specs = {}
+    config = _read_model_config(model_path)
+    if config:
+        class_name = config.get('class_name', '')
+        matches = re.findall(r'(\d+)', class_name)
+        if matches:
+            specs['depth'] = int(matches[-1])
+
+        conf = config.get('config', {})
+        layers = conf.get('layers', [])
+        for layer in layers:
+            class_name = layer.get('class_name')
+            layer_conf = layer.get('config', {})
+            if specs.get('input_shape') is None and class_name == 'InputLayer':
+                batch_shape = layer_conf.get('batch_input_shape')
+                if batch_shape:
+                    specs['input_shape'] = tuple(
+                        None if dim is None else int(dim) for dim in batch_shape[1:])
+            if class_name == 'Dense':
+                units = layer_conf.get('units')
+                if units is not None:
+                    specs['num_classes'] = int(units)
+
+    weight_specs = _extract_specs_from_weights(model_path)
+    for key, value in weight_specs.items():
+        specs.setdefault(key, value)
+
+    return specs
+
+
+def _infer_resnet_specs(model_path, input_shape_override=None, num_classes_override=None):
+    specs = _extract_specs_from_h5(model_path)
     if input_shape_override is not None:
         specs["input_shape"] = input_shape_override
     if num_classes_override is not None:
         specs["num_classes"] = num_classes_override
+
+    input_shape = specs.get("input_shape")
+    if input_shape is not None:
+        if any(dim is None for dim in input_shape):
+            if input_shape_override is not None:
+                specs["input_shape"] = input_shape_override
+            else:
+                specs.pop("input_shape", None)
+
     if "depth" not in specs:
+        basename = os.path.splitext(os.path.basename(model_path))[0]
         match = re.search(r"resnet(\d+)", basename)
         if match:
             specs["depth"] = int(match.group(1))
@@ -116,19 +197,22 @@ def _build_resnet_model(depth, input_shape, num_classes):
             "載入 ResNet 權重需要 `keras-resnet` 套件，請先安裝 `pip install keras-resnet`。"
         ) from exc
 
-    builder_name = RESNET_BUILDER_BY_DEPTH.get(depth)
-    if builder_name is None:
-        raise ValueError(f"不支援的 ResNet 深度: {depth}")
-    builder = getattr(kr_models, builder_name, None)
+    builder = None
+    candidate_names = [f"ResNet2D{depth}", f"ResNet{depth}"]
+    for name in candidate_names:
+        builder = getattr(kr_models, name, None)
+        if builder is not None:
+            break
+
     if builder is None:
-        raise ValueError(f"在 keras_resnet 中找不到建構函式 {builder_name}")
+        raise ValueError(
+            f"在 keras_resnet.models 中找不到對應深度 {depth} 的 ResNet builder")
 
     inputs = keras.layers.Input(shape=input_shape)
     return builder(inputs=inputs, classes=num_classes, include_top=True, freeze_bn=False)
 
 
 def load_keras_model(model_path, input_shape_override=None, num_classes_override=None):
-    """載入 Keras 模型，必要時改以建立 ResNet 架構後匯入權重。"""
     custom_objects = _get_resnet_custom_objects()
     try:
         return keras.models.load_model(
@@ -138,14 +222,15 @@ def load_keras_model(model_path, input_shape_override=None, num_classes_override
             raise
         basename = os.path.splitext(os.path.basename(model_path))[0]
         specs = _infer_resnet_specs(
-            basename, input_shape_override=input_shape_override,
+            model_path, input_shape_override=input_shape_override,
             num_classes_override=num_classes_override
         )
         if specs is None:
             raise ValueError(
                 f"無法解析 {basename} 的輸入形狀或分類數，請提供 input_shape / num_classes。"
             ) from exc
-        model = _build_resnet_model(specs["depth"], specs["input_shape"], specs["num_classes"])
+        model = _build_resnet_model(
+            specs["depth"], specs["input_shape"], specs["num_classes"])
         model.load_weights(model_path)
         return model
 
@@ -153,9 +238,11 @@ def load_keras_model(model_path, input_shape_override=None, num_classes_override
 myModel = None
 
 
-def init_model(model_path, verbose=True):
+def init_model(model_path, verbose=True, input_shape_override=None, num_classes_override=None):
     global myModel
-    model = load_keras_model(model_path)
+    model = load_keras_model(model_path,
+                             input_shape_override=input_shape_override,
+                             num_classes_override=num_classes_override)
     if verbose:
         model.summary()
     layers, inbound_map = _collect_layers_and_inbound(model)
@@ -165,14 +252,12 @@ def init_model(model_path, verbose=True):
         layer.name for layer in model.layers if type(layer).__name__ == "InputLayer"]
     myModel.register_input_names(input_layer_names)
 
-    # 1: is because 1st dim of input shape of Keras model is batch size (None)
     myModel.input_shape = model.input_shape[1:]
     myLayerCount = 0
     for i, layer in enumerate(layers):
         inbound_names = inbound_map.get(layer.name, [])
         numberOfMyLayers = myModel.addLayer(
             layer, inbound_names=inbound_names)
-        # maintain the mapping of layers between Keras model and my model
         for j in range(numberOfMyLayers):
             register_layer_number_mapping(i, myLayerCount)
             myLayerCount += 1
@@ -189,7 +274,6 @@ def init_model(model_path, verbose=True):
 
 
 def _forward_from_flat_data(data):
-    """將扁平輸入還原成 tensor 並回傳 NNModel logits。"""
     input_shape = myModel.input_shape
     iter_args = (range(dim) for dim in input_shape)
     X = np.zeros(input_shape).tolist()
@@ -207,15 +291,12 @@ def _forward_from_flat_data(data):
 
 
 def predict_logits(**data):
-    """回傳 NNModel 的 logits，方便和 Keras 模型做數值比對。"""
     return _forward_from_flat_data(data)
 
 
 def predict(**data):
-    # calculate the output of the model
     out_val = _forward_from_flat_data(data)
 
-    # 用一顆神經元做二分類
     if len(out_val) == 1:
         if out_val[0] > 0.5:
             ret_class = 1

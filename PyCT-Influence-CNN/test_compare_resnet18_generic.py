@@ -4,32 +4,91 @@ import numpy as np
 
 import dnn_predict_common_generic as dpc
 from utils_out.dataset import MnistDataset
+from tensorflow.image import resize
 
-_dataset_cache = None
+_DATASET_CACHE = {}
 
 
-def load_sample(sample_idx):
-    global _dataset_cache
-    if _dataset_cache is None:
-        _dataset_cache = MnistDataset()
-    dataset = _dataset_cache
-    in_dict, _ = dataset.get_mnist_test_data(sample_idx)
-    img = dataset.x_test[sample_idx]
-    return in_dict, img
+def _load_mnist_gray():
+    ds = MnistDataset()
+    return ds.x_test.astype("float32"), "mnist_gray"
+
+
+def _load_cifar10_rgb():
+    from tensorflow.keras.datasets import cifar10
+
+    (_, _), (x_test, _) = cifar10.load_data()
+    x_test = x_test.astype("float32") / 255.0
+    x_test = resize(x_test, (224, 224)).numpy()
+    return x_test, "cifar10_rgb"
+
+
+DATASET_LOADERS = {
+    "mnist_gray": _load_mnist_gray,
+    "cifar10_rgb": _load_cifar10_rgb,
+}
+
+
+def _get_dataset(dataset_name):
+    if dataset_name not in DATASET_LOADERS:
+        raise ValueError(f"未知的 dataset: {dataset_name}")
+    if dataset_name not in _DATASET_CACHE:
+        data, name = DATASET_LOADERS[dataset_name]()
+        _DATASET_CACHE[dataset_name] = data
+    return _DATASET_CACHE[dataset_name]
+
+
+def load_sample(sample_idx, dataset_name):
+    data = _get_dataset(dataset_name)
+    return data[sample_idx]
+
+
+def image_to_input_dict(img):
+    h, w, c = img.shape
+    in_dict = {}
+    for i in range(h):
+        for j in range(w):
+            for k in range(c):
+                in_dict[f"v_{i}_{j}_{k}"] = float(img[i, j, k])
+    return in_dict
+
+
+def adapt_image_channels(img, target_shape):
+    if img.ndim == 2:
+        img = img[:, :, None]
+    if target_shape is None or len(target_shape) < 3:
+        return img
+    target_c = target_shape[2]
+    if target_c is None or img.shape[2] == target_c:
+        return img
+    if img.shape[2] == 1 and target_c == 3:
+        return np.repeat(img, target_c, axis=2)
+    raise ValueError(
+        f"無法將輸入通道 {img.shape[2]} 匹配到模型需求 {target_c}")
 
 
 def compare_logits(model_path,
                    sample_idx,
                    atol,
-                   input_shape,
-                   num_classes,
+                   input_shape=None,
+                   num_classes=None,
+                   dataset_name="mnist_gray",
                    verbose=True,
                    init_verbose=False):
-    keras_model = dpc.load_keras_model(
-        model_path, input_shape_override=input_shape, num_classes_override=num_classes)
-    dpc.init_model(model_path, verbose=init_verbose)
+    img = load_sample(sample_idx, dataset_name)
+    sample_shape = tuple(int(dim) for dim in img.shape) if img.ndim == 3 else (
+        img.shape[0], img.shape[1], 1)
+    target_shape = input_shape or sample_shape
+    img = adapt_image_channels(img, target_shape)
+    effective_input_shape = target_shape or tuple(int(dim)
+                                                  for dim in img.shape)
+    in_dict = image_to_input_dict(img)
 
-    in_dict, img = load_sample(sample_idx)
+    keras_model = dpc.load_keras_model(
+        model_path, input_shape_override=effective_input_shape, num_classes_override=num_classes)
+    dpc.init_model(model_path, verbose=init_verbose,
+                   input_shape_override=effective_input_shape,
+                   num_classes_override=num_classes)
 
     py_logits = np.asarray(dpc.predict_logits(**in_dict), dtype=np.float32)
     keras_logits = keras_model.predict(
@@ -81,15 +140,21 @@ def parse_args():
     )
     parser.add_argument(
         "--input-shape",
-        type=_parse_shape,
-        default=(28, 28, 1),
-        help="模型輸入形狀，格式為 h,w,c（預設 28,28,1）"
+        type=str,
+        default=None,
+        help="（選填）模型輸入形狀 h,w,c。若不填則由模型自動推斷"
     )
     parser.add_argument(
         "--num-classes",
         type=int,
-        default=10,
-        help="分類數（預設 10）"
+        default=None,
+        help="（選填）分類數，若不填則由模型自動推斷"
+    )
+    parser.add_argument(
+        "--dataset",
+        choices=["mnist_gray", "cifar10_rgb"],
+        default="mnist_gray",
+        help="選擇資料集：mnist_gray（灰階）或 cifar10_rgb（224x224 RGB）"
     )
     parser.add_argument(
         "--num-samples",
@@ -105,14 +170,18 @@ def main():
     total = args.num_samples
     results = []
     init_verbose = total == 1
+    input_shape = _parse_shape(args.input_shape) if args.input_shape else None
+    num_classes = args.num_classes
+    dataset_name = args.dataset
     for offset in range(total):
         idx = args.sample_idx + offset
         ok, diff, argmax_match = compare_logits(
             args.model_path,
             idx,
             args.atol,
-            args.input_shape,
-            args.num_classes,
+            input_shape,
+            num_classes,
+            dataset_name=dataset_name,
             init_verbose=init_verbose,
         )
         results.append((idx, ok, diff, argmax_match))

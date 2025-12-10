@@ -25,11 +25,16 @@ def compare_logits(model_path,
                    num_classes,
                    verbose=True,
                    init_verbose=False):
-    keras_model = dpc.load_keras_model(
-        model_path, input_shape_override=input_shape, num_classes_override=num_classes)
-    dpc.init_model(model_path, verbose=init_verbose)
-
     in_dict, img = load_sample(sample_idx)
+    sample_shape = tuple(int(dim) for dim in img.shape)  # 實際拿到的影像形狀推斷
+
+    effective_input_shape = input_shape or sample_shape
+
+    keras_model = dpc.load_keras_model(
+        model_path, input_shape_override=effective_input_shape, num_classes_override=num_classes)
+    dpc.init_model(model_path, verbose=init_verbose,
+                   input_shape_override=effective_input_shape,
+                   num_classes_override=num_classes)
 
     py_logits = np.asarray(dpc.predict_logits(**in_dict), dtype=np.float32)
     keras_logits = keras_model.predict(
@@ -81,15 +86,15 @@ def parse_args():
     )
     parser.add_argument(
         "--input-shape",
-        type=_parse_shape,
-        default=(28, 28, 1),
-        help="模型輸入形狀，格式為 h,w,c（預設 28,28,1）"
+        type=str,
+        default=None,
+        help="（選填）模型輸入形狀 h,w,c。若不填則由模型自動推斷"
     )
     parser.add_argument(
         "--num-classes",
         type=int,
-        default=10,
-        help="分類數（預設 10）"
+        default=None,
+        help="（選填）分類數，若不填則由模型自動推斷"
     )
     parser.add_argument(
         "--num-samples",
@@ -105,14 +110,16 @@ def main():
     total = args.num_samples
     results = []
     init_verbose = total == 1
+    input_shape = _parse_shape(args.input_shape) if args.input_shape else None
+    num_classes = args.num_classes
     for offset in range(total):
         idx = args.sample_idx + offset
         ok, diff, argmax_match = compare_logits(
             args.model_path,
             idx,
             args.atol,
-            args.input_shape,
-            args.num_classes,
+            input_shape,
+            num_classes,
             init_verbose=init_verbose,
         )
         results.append((idx, ok, diff, argmax_match))
