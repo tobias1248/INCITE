@@ -1,45 +1,106 @@
 #!/usr/bin/env python3
 import argparse
+from pathlib import Path
+
 import numpy as np
 
 import dnn_predict_common_generic as dpc
-from utils_out.dataset import MnistDataset
-from tensorflow.image import resize
+from utils_out.dataset import MnistDataset, ImagenetMiniDataset
+from tensorflow.keras.utils import img_to_array, load_img
 
 _DATASET_CACHE = {}
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
+_DEFAULT_IMAGENET_MINI_ROOT = Path(__file__).resolve().parent / "utils_out" / "dataset" / "imagenet-mini"
 
 
-def _load_mnist_gray():
+def _load_images_from_dir(dataset_root, dataset_name, max_samples=None):
+    root = Path(dataset_root)
+    if not root.exists():
+        raise FileNotFoundError(
+            f"{dataset_name} 數據集目錄不存在：'{root}'，請先下載 mini 版或指定正確路徑")
+    image_files = sorted([
+        path for path in root.rglob("*")
+        if path.is_file() and path.suffix.lower() in _IMAGE_EXTENSIONS
+    ])
+    if not image_files:
+        raise FileNotFoundError(
+            f"{dataset_name} 沒找到影像檔案，請檢查資料集相關目錄")
+    if max_samples is not None:
+        image_files = image_files[:max_samples]
+
+    images = []
+    shapes = set()
+    for path in image_files:
+        img = load_img(path)
+        arr = img_to_array(img).astype("float32") / 255.0
+        images.append(arr)
+        shapes.add(arr.shape)
+
+    if len(shapes) != 1:
+        raise ValueError(f"{dataset_name} 影像尺寸不一致，找到的尺寸集合: {shapes}")
+    return np.stack(images), dataset_name
+
+
+def _load_mnist_gray(dataset_root=None, max_samples=None):
     ds = MnistDataset()
-    return ds.x_test.astype("float32"), "mnist_gray"
+    data = ds.x_test.astype("float32")
+    if max_samples is not None:
+        data = data[:max_samples]
+    return data, "mnist_gray"
 
 
-def _load_cifar10_rgb():
+def _load_cifar10_rgb(dataset_root=None, max_samples=None):
     from tensorflow.keras.datasets import cifar10
 
     (_, _), (x_test, _) = cifar10.load_data()
     x_test = x_test.astype("float32") / 255.0
-    x_test = resize(x_test, (224, 224)).numpy()
+    if max_samples is not None:
+        x_test = x_test[:max_samples]
     return x_test, "cifar10_rgb"
+
+
+def _load_imagenet_mini_rgb(dataset_root=None, max_samples=None):
+    ds = ImagenetMiniDataset(
+        dataset_root=dataset_root or _DEFAULT_IMAGENET_MINI_ROOT,
+        max_samples=max_samples,
+    )
+    return ds.x_test, "imagenet_mini_rgb"
+
+
+def _load_custom_rgb(dataset_root=None, max_samples=None):
+    if not dataset_root:
+        raise ValueError("custom_rgb 請提供 dataset_root （--dataset-root）")
+    return _load_images_from_dir(dataset_root, "custom_rgb", max_samples=max_samples)
 
 
 DATASET_LOADERS = {
     "mnist_gray": _load_mnist_gray,
     "cifar10_rgb": _load_cifar10_rgb,
+    "imagenet_mini_rgb": _load_imagenet_mini_rgb,
+    "custom_rgb": _load_custom_rgb,
 }
 
 
-def _get_dataset(dataset_name):
+def _get_dataset(dataset_name, dataset_root=None, max_samples=None):
     if dataset_name not in DATASET_LOADERS:
         raise ValueError(f"未知的 dataset: {dataset_name}")
-    if dataset_name not in _DATASET_CACHE:
-        data, name = DATASET_LOADERS[dataset_name]()
-        _DATASET_CACHE[dataset_name] = data
-    return _DATASET_CACHE[dataset_name]
+    cache_key = (dataset_name, str(dataset_root) if dataset_root else None,
+                 max_samples)
+    if cache_key not in _DATASET_CACHE:
+        data, name = DATASET_LOADERS[dataset_name](
+            dataset_root=dataset_root,
+            max_samples=max_samples,
+        )
+        _DATASET_CACHE[cache_key] = data
+    return _DATASET_CACHE[cache_key]
 
 
-def load_sample(sample_idx, dataset_name):
-    data = _get_dataset(dataset_name)
+def load_sample(sample_idx, dataset_name, dataset_root=None, max_samples=None):
+    data = _get_dataset(dataset_name, dataset_root=dataset_root,
+                        max_samples=max_samples)
+    if sample_idx >= len(data):
+        raise IndexError(
+            f"{dataset_name} 包含 {len(data)} 張，被選索引 {sample_idx}")
     return data[sample_idx]
 
 
@@ -52,7 +113,7 @@ def image_to_input_dict(img):
                 in_dict[f"v_{i}_{j}_{k}"] = float(img[i, j, k])
     return in_dict
 
-
+# 比對Channel與sample size是否匹配
 def adapt_image_channels(img, target_shape):
     if img.ndim == 2:
         img = img[:, :, None]
@@ -67,25 +128,62 @@ def adapt_image_channels(img, target_shape):
         f"無法將輸入通道 {img.shape[2]} 匹配到模型需求 {target_c}")
 
 
+def _assert_shape_compatible(actual_shape, expected_shape, context, dataset_name):
+    if expected_shape is None:
+        return
+    if len(actual_shape) != len(expected_shape):
+        raise ValueError(
+            f"{context}: {dataset_name} 數據使用維度 {actual_shape} 與要求 {expected_shape} 不符")
+    mismatches = []
+    for idx, (act, exp) in enumerate(zip(actual_shape, expected_shape)):
+        if exp is None:
+            continue
+        if int(act) != int(exp):
+            mismatches.append((idx, act, exp))
+    if mismatches:
+        raise ValueError(
+            f"{context}: {dataset_name} 形狀不匹配；現有 {actual_shape}，要求 {expected_shape}")
+
+
 def compare_logits(model_path,
                    sample_idx,
                    atol,
                    input_shape=None,
                    num_classes=None,
                    dataset_name="mnist_gray",
+                   dataset_root=None,
+                    max_dataset_samples=None,
                    verbose=True,
                    init_verbose=False):
-    img = load_sample(sample_idx, dataset_name)
+    img = load_sample(
+        sample_idx,
+        dataset_name,
+        dataset_root=dataset_root,
+        max_samples=max_dataset_samples,
+    )
     sample_shape = tuple(int(dim) for dim in img.shape) if img.ndim == 3 else (
-        img.shape[0], img.shape[1], 1)
+        img.shape[0], img.shape[1], 1) ## 推斷sample_size
     target_shape = input_shape or sample_shape
     img = adapt_image_channels(img, target_shape)
-    effective_input_shape = target_shape or tuple(int(dim)
-                                                  for dim in img.shape)
-    in_dict = image_to_input_dict(img)
+    sample_shape = tuple(int(dim) for dim in img.shape)
+    _assert_shape_compatible(sample_shape, target_shape,
+                             "dataset vs input_shape", dataset_name)
 
     keras_model = dpc.load_keras_model(
-        model_path, input_shape_override=effective_input_shape, num_classes_override=num_classes)
+        model_path, input_shape_override=input_shape, num_classes_override=num_classes)
+    model_input_shape = tuple(
+        None if dim is None else int(dim) for dim in keras_model.input_shape[1:])
+    _assert_shape_compatible(sample_shape, model_input_shape,
+                             "模型 input shape 實例檢查", dataset_name)
+
+    effective_input_shape = input_shape or model_input_shape or sample_shape
+    if effective_input_shape is None or any(dim is None for dim in effective_input_shape):
+        effective_input_shape = tuple(
+            sample_shape[idx] if effective_input_shape is None or effective_input_shape[idx] is None else int(effective_input_shape[idx])
+            for idx in range(len(sample_shape)))
+
+    in_dict = image_to_input_dict(img)
+
     dpc.init_model(model_path, verbose=init_verbose,
                    input_shape_override=effective_input_shape,
                    num_classes_override=num_classes)
@@ -152,9 +250,21 @@ def parse_args():
     )
     parser.add_argument(
         "--dataset",
-        choices=["mnist_gray", "cifar10_rgb"],
+        choices=["mnist_gray", "cifar10_rgb", "imagenet_mini_rgb", "custom_rgb"],
         default="mnist_gray",
-        help="選擇資料集：mnist_gray（灰階）或 cifar10_rgb（224x224 RGB）"
+        help="選擇資料集：mnist_gray（灰階）/ cifar10_rgb（原生尺寸）/ imagenet_mini_rgb（預期224x224 RGB，尺寸不符會報錯）/ custom_rgb（自備資料夾，尺寸不符會報錯）"
+    )
+    parser.add_argument(
+        "--dataset-root",
+        type=str,
+        default=None,
+        help="選填：指定 imagenet_mini_rgb 或 custom_rgb 的本地資料集路徑"
+    )
+    parser.add_argument(
+        "--max-dataset-samples",
+        type=int,
+        default=None,
+        help="選填：載入資料集的最大樣本數"
     )
     parser.add_argument(
         "--num-samples",
@@ -173,6 +283,8 @@ def main():
     input_shape = _parse_shape(args.input_shape) if args.input_shape else None
     num_classes = args.num_classes
     dataset_name = args.dataset
+    dataset_root = args.dataset_root
+    max_dataset_samples = args.max_dataset_samples
     for offset in range(total):
         idx = args.sample_idx + offset
         ok, diff, argmax_match = compare_logits(
@@ -182,6 +294,8 @@ def main():
             input_shape,
             num_classes,
             dataset_name=dataset_name,
+            dataset_root=dataset_root,
+            max_dataset_samples=max_dataset_samples,
             init_verbose=init_verbose,
         )
         results.append((idx, ok, diff, argmax_match))

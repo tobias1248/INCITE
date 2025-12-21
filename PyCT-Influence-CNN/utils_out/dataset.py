@@ -1,6 +1,9 @@
 import itertools
-import numpy as np
 import os
+from pathlib import Path
+
+import numpy as np
+from tensorflow.keras.utils import img_to_array, load_img
 
 class MnistDataset:
     def __init__(self):
@@ -212,3 +215,32 @@ class FashionMnistDataset:
             con_dict[key] = 1
         
         return in_dict, con_dict
+
+
+class ImagenetMiniDataset:
+    def __init__(self, dataset_root=None, max_samples=None):
+        self.root = Path(dataset_root) if dataset_root else Path(
+            __file__).resolve().parent / "dataset" / "imagenet-mini"
+        if not self.root.exists():
+            raise FileNotFoundError(
+                f"imagenet-mini 數據集目錄不存在: '{self.root}'，請放置影像後重試")
+        image_files = sorted([
+            p for p in self.root.rglob("*")
+            if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
+        ])
+        if not image_files:
+            raise FileNotFoundError("imagenet-mini 目錄中沒有找到影像檔案")
+        if max_samples is not None:
+            image_files = image_files[:max_samples]
+
+        images = []
+        shapes = set()
+        for path in image_files:
+            arr = img_to_array(load_img(path)).astype("float32") / 255.0
+            images.append(arr)
+            shapes.add(arr.shape)
+
+        if len(shapes) != 1:
+            raise ValueError(f"imagenet-mini 影像尺寸不一致，找到的尺寸集合: {shapes}")
+
+        self.x_test = np.stack(images)
