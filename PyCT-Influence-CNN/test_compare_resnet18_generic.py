@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import time
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,7 @@ from utils_out.dataset import MnistDataset, ImagenetMiniDataset
 from tensorflow.keras.utils import img_to_array, load_img
 
 _DATASET_CACHE = {}
+_DEFAULT_MAX_DATASET_SAMPLES = 100  # 預設最大載入樣本數 避免記憶體爆掉
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 _DEFAULT_IMAGENET_MINI_ROOT = Path(__file__).resolve(
 ).parent / "utils_out" / "dataset" / "imagenet-mini"
@@ -97,6 +99,7 @@ def _load_imagenet_mini_rgb(dataset_root=None, max_samples=None):
     ds = ImagenetMiniDataset(
         dataset_root=dataset_root or _DEFAULT_IMAGENET_MINI_ROOT,
         max_samples=max_samples,
+        target_size=(224, 224),
     )
     return ds.x_test, "imagenet_mini_rgb"
 
@@ -200,11 +203,13 @@ def compare_logits(model_path,
     selection_shape = input_shape or model_input_shape
     dataset_name = _resolve_dataset_name(dataset_name, selection_shape)
 
+    sample_cap = (max_dataset_samples if max_dataset_samples is not None
+                  else _DEFAULT_MAX_DATASET_SAMPLES)
     img = load_sample(
         sample_idx,
         dataset_name,
         dataset_root=dataset_root,
-        max_samples=max_dataset_samples,
+        max_samples=sample_cap,
     )
     sample_shape = tuple(int(dim) for dim in img.shape) if img.ndim == 3 else (
         img.shape[0], img.shape[1], 1)  # 推斷sample_size
@@ -230,9 +235,14 @@ def compare_logits(model_path,
                    input_shape_override=effective_input_shape,
                    num_classes_override=num_classes)
 
+    py_start = time.perf_counter()
     py_logits = np.asarray(dpc.predict_logits(**in_dict), dtype=np.float32)
+    py_elapsed = time.perf_counter() - py_start
+
+    keras_start = time.perf_counter()
     keras_logits = keras_model.predict(
         img[np.newaxis, ...], verbose=0).astype(np.float32)[0]
+    keras_elapsed = time.perf_counter() - keras_start
 
     logits_close = np.allclose(py_logits, keras_logits, atol=atol)
     argmax_match = int(np.argmax(py_logits)) == int(np.argmax(keras_logits))
@@ -244,11 +254,13 @@ def compare_logits(model_path,
         print(f"logits 是否一致 (atol={atol}): {logits_close}")
         print(f"分類結果 argmax 是否一致: {argmax_match}")
         print(f"logits 最大絕對誤差: {max_abs_diff:.6e}")
+        print(f"NNModel forward 時間: {py_elapsed:.3f}s")
+        print(f"Keras predict 時間: {keras_elapsed:.3f}s")
 
         if not logits_close:
             print("警告: logits 差異過大，請逐層檢查 NNModel 實作。")
 
-    return logits_close, max_abs_diff, argmax_match
+    return logits_close, max_abs_diff, argmax_match, py_elapsed, keras_elapsed
 
 
 def _parse_shape(shape_str):
@@ -307,16 +319,16 @@ def parse_args():
              "(utils_out/dataset/imagenet-mini)"
     )
     parser.add_argument(
-        "--max-dataset-samples",
-        type=int,
-        default=None,
-        help="選填：載入資料集的最大樣本數"
-    )
-    parser.add_argument(
         "--num-samples",
         type=int,
         default=1,
         help="要連續測試的樣本數，會從 sample-idx 開始"
+    )
+    parser.add_argument(
+        "--max-dataset-samples",
+        type=int,
+        default=_DEFAULT_MAX_DATASET_SAMPLES,
+        help="從資料集中最多載入多少張影像以避免占滿記憶體"
     )
     return parser.parse_args()
 
@@ -333,7 +345,7 @@ def main():
     max_dataset_samples = args.max_dataset_samples
     for offset in range(total):
         idx = args.sample_idx + offset
-        ok, diff, argmax_match = compare_logits(
+        ok, diff, argmax_match, py_elapsed, keras_elapsed = compare_logits(
             args.model_path,
             idx,
             args.atol,
@@ -344,20 +356,25 @@ def main():
             max_dataset_samples=max_dataset_samples,
             init_verbose=init_verbose,
         )
-        results.append((idx, ok, diff, argmax_match))
+        results.append((idx, ok, diff, argmax_match,
+                        py_elapsed, keras_elapsed))
         print("-" * 60)
 
     if total > 1:
-        logits_matches = sum(1 for _, ok, _, _ in results if ok)
-        argmax_matches = sum(1 for _, _, _, m in results if m)
-        max_diff = max(diff for _, _, diff, _ in results)
-        avg_diff = sum(diff for _, _, diff, _ in results) / total
+        logits_matches = sum(1 for r in results if r[1])
+        argmax_matches = sum(1 for r in results if r[3])
+        max_diff = max(r[2] for r in results)
+        avg_diff = sum(r[2] for r in results) / total
+        avg_py = sum(r[4] for r in results) / total
+        avg_keras = sum(r[5] for r in results) / total
         print("===== Summary =====")
         print(f"總樣本數: {total}")
         print(f"logits 完全一致數: {logits_matches} ({logits_matches/total:.2%})")
         print(f"分類一致數: {argmax_matches} ({argmax_matches/total:.2%})")
         print(f"logits 最大誤差: {max_diff:.6e}")
         print(f"logits 平均誤差: {avg_diff:.6e}")
+        print(f"平均 NNModel forward 時間: {avg_py:.3f}s")
+        print(f"平均 Keras predict 時間: {avg_keras:.3f}s")
 
 
 if __name__ == "__main__":
