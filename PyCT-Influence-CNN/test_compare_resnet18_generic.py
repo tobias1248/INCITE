@@ -12,8 +12,9 @@ from tensorflow.keras.utils import img_to_array, load_img
 _DATASET_CACHE = {}
 _DEFAULT_MAX_DATASET_SAMPLES = 100  # 預設最大載入樣本數 避免記憶體爆掉
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
-_DEFAULT_IMAGENET_MINI_ROOT = Path(__file__).resolve(
-).parent / "utils_out" / "dataset" / "imagenet-mini"
+_BASE_DATA_DIR = Path(__file__).resolve().parent / "utils_out" / "dataset"
+_DEFAULT_IMAGENET_MINI_ROOT = _BASE_DATA_DIR / "imagenet-mini"
+_DEFAULT_IMAGENET_MINI_SUBSET_DIR = _BASE_DATA_DIR / "imagenet-mini-224-subset"
 _KNOWN_DATASET_SHAPES = {
     "mnist_gray": (28, 28, 1),
     "cifar10_rgb": (32, 32, 3),
@@ -96,6 +97,14 @@ def _load_cifar10_rgb(dataset_root=None, max_samples=None):
 
 
 def _load_imagenet_mini_rgb(dataset_root=None, max_samples=None):
+    subset_root = Path(dataset_root) if dataset_root else _DEFAULT_IMAGENET_MINI_SUBSET_DIR
+    subset_file = subset_root / "images.npy"
+    if subset_file.exists():
+        data = np.load(subset_file)
+        if max_samples is not None:
+            data = data[:max_samples]
+        return data, "imagenet_mini_rgb_subset"
+
     ds = ImagenetMiniDataset(
         dataset_root=dataset_root or _DEFAULT_IMAGENET_MINI_ROOT,
         max_samples=max_samples,
