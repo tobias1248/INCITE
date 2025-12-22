@@ -10,7 +10,41 @@ from tensorflow.keras.utils import img_to_array, load_img
 
 _DATASET_CACHE = {}
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
-_DEFAULT_IMAGENET_MINI_ROOT = Path(__file__).resolve().parent / "utils_out" / "dataset" / "imagenet-mini"
+_DEFAULT_IMAGENET_MINI_ROOT = Path(__file__).resolve(
+).parent / "utils_out" / "dataset" / "imagenet-mini"
+_KNOWN_DATASET_SHAPES = {
+    "mnist_gray": (28, 28, 1),
+    "cifar10_rgb": (32, 32, 3),
+    "imagenet_mini_rgb": (224, 224, 3),
+}
+_SHAPE_TO_DATASET = {
+    shape: name for name, shape in _KNOWN_DATASET_SHAPES.items()
+}
+
+
+def _normalize_shape(shape):
+    if shape is None:
+        return None
+    return tuple(None if dim is None else int(dim) for dim in shape)
+
+
+def _resolve_dataset_name(dataset_name, target_shape):
+    if dataset_name != "auto":
+        return dataset_name
+    normalized = _normalize_shape(target_shape)
+    if normalized is None or any(dim is None for dim in normalized):
+        raise ValueError(
+            "dataset=auto 需要完整輸入形狀 (h,w,c)，請使用 --input-shape "
+            "或手動指定 --dataset")
+    matched = _SHAPE_TO_DATASET.get(normalized)
+    if matched:
+        return matched
+    known_shapes = ", ".join(
+        f"{name}: {shape}" for name, shape in _KNOWN_DATASET_SHAPES.items())
+    raise ValueError(
+        f"dataset=auto 無對應資料集（輸入形狀 {normalized}）。請自行準備資料並放入 "
+        "utils_out/dataset/，或使用 --dataset 指定。支援形狀："
+        f"{known_shapes}")
 
 
 def _load_images_from_dir(dataset_root, dataset_name, max_samples=None):
@@ -114,6 +148,8 @@ def image_to_input_dict(img):
     return in_dict
 
 # 比對Channel與sample size是否匹配
+
+
 def adapt_image_channels(img, target_shape):
     if img.ndim == 2:
         img = img[:, :, None]
@@ -150,11 +186,20 @@ def compare_logits(model_path,
                    atol,
                    input_shape=None,
                    num_classes=None,
-                   dataset_name="mnist_gray",
+                   dataset_name="auto",
                    dataset_root=None,
-                    max_dataset_samples=None,
+                   max_dataset_samples=None,
                    verbose=True,
                    init_verbose=False):
+    keras_model = dpc.load_keras_model(
+        model_path,
+        input_shape_override=input_shape,
+        num_classes_override=num_classes,
+    )
+    model_input_shape = _normalize_shape(keras_model.input_shape[1:])
+    selection_shape = input_shape or model_input_shape
+    dataset_name = _resolve_dataset_name(dataset_name, selection_shape)
+
     img = load_sample(
         sample_idx,
         dataset_name,
@@ -162,24 +207,21 @@ def compare_logits(model_path,
         max_samples=max_dataset_samples,
     )
     sample_shape = tuple(int(dim) for dim in img.shape) if img.ndim == 3 else (
-        img.shape[0], img.shape[1], 1) ## 推斷sample_size
-    target_shape = input_shape or sample_shape
+        img.shape[0], img.shape[1], 1)  # 推斷sample_size
+    target_shape = selection_shape or sample_shape
     img = adapt_image_channels(img, target_shape)
     sample_shape = tuple(int(dim) for dim in img.shape)
     _assert_shape_compatible(sample_shape, target_shape,
                              "dataset vs input_shape", dataset_name)
 
-    keras_model = dpc.load_keras_model(
-        model_path, input_shape_override=input_shape, num_classes_override=num_classes)
-    model_input_shape = tuple(
-        None if dim is None else int(dim) for dim in keras_model.input_shape[1:])
     _assert_shape_compatible(sample_shape, model_input_shape,
                              "模型 input shape 實例檢查", dataset_name)
 
-    effective_input_shape = input_shape or model_input_shape or sample_shape
+    effective_input_shape = target_shape or sample_shape
     if effective_input_shape is None or any(dim is None for dim in effective_input_shape):
         effective_input_shape = tuple(
-            sample_shape[idx] if effective_input_shape is None or effective_input_shape[idx] is None else int(effective_input_shape[idx])
+            sample_shape[idx] if effective_input_shape is None or effective_input_shape[idx] is None else int(
+                effective_input_shape[idx])
             for idx in range(len(sample_shape)))
 
     in_dict = image_to_input_dict(img)
@@ -250,15 +292,19 @@ def parse_args():
     )
     parser.add_argument(
         "--dataset",
-        choices=["mnist_gray", "cifar10_rgb", "imagenet_mini_rgb", "custom_rgb"],
-        default="mnist_gray",
-        help="選擇資料集：mnist_gray（灰階）/ cifar10_rgb（原生尺寸）/ imagenet_mini_rgb（預期224x224 RGB，尺寸不符會報錯）/ custom_rgb（自備資料夾，尺寸不符會報錯）"
+        choices=["auto", "mnist_gray", "cifar10_rgb",
+                 "imagenet_mini_rgb", "custom_rgb"],
+        default="auto",
+        help="選擇資料集：auto 會依 input shape (例如 28x28x1 → mnist, 32x32x3 → cifar10, "
+             "224x224x3 → imagenet mini) 自動挑選；或手動指定 mnist_gray/cifar10_rgb/"
+             "imagenet_mini_rgb/custom_rgb"
     )
     parser.add_argument(
         "--dataset-root",
         type=str,
         default=None,
-        help="選填：指定 imagenet_mini_rgb 或 custom_rgb 的本地資料集路徑"
+        help="選填：自備資料夾 custom_rgb 必填，或覆寫 imagenet_mini_rgb 預設路徑 "
+             "(utils_out/dataset/imagenet-mini)"
     )
     parser.add_argument(
         "--max-dataset-samples",
