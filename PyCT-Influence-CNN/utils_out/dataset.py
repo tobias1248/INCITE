@@ -218,7 +218,7 @@ class FashionMnistDataset:
 
 
 class ImagenetMiniDataset:
-    def __init__(self, dataset_root=None, max_samples=None):
+    def __init__(self, dataset_root=None, max_samples=None, target_size=None):
         self.root = Path(dataset_root) if dataset_root else Path(
             __file__).resolve().parent / "dataset" / "imagenet-mini"
         if not self.root.exists():
@@ -236,7 +236,8 @@ class ImagenetMiniDataset:
         images = []
         shapes = set()
         for path in image_files:
-            arr = img_to_array(load_img(path)).astype("float32") / 255.0
+            arr = img_to_array(load_img(path, target_size=target_size)
+                               if target_size else load_img(path)).astype("float32") / 255.0
             images.append(arr)
             shapes.add(arr.shape)
 
