@@ -99,8 +99,14 @@ class BaseRunner:
         )
 
     @staticmethod
-    def _write_ton_sequence(recorder: Any, ton_sequence: Sequence[int]) -> None:
-        if not recorder or not ton_sequence:
+    def _write_ton_sequence(
+        recorder: Any, ton_sequence: Sequence[int], current_ton: Optional[int] = None
+    ) -> None:
+        if not recorder:
+            return
+        if current_ton is None:
+            current_ton = ton_sequence[-1] if ton_sequence else None
+        if current_ton is None:
             return
         save_dir = getattr(recorder, "save_dir", None)
         if not save_dir:
@@ -111,8 +117,8 @@ class BaseRunner:
         try:
             with stats_path.open("r", encoding="utf-8") as handle:
                 stats = json.load(handle)
-            stats.setdefault("meta", {})["ton_sequence"] = list(ton_sequence)
-            stats["ton_sequence"] = list(ton_sequence)
+            stats.setdefault("meta", {})["ton_sequence"] = [current_ton]
+            stats["ton_sequence"] = [current_ton]
             with stats_path.open("w", encoding="utf-8") as handle:
                 json.dump(stats, handle)
         except (OSError, json.JSONDecodeError):
@@ -163,7 +169,7 @@ class QueueRunner(BaseRunner):
                 attack_label = getattr(recorder, "attack_label", None)
                 solved_all = getattr(recorder, "solve_all_ctr", False)
                 is_timeout = getattr(recorder, "is_timeout", False)
-                self._write_ton_sequence(recorder, ton_sequence)
+                self._write_ton_sequence(recorder, ton_sequence, plan.get("ton"))
                 if attack_label is not None:
                     break  # success
                 if solved_all:
@@ -221,7 +227,7 @@ class ShapRunner(BaseRunner):
                 recorder = result[1]
             if recorder is not None:
                 recorder.attack_wall_time = time.monotonic() - start_time  # type: ignore[attr-defined]
-                self._write_ton_sequence(recorder, ton_sequence)
+                self._write_ton_sequence(recorder, ton_sequence, plan.get("ton"))
                 attack_label = getattr(recorder, "attack_label", None)
                 solved_all = getattr(recorder, "solve_all_ctr", False)
                 is_timeout = getattr(recorder, "is_timeout", False)

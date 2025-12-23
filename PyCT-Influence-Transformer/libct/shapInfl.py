@@ -332,13 +332,26 @@ class ShapValuesComparator:
         if isinstance(indices, list):
             total = 0.0
             for ids in indices:
-                total += self.shap_values[
-                    self.get_position_key(layer_number, ids)
-                ]
+                total += self._lookup(layer_number, ids)
             return total / len(indices)
-        return self.shap_values[
-            self.get_position_key(layer_number, indices)
-        ]
+        return self._lookup(layer_number, indices)
+
+    def _lookup(self, layer_number: int, indices: tuple[int, ...]) -> float:
+        key = self.get_position_key(layer_number, indices)
+        if key in self.shap_values:
+            return self.shap_values[key]
+        alt_key = self.get_position_key(layer_number - 1, indices)
+        if alt_key in self.shap_values:
+            return self.shap_values[alt_key]
+        if len(indices) > 1:
+            spatial = indices[:-1]
+            spatial_key = self.get_position_key(layer_number, spatial)
+            if spatial_key in self.shap_values:
+                return self.shap_values[spatial_key]
+            spatial_alt_key = self.get_position_key(layer_number - 1, spatial)
+            if spatial_alt_key in self.shap_values:
+                return self.shap_values[spatial_alt_key]
+        return 0.0
 
     @staticmethod
     def get_position_key(layer_number: int, indices: Tuple[int, ...]) -> str:

@@ -390,6 +390,60 @@ class FlattenLayer:
         return self._output
 
 
+class BatchNormLayer:
+    """BatchNorm supporting arbitrary prefix dims; normalizes last axis."""
+
+    def __init__(self, gamma, beta, moving_mean, moving_var, epsilon=1e-3):
+        # Convert to plain Python lists of float
+        self.gamma = [float(v) for v in gamma]
+        self.beta = [float(v) for v in beta]
+        self.moving_mean = [float(v) for v in moving_mean]
+        self.moving_var = [float(v) for v in moving_var]
+        self.epsilon = float(epsilon)
+        self._output = None
+
+    def forward(self, tensor_in):
+        shape = dim(tensor_in)
+        if not shape:
+            raise ValueError("BatchNorm expects tensor input.")
+        channels = shape[-1]
+        if not (
+            len(self.gamma)
+            == len(self.beta)
+            == len(self.moving_mean)
+            == len(self.moving_var)
+            == channels
+        ):
+            raise ValueError(
+                f"BatchNorm channel mismatch: weights={len(self.gamma)} input_channels={channels}"
+            )
+
+        def _norm_leaf(vec):
+            if len(vec) != channels:
+                raise ValueError("BatchNorm expects last dimension size == channel count.")
+            out = []
+            for c, x in enumerate(vec):
+                norm = (float(x) - self.moving_mean[c]) / math.sqrt(
+                    self.moving_var[c] + self.epsilon
+                )
+                out.append(self.gamma[c] * norm + self.beta[c])
+            return out
+
+        def _recurse(t):
+            if not isinstance(t, collections.abc.Iterable) or isinstance(t, (str, bytes)):
+                raise ValueError("BatchNorm expects iterable tensor.")
+            # leaf: last dimension
+            if not t or not isinstance(t[0], collections.abc.Iterable):
+                return _norm_leaf(list(t))
+            return [_recurse(sub) for sub in t]
+
+        self._output = _recurse(tensor_in)
+        return self._output
+
+    def getOutput(self):
+        return self._output
+
+
 # Define SimpleRNN class
 class SimpleRNNLayer:
     def __init__(self, input_dim, weights, activation='tanh'):        
@@ -776,6 +830,11 @@ class NNModel:
         elif type(layer) == Activation:
             activation = layer.get_config()['activation']
             self.layers.append(ActivationLayer(activation))
+            return 1
+        elif type(layer) == BatchNormalization:
+            gamma, beta, moving_mean, moving_var = layer.get_weights()
+            epsilon = layer.get_config().get("epsilon", 1e-3)
+            self.layers.append(BatchNormLayer(gamma, beta, moving_mean, moving_var, epsilon))
             return 1
         elif type(layer) == SimpleRNN:
             input_dim = layer.input_shape[-1]

@@ -77,6 +77,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Select attack strategy.",
     )
     parser.add_argument(
+        "--dataset",
+        default="fashion_mnist",
+        choices=("fashion_mnist", "cifar10"),
+        help="Dataset to use for task generation.",
+    )
+    parser.add_argument(
         "--random-seed",
         type=int,
         default=2024,

@@ -178,10 +178,17 @@ def run_launcher(args: Any) -> None:
         args.pixel_search,
         pixel_source=args.pixel_source,
     )
+    attack_mode_for_paths = (
+        attack_mode
+        if not args.solver_run_timeout or args.solver_run_timeout <= 0
+        else f"{attack_mode}_solver{args.solver_run_timeout}s"
+    )
     resume_index = 0
     force_refresh = args.force_refresh
     if not args.force_refresh:
-        resume_index, require_force = _derive_resume_plan(args.model_name, attack_mode, args.first_n)
+        resume_index, require_force = _derive_resume_plan(
+            args.model_name, attack_mode_for_paths, args.first_n
+        )
         force_refresh = require_force
         if resume_index >= args.first_n:
             logger.info("All requested inputs already completed; nothing to do.")
@@ -192,53 +199,68 @@ def run_launcher(args: Any) -> None:
     if resume_index > 0:
         logger.info("Resuming from idx=%s (force=%s)", resume_index, "yes" if force_refresh else "no")
 
+    def _select_shap_fn():
+        if args.dataset == "cifar10":
+            from utils.experiment_task_specs import cifar10_transformer_shap
+            return cifar10_transformer_shap
+        return fashion_mnist_transformer_shap
+
+    def _select_random_fn():
+        if args.dataset == "cifar10":
+            from utils.experiment_task_specs import cifar10_transformer_random
+            return cifar10_transformer_random
+        return fashion_mnist_transformer_random
+
+    shap_fn = _select_shap_fn()
+    random_fn = _select_random_fn()
+
     if args.attack_mode == "shap":
-        inputs = fashion_mnist_transformer_shap(
+        inputs = shap_fn(
             args.model_name,
             first_n_img=first_n_range,
             force=force_refresh,
             ton_values=args.pixel_search,
-            attack_mode="shap",
+            attack_mode=attack_mode_for_paths,
         )
     elif args.attack_mode == "random":
-        inputs = fashion_mnist_transformer_random(
+        inputs = random_fn(
             args.model_name,
             first_n_img=first_n_range,
             ton_values=args.pixel_search,
             force=force_refresh,
             base_seed=args.random_seed,
-            attack_mode="random",
+            attack_mode=attack_mode_for_paths,
         )
     elif args.attack_mode == "random-assign":
         exp_prefix = f"random_assign_{args.pixel_source}"
         if args.pixel_source == "random":
-            inputs = fashion_mnist_transformer_random(
+            inputs = random_fn(
                 args.model_name,
                 first_n_img=first_n_range,
                 ton_values=args.pixel_search,
                 force=force_refresh,
                 base_seed=args.random_seed,
                 exp_prefix=exp_prefix,
-                attack_mode="random-assign",
+                attack_mode=attack_mode_for_paths,
             )
         else:
-            inputs = fashion_mnist_transformer_shap(
+            inputs = shap_fn(
                 args.model_name,
                 first_n_img=first_n_range,
                 force=force_refresh,
                 ton_values=args.pixel_search,
                 exp_prefix=exp_prefix,
-                attack_mode="random-assign",
+                attack_mode=attack_mode_for_paths,
             )
     elif args.attack_mode == "queue":
         # For queue mode, reuse SHAP task generation and execute via QueueRunner inline.
-        inputs = fashion_mnist_transformer_shap(
+        inputs = shap_fn(
             args.model_name,
             first_n_img=first_n_range,
             force=force_refresh,
             ton_values=args.pixel_search,
             exp_prefix="queue",
-            attack_mode="queue",
+            attack_mode=attack_mode_for_paths,
         )
         from utils.experiment_runner import run_attack_with_queue
 
@@ -261,7 +283,7 @@ def run_launcher(args: Any) -> None:
     logger.info(
         "Prepared %s input(s) for attack=%s ton_sequence=%s",
         len(inputs),
-        args.attack_mode,
+        attack_mode_for_paths,
         ",".join(str(v) for v in args.pixel_search),
     )
     time.sleep(3)
