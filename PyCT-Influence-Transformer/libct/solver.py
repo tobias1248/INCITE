@@ -1,4 +1,5 @@
 import logging, os, re, subprocess, sys, time, traceback, func_timeout, unittest
+from typing import Optional
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -41,13 +42,15 @@ class Solver:
     iter = None # for the filename of saved smt constraint
     iter_count = 1 # for the filename of saved smt constraint
     build_timeout_enabled = True
+    run_timeout: Optional[int] = None
     
 
     @classmethod # similar to our constructor
-    def set_basic_configurations(cls, solver, timeout, safety, store, smtdir, constraint_build_timeout=True):
+    def set_basic_configurations(cls, solver, timeout, safety, store, smtdir, constraint_build_timeout=True, solver_run_timeout: Optional[int] = None):
         cls.safety = safety; cls.smtdir = smtdir
         cls.stats = {'sat_number': 0, 'sat_time': 0, 'unsat_number': 0, 'unsat_time': 0, 'otherwise_number': 0, 'otherwise_time': 0}
         cls.build_timeout_enabled = bool(constraint_build_timeout)
+        cls.run_timeout = solver_run_timeout
         
         # assert_len 是一個二維的list，第一個維度是每個iteration，第二個維度是該iteration的每個assert的長度
         cls.ctr_size = {'type':[], 'time': [], 'byte': [], 'assert_num': [], 'assert_len':[]}
@@ -191,11 +194,20 @@ class Solver:
         # formulas = Solver._build_formulas_from_constraint(engine, constraint, ori_args)
         #original_end
         start = time.time()
-        try: completed_process = subprocess.run(cls.cmd, input=formulas.encode(), capture_output=True)
+        try:
+            completed_process = subprocess.run(
+                cls.cmd,
+                input=formulas.encode(),
+                capture_output=True,
+                timeout=cls.run_timeout if cls.run_timeout else None,
+            )
         except subprocess.CalledProcessError as e:
             log.error("SMT solver process failed (idx=%s)", idx, exc_info=e)
             with open("smt_error.txt", 'a') as f:
                 f.writelines(e.output)
+            return None
+        except subprocess.TimeoutExpired:
+            log.warning("SMT solver subprocess timed out (idx=%s)", idx)
             return None
 
         elapsed = time.time() - start

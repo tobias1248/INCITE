@@ -28,6 +28,7 @@ class ExplorerConfig:
     solver: str = DEFAULT_SOLVER
     timeout: int = 900
     constraint_build_timeout: bool = True
+    solver_run_timeout: Optional[int] = None
     safety: int = 0
     verbose: int = 1
     logfile: Optional[str] = None
@@ -93,6 +94,7 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
         solver=explorer_cfg.solver,
         timeout=explorer_cfg.timeout,
         constraint_build_timeout=explorer_cfg.constraint_build_timeout,
+        solver_run_timeout=explorer_cfg.solver_run_timeout,
         safety=explorer_cfg.safety,
         store=None,
         verbose=explorer_cfg.verbose,
@@ -111,6 +113,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         save_exp: dict[str, str] | None = None,
         max_iter=0, single_timeout=900, timeout=900, total_timeout=900, verbose=1,
         constraint_build_timeout: bool = True,
+        solver_run_timeout: Optional[int] = None,
         limit_change_range=None,
         only_first_forward=False,
         collect_constraints_with='priority_queue',
@@ -137,6 +140,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         execute=execute,
         timeout=timeout,
         constraint_build_timeout=constraint_build_timeout,
+        solver_run_timeout=solver_run_timeout,
         verbose=verbose,
         smtdir=smtdir,
         save_dir=save_dir,

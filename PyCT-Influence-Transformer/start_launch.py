@@ -88,6 +88,7 @@ def _worker(
     task_queue: Queue,
     timeout: int,
     constraint_build_timeout: bool,
+    solver_run_timeout: Optional[int],
     norm_01: bool,
     attack_mode: str,
     pixel_source: str,
@@ -116,6 +117,7 @@ def _worker(
                     [task],
                     timeout=timeout,
                     constraint_build_timeout=constraint_build_timeout,
+                    solver_run_timeout=solver_run_timeout,
                     norm=norm_01,
                     pixel_source=pixel_source,
                     base_seed=base_seed,
@@ -127,6 +129,7 @@ def _worker(
                     [task],
                     timeout=timeout,
                     constraint_build_timeout=constraint_build_timeout,
+                    solver_run_timeout=solver_run_timeout,
                     norm=norm_01,
                 )
     except KeyboardInterrupt:
@@ -282,6 +285,7 @@ def run_launcher(args: Any) -> None:
                     task_queue,
                     args.timeout,
                     args.constraint_build_timeout,
+                    args.solver_run_timeout if args.solver_run_timeout > 0 else None,
                     args.norm_01,
                     args.attack_mode,
                     args.pixel_source,

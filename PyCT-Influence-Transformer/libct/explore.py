@@ -71,20 +71,21 @@ class ExplorationEngine:
         '', (type,), {"__repr__": lambda self: '<DEFAULT>'})): pass
 
     def __init__(self, *,
-                 solver='cvc4',
-                 timeout=20,
-                 constraint_build_timeout=True,
-                 safety=0,
-                 store=None,
-                 verbose=1,
-                 logfile=None,
-                 statsdir=None,
-                 smtdir=None,
-                 save_dir=None,
-                 input_name=None,
-                 module_: ModuleType,
-                 execute_: Callable,
-                 only_first_forward: bool):
+                solver='cvc4',
+                timeout=20,
+                constraint_build_timeout=True,
+                solver_run_timeout: Optional[int] = None,
+                safety=0,
+                store=None,
+                verbose=1,
+                logfile=None,
+                statsdir=None,
+                smtdir=None,
+                save_dir=None,
+                input_name=None,
+                module_: ModuleType,
+                execute_: Callable,
+                only_first_forward: bool):
         global module, execute
 
         module = module_
@@ -102,7 +103,7 @@ class ExplorationEngine:
         if self.statsdir:
             os.system(f"rm -rf '{statsdir}'")
             os.system(f"mkdir -p '{statsdir}'")
-        Solver.set_basic_configurations(solver, timeout, safety, store, smtdir, constraint_build_timeout)
+        Solver.set_basic_configurations(solver, timeout, safety, store, smtdir, constraint_build_timeout, solver_run_timeout)
         _ensure_smtlib2_logger()
 
     def __init2__(self):
@@ -266,7 +267,7 @@ class ExplorationEngine:
         self.shap_value_pre_calculated = shap_value_pre_calculated
         self.popped_log_attack_mode = popped_log_attack_mode
         self.constraints_collection_type: Literal['stack',
-                                                  'queue', 'priority_queue'] = collect_constraints_with
+                                                'queue', 'priority_queue'] = collect_constraints_with
         if self.constraints_collection_type == 'priority_queue':
             self.comparator = ShapValuesComparator(
                 model_path= self.model_path ,
