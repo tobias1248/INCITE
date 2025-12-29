@@ -17,7 +17,6 @@ _DEFAULT_IMAGENET_MINI_ROOT = _BASE_DATA_DIR / "imagenet-mini"
 _DEFAULT_IMAGENET_MINI_SUBSET_DIR = _BASE_DATA_DIR / "imagenet-mini-224-subset"
 _KNOWN_DATASET_SHAPES = {
     "mnist_gray": (28, 28, 1),
-    "cifar10_rgb": (32, 32, 3),
     "imagenet_mini_rgb": (224, 224, 3),
 }
 _SHAPE_TO_DATASET = {
@@ -86,18 +85,9 @@ def _load_mnist_gray(dataset_root=None, max_samples=None):
     return data, "mnist_gray"
 
 
-def _load_cifar10_rgb(dataset_root=None, max_samples=None):
-    from tensorflow.keras.datasets import cifar10
-
-    (_, _), (x_test, _) = cifar10.load_data()
-    x_test = x_test.astype("float32") / 255.0
-    if max_samples is not None:
-        x_test = x_test[:max_samples]
-    return x_test, "cifar10_rgb"
-
-
 def _load_imagenet_mini_rgb(dataset_root=None, max_samples=None):
-    subset_root = Path(dataset_root) if dataset_root else _DEFAULT_IMAGENET_MINI_SUBSET_DIR
+    subset_root = Path(
+        dataset_root) if dataset_root else _DEFAULT_IMAGENET_MINI_SUBSET_DIR
     subset_file = subset_root / "images.npy"
     if subset_file.exists():
         data = np.load(subset_file)
@@ -121,7 +111,6 @@ def _load_custom_rgb(dataset_root=None, max_samples=None):
 
 DATASET_LOADERS = {
     "mnist_gray": _load_mnist_gray,
-    "cifar10_rgb": _load_cifar10_rgb,
     "imagenet_mini_rgb": _load_imagenet_mini_rgb,
     "custom_rgb": _load_custom_rgb,
 }
@@ -258,6 +247,7 @@ def compare_logits(model_path,
     max_abs_diff = float(np.max(np.abs(py_logits - keras_logits)))
 
     if verbose:
+        print("警告: 本工具僅檢查輸入形狀是否相容，模型與資料集是否真匹配必須由使用者自行確認。")
         print(f"模型: {model_path}")
         print(f"測試影像索引: {sample_idx}")
         print(f"logits 是否一致 (atol={atol}): {logits_close}")
@@ -313,12 +303,10 @@ def parse_args():
     )
     parser.add_argument(
         "--dataset",
-        choices=["auto", "mnist_gray", "cifar10_rgb",
-                 "imagenet_mini_rgb", "custom_rgb"],
+        choices=["auto", "mnist_gray", "imagenet_mini_rgb", "custom_rgb"],
         default="auto",
-        help="選擇資料集：auto 會依 input shape (例如 28x28x1 → mnist, 32x32x3 → cifar10, "
-             "224x224x3 → imagenet mini) 自動挑選；或手動指定 mnist_gray/cifar10_rgb/"
-             "imagenet_mini_rgb/custom_rgb"
+        help="選擇資料集：auto 會依 input shape (例如 28x28x1 → mnist, 224x224x3 → imagenet mini) "
+             "自動挑選；或手動指定 mnist_gray/imagenet_mini_rgb/custom_rgb"
     )
     parser.add_argument(
         "--dataset-root",
