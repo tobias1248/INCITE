@@ -71,7 +71,7 @@ class ExplorationEngine:
         '', (type,), {"__repr__": lambda self: '<DEFAULT>'})): pass
 
     def __init__(self, *,
-                solver='cvc4',
+                solver="cvc5",
                 timeout=20,
                 constraint_build_timeout=True,
                 solver_run_timeout: Optional[int] = None,
@@ -284,6 +284,8 @@ class ExplorationEngine:
             self.funcname = self.modpath.split('.')[-1]
 
         self.__init2__()
+        if hasattr(self, "extra_meta") and isinstance(self.extra_meta, dict):
+            recorder.extra_meta.update(self.extra_meta)
 
         recorder.input_shape = get_in_dict_shape(all_args)
         self.original_args = all_args.copy()
@@ -780,16 +782,18 @@ class ExplorationEngine:
             for file, lines in missing_lines.items():
                 log.debug("Missing lines for %s: %s", file, sorted(lines))
     
-    def get_shap_influence(self, position):
-        if position is None or not hasattr(self, "comparator") or self.comparator is None:
-            return 0
-        layer_number, indices = position
-        return self.comparator.get_shap_influence(layer_number, indices)
-    
     def push_constraint(self, constraint: Constraint, position):
+        shap_value = 0.0
+        if position is not None and hasattr(self, "comparator") and self.comparator is not None:
+            layer_number, indices = position
+            shap_value = self.comparator.get_shap_influence(layer_number, indices)
         if self.constraints_collection_type == 'priority_queue':
-            shap_value = self.get_shap_influence(position)
             heapq.heappush(self.constraints_to_solve, (-abs(shap_value), constraint.id, position, constraint))
+            if recorder is not None:
+                current_size = len(self.constraints_to_solve)
+                recorder.queue_last = current_size
+                if current_size > recorder.queue_max:
+                    recorder.queue_max = current_size
             log.info(
                 "[PUSH] idx=%s layer=%s position=%s shap=%.3e queue_size=%s",
                 self.idx,
@@ -799,8 +803,12 @@ class ExplorationEngine:
                 len(self.constraints_to_solve),
             )
         else:
-            shap_value = self.get_shap_influence(position)
             self.constraints_to_solve.append(constraint)
+            if recorder is not None:
+                current_size = len(self.constraints_to_solve)
+                recorder.queue_last = current_size
+                if current_size > recorder.queue_max:
+                    recorder.queue_max = current_size
             log.info(
                 "[PUSH] idx=%s queue=%s position=%s shap=%.3e total=%s",
                 self.idx,

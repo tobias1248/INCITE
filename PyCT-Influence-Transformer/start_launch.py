@@ -11,9 +11,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from start_config import _INPUT_PREFIX
+from utils.experiment_runner import update_ton_progress_stats
 from utils.experiment_task_specs import (
     fashion_mnist_transformer_random,
     fashion_mnist_transformer_shap,
+    get_save_dir_from_save_exp,
 )
 
 logger = logging.getLogger("ct.cli")
@@ -82,6 +84,60 @@ def _derive_resume_plan(
 
     resume_idx = latest_idx + 1
     return min(resume_idx, first_n), False
+
+
+def _derive_stage_outcome(stats_path: Path) -> Tuple[bool, str]:
+    if not stats_path.is_file():
+        return False, "missing_stats"
+    try:
+        with stats_path.open("r", encoding="utf-8") as handle:
+            stats = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return False, "invalid_stats"
+
+    meta = stats.get("meta") or {}
+    attack_label = meta.get("attack_label")
+    solved_all = bool(meta.get("solve_all_ctr"))
+    is_timeout = bool(meta.get("is_timeout"))
+    if attack_label is not None:
+        return False, "adv_found"
+    if solved_all:
+        return True, "solve_all_ctr"
+    if is_timeout:
+        return True, "timeout"
+    return False, "incomplete"
+
+
+def _collect_stage_cases(inputs: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    cases: List[Dict[str, Any]] = []
+    for payload in inputs:
+        ton_plans = payload.get("ton_plans") or []
+        if not ton_plans:
+            continue
+        base_payload = dict(payload)
+        base_payload.pop("ton_plans", None)
+        plan_by_ton = {
+            plan.get("ton"): plan for plan in ton_plans if plan.get("ton") is not None
+        }
+        first_plan = ton_plans[0]
+        save_exp = first_plan.get("save_exp", {})
+        attack_mode = save_exp.get("attack_mode", base_payload.get("popped_log_attack_mode", "unknown"))
+        save_dir = get_save_dir_from_save_exp(
+            save_exp,
+            base_payload["model_name"],
+            attack_mode,
+            only_first_forward=bool(save_exp.get("only_first_forward", False)),
+        )
+        cases.append(
+            {
+                "idx": base_payload.get("idx"),
+                "input_name": save_exp.get("input_name"),
+                "base_payload": base_payload,
+                "plans": plan_by_ton,
+                "save_dir": save_dir,
+            }
+        )
+    return cases
 
 
 def _worker(
@@ -262,21 +318,6 @@ def run_launcher(args: Any) -> None:
             exp_prefix="queue",
             attack_mode=attack_mode_for_paths,
         )
-        from utils.experiment_runner import run_attack_with_queue
-
-        logger.info("Starting queue-mode run with %s task(s)", len(inputs))
-        try:
-            run_attack_with_queue(
-                inputs,
-                timeout=args.timeout,
-                constraint_build_timeout=args.constraint_build_timeout,
-                norm=args.norm_01,
-                collect_constraints_with="queue",
-            )
-            logger.info("Queue-mode run completed")
-        except KeyboardInterrupt:
-            logger.warning("Queue-mode interrupted by user; stopping tasks")
-        return
     else:
         raise ValueError(f"Unsupported attack mode: {args.attack_mode}")
 
@@ -288,59 +329,149 @@ def run_launcher(args: Any) -> None:
     )
     time.sleep(3)
 
-    task_queue: Queue = Queue()
-    for task in inputs:
-        task_queue.put(task)
-    # Sentinels to allow clean worker exit
-    for _ in range(args.num_process):
-        task_queue.put(None)
+    def _run_stage_tasks(stage_inputs: List[Dict[str, Any]]) -> None:
+        if not stage_inputs or shutdown_event.is_set():
+            return
+        running_processes.clear()
+        if args.attack_mode == "queue":
+            from utils.experiment_runner import run_attack_with_queue
 
-    try:
-        worker_count = min(args.num_process, max(len(inputs), 1))
-        for _ in range(worker_count):
-            if shutdown_event.is_set():
-                logger.info("Shutdown requested; skipping remaining tasks")
-                break
-            process = Process(
-                target=_worker,
-                args=(
-                    task_queue,
+            run_attack_with_queue(
+                stage_inputs,
+                timeout=args.timeout,
+                constraint_build_timeout=args.constraint_build_timeout,
+                solver_run_timeout=args.solver_run_timeout if args.solver_run_timeout > 0 else None,
+                norm=args.norm_01,
+                collect_constraints_with="queue",
+            )
+            return
+
+        task_queue: Queue = Queue()
+        for task in stage_inputs:
+            task_queue.put(task)
+        for _ in range(args.num_process):
+            task_queue.put(None)
+
+        try:
+            worker_count = min(args.num_process, max(len(stage_inputs), 1))
+            for _ in range(worker_count):
+                if shutdown_event.is_set():
+                    logger.info("Shutdown requested; skipping remaining tasks")
+                    break
+                process = Process(
+                    target=_worker,
+                    args=(
+                        task_queue,
+                        args.timeout,
+                        args.constraint_build_timeout,
+                        args.solver_run_timeout if args.solver_run_timeout > 0 else None,
+                        args.norm_01,
+                        args.attack_mode,
+                        args.pixel_source,
+                        args.random_seed,
+                        shutdown_event,
+                    ),
+                )
+                logger.info(
+                    "[WORKER-START] timeout=%s norm=%s attack=%s pixel_src=%s pid_pending",
                     args.timeout,
-                    args.constraint_build_timeout,
-                    args.solver_run_timeout if args.solver_run_timeout > 0 else None,
                     args.norm_01,
                     args.attack_mode,
                     args.pixel_source,
-                    args.random_seed,
-                    shutdown_event,
-                ),
-            )
-            logger.info(
-                "[WORKER-START] timeout=%s norm=%s attack=%s pixel_src=%s pid_pending",
-                args.timeout,
-                args.norm_01,
-                args.attack_mode,
-                args.pixel_source,
-            )
-            process.start()
-            running_processes.append(process)
-            time.sleep(args.spawn_delay)
+                )
+                process.start()
+                running_processes.append(process)
+                time.sleep(args.spawn_delay)
 
-        for process in running_processes:
-            while process.is_alive():
-                process.join(timeout=0.5)
+            for process in running_processes:
+                while process.is_alive():
+                    process.join(timeout=0.5)
+                    if shutdown_event.is_set():
+                        break
+                logger.info("[WORKER-DONE] pid=%s exitcode=%s", process.pid, process.exitcode)
+        finally:
+            for process in running_processes:
+                if process.is_alive():
+                    process.terminate()
+                process.join()
+            running_processes.clear()
+
+    cases = _collect_stage_cases(inputs)
+    if not cases:
+        logger.info("No ton_plans found; running %s task(s) directly", len(inputs))
+        try:
+            _run_stage_tasks(inputs)
+        except KeyboardInterrupt:
+            logger.warning("Main loop interrupted; shutting down workers")
+            interrupted = True
+            shutdown_event.set()
+    else:
+        ton_sequence = list(args.pixel_search)
+        try:
+            for ton_index, ton_value in enumerate(ton_sequence):
                 if shutdown_event.is_set():
+                    logger.info("Shutdown requested; skipping remaining stages")
                     break
-            logger.info("[WORKER-DONE] pid=%s exitcode=%s", process.pid, process.exitcode)
-    except KeyboardInterrupt:
-        logger.warning("Main loop interrupted; shutting down workers")
-        interrupted = True
-        shutdown_event.set()
-    finally:
-        for process in running_processes:
-            if process.is_alive():
-                process.terminate()
-            process.join()
+                next_ton = ton_sequence[ton_index + 1] if ton_index + 1 < len(ton_sequence) else None
+                stage_tasks: List[Dict[str, Any]] = []
+                for case in cases:
+                    plan = case["plans"].get(ton_value)
+                    if not plan:
+                        continue
+                    payload = dict(case["base_payload"])
+                    payload["con_dict"] = plan["con_dict"]
+                    save_exp = dict(plan["save_exp"])
+                    save_exp["ton"] = ton_value
+                    save_exp["ton_next"] = next_ton
+                    payload["save_exp"] = save_exp
+                    stage_tasks.append(payload)
+
+                logger.info(
+                    "[TON-STAGE] ton=%s tasks=%s cases=%s",
+                    ton_value,
+                    len(stage_tasks),
+                    len(cases),
+                )
+                _run_stage_tasks(stage_tasks)
+                if shutdown_event.is_set():
+                    logger.info("Shutdown requested; stopping stage loop")
+                    break
+
+                remaining: List[Dict[str, Any]] = []
+                for case in cases:
+                    stats_path = Path(case["save_dir"]) / "stats.json"
+                    should_continue, reason = _derive_stage_outcome(stats_path)
+                    status = "continue" if should_continue else "stop"
+                    updated = update_ton_progress_stats(
+                        stats_path,
+                        current_ton=ton_value,
+                        status=status,
+                        reason=reason,
+                        next_ton=next_ton,
+                    )
+                    if not updated:
+                        logger.warning(
+                            "[TON-STAGE] idx=%s ton=%s stats_update=failed reason=%s",
+                            case["idx"],
+                            ton_value,
+                            reason,
+                        )
+                    if should_continue and next_ton is not None:
+                        remaining.append(case)
+
+                logger.info(
+                    "[TON-STAGE-END] ton=%s continue=%s stop=%s",
+                    ton_value,
+                    len(remaining),
+                    len(cases) - len(remaining),
+                )
+                cases = remaining
+                if not cases:
+                    break
+        except KeyboardInterrupt:
+            logger.warning("Main loop interrupted; shutting down workers")
+            interrupted = True
+            shutdown_event.set()
 
     if interrupted or shutdown_event.is_set():
         logger.info("Tasks interrupted; shutdown requested")

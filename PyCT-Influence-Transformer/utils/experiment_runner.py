@@ -6,7 +6,7 @@ import logging
 import queue
 import traceback
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Sequence, Literal
+from typing import Any, Dict, Optional, Sequence, Literal, Tuple
 import time
 from pathlib import Path
 
@@ -26,7 +26,71 @@ __all__ = [
     "run_attack_with_shap",
     "run_attack_with_queue",
     "run_attack_with_random_assign",
+    "update_ton_progress_stats",
 ]
+
+
+def _derive_ton_outcome(recorder: Any) -> Tuple[bool, str]:
+    attack_label = getattr(recorder, "attack_label", None)
+    solved_all = getattr(recorder, "solve_all_ctr", False)
+    is_timeout = getattr(recorder, "is_timeout", False)
+    if attack_label is not None:
+        return False, "adv_found"
+    if solved_all:
+        return True, "solve_all_ctr"
+    if is_timeout:
+        return True, "timeout"
+    return False, "incomplete"
+
+
+def update_ton_progress_stats(
+    stats_path: Path,
+    *,
+    current_ton: int,
+    status: str,
+    reason: str,
+    next_ton: Optional[int] = None,
+) -> bool:
+    if not stats_path.is_file():
+        return False
+    try:
+        with stats_path.open("r", encoding="utf-8") as handle:
+            stats = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    progress = {
+        "current": current_ton,
+        "next": next_ton,
+        "stop_at": current_ton if status == "stop" else None,
+        "status": status,
+        "reason": reason,
+    }
+    schema_progress = {
+        "ton_current": current_ton,
+        "ton_next": next_ton,
+        "stop_at": current_ton if status == "stop" else None,
+        "reason": reason,
+        "status": status,
+    }
+    stats["ton_progress"] = progress
+    meta = stats.setdefault("meta", {})
+    meta["ton_progress"] = progress
+    stats["progress"] = schema_progress
+    meta["progress"] = schema_progress
+    existing = stats.get("ton_sequence")
+    if not isinstance(existing, list) or len(existing) <= 1:
+        stats["ton_sequence"] = [current_ton]
+    meta_existing = meta.get("ton_sequence")
+    if not isinstance(meta_existing, list) or len(meta_existing) <= 1:
+        meta["ton_sequence"] = [current_ton]
+
+    try:
+        with stats_path.open("w", encoding="utf-8") as handle:
+            json.dump(stats, handle)
+    except OSError:
+        return False
+    return True
 
 
 @dataclass
@@ -114,15 +178,22 @@ class BaseRunner:
         stats_path = Path(save_dir) / "stats.json"
         if not stats_path.is_file():
             return
+        should_continue, reason = _derive_ton_outcome(recorder)
+        status = "continue" if should_continue else "stop"
+        next_ton = None
         try:
-            with stats_path.open("r", encoding="utf-8") as handle:
-                stats = json.load(handle)
-            stats.setdefault("meta", {})["ton_sequence"] = [current_ton]
-            stats["ton_sequence"] = [current_ton]
-            with stats_path.open("w", encoding="utf-8") as handle:
-                json.dump(stats, handle)
-        except (OSError, json.JSONDecodeError):
-            return
+            idx = list(ton_sequence).index(current_ton)
+        except ValueError:
+            idx = None
+        if isinstance(idx, int) and idx + 1 < len(ton_sequence):
+            next_ton = ton_sequence[idx + 1]
+        update_ton_progress_stats(
+            stats_path,
+            current_ton=current_ton,
+            status=status,
+            reason=reason,
+            next_ton=next_ton,
+        )
 
 
 class QueueRunner(BaseRunner):
@@ -166,16 +237,12 @@ class QueueRunner(BaseRunner):
                 recorder = result[1]
             if recorder is not None:
                 recorder.attack_wall_time = time.monotonic() - start_time  # type: ignore[attr-defined]
-                attack_label = getattr(recorder, "attack_label", None)
-                solved_all = getattr(recorder, "solve_all_ctr", False)
-                is_timeout = getattr(recorder, "is_timeout", False)
                 self._write_ton_sequence(recorder, ton_sequence, plan.get("ton"))
-                if attack_label is not None:
+                should_continue, reason = _derive_ton_outcome(recorder)
+                if reason == "adv_found":
                     break  # success
-                if solved_all:
-                    continue  # fully explored, move to next ton
-                if is_timeout:
-                    break
+                if should_continue:
+                    continue  # solved all or timed out, move to next ton
                 break
 
         return last_result
@@ -228,17 +295,11 @@ class ShapRunner(BaseRunner):
             if recorder is not None:
                 recorder.attack_wall_time = time.monotonic() - start_time  # type: ignore[attr-defined]
                 self._write_ton_sequence(recorder, ton_sequence, plan.get("ton"))
-                attack_label = getattr(recorder, "attack_label", None)
-                solved_all = getattr(recorder, "solve_all_ctr", False)
-                is_timeout = getattr(recorder, "is_timeout", False)
-
-                if attack_label is not None:
+                should_continue, reason = _derive_ton_outcome(recorder)
+                if reason == "adv_found":
                     break  # success
-                if solved_all:
-                    continue  # fully explored, move to next ton
-                # If not solved_all (likely timeout or unfinished), stop trying higher tons.
-                if is_timeout:
-                    break
+                if should_continue:
+                    continue  # solved all or timed out, move to next ton
                 break
 
         return last_result

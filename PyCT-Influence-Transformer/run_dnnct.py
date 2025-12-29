@@ -17,7 +17,7 @@ from libct.utils import (
 PYCT_ROOT = './'
 MODEL_ROOT = os.path.join(PYCT_ROOT, 'model')
 VALID_COLLECT_MODES = {"priority_queue", "queue", "stack"}
-DEFAULT_SOLVER = "cvc4"
+DEFAULT_SOLVER = "cvc5"
 
 
 @dataclass
@@ -149,6 +149,17 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
     )
 
     engine = _build_explorer(explorer_cfg)
+    extra_meta = {
+        "model_name": model_name,
+        "attack_mode": attack_mode,
+        "idx": idx,
+    }
+    if save_exp:
+        if "ton" in save_exp:
+            extra_meta["ton"] = save_exp.get("ton")
+        if "ton_next" in save_exp:
+            extra_meta["ton_next"] = save_exp.get("ton_next")
+    engine.extra_meta = extra_meta
 
     result: tuple[int, Any] = engine.explore(
         module_path,

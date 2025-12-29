@@ -38,6 +38,11 @@ class ConcolicTestRecorder:
         self.is_timeout = False
         self.solve_all_ctr = False # solve all constraints
 
+        # extra metadata for compact stats
+        self.extra_meta = {}
+        self.queue_max = 0
+        self.queue_last = 0
+
         # calculation
         self._pre_sat = 0
         self._pre_unsat = 0
@@ -160,57 +165,122 @@ class ConcolicTestRecorder:
             img_0_255 = self.adversarial_input.copy()
             img_0_255 = (img_0_255*255).astype(int)
             cv2.imwrite(save_path, img_0_255)
-        
 
-    def output_stats_dict(self):
-        res = {
-            "meta": dict(),
-            "total": dict(),
-            "iters": dict(),
-            "constraint_complexity": None,
+    @staticmethod
+    def _summarize_numeric(values):
+        if not values:
+            return None
+        total = sum(values)
+        return {
+            "min": min(values),
+            "max": max(values),
+            "mean": total / len(values),
+            "sum": total,
         }
-        res['meta']['input_name'] = self.input_name
-        res['meta']['original_label'] = self.original_label
-        res['meta']['attack_label'] = self.attack_label
-        res['meta']['is_finish'] = self.is_finish
-        res['meta']['is_timeout'] = self.is_timeout
-        res['meta']['solve_all_ctr'] = self.solve_all_ctr
-        
-        
-        res['total']['total_wall_time'] = self.total_wall_time
-        res['total']['total_cpu_time'] = self.total_cpu_time
-        res['total']['total_iter'] = self.total_iter
 
+    @staticmethod
+    def _count_values(values):
+        counts = {}
+        for val in values or []:
+            counts[val] = counts.get(val, 0) + 1
+        return counts or None
 
-        res['iters']['sat'] = self.sat
-        res['iters']['unsat'] = self.unsat
-        res['iters']['unknown'] = self.unknown
-        res['iters']['gen_constraint'] = self.gen_constraint
-        res['iters']['solve_constraint'] = self.solve_constraint
-        res['iters']['iter_wall_time'] = self.iter_wall_time
-        res['iters']['iter_cpu_time'] = self.iter_cpu_time
-        res['iters']['execute_wall_time'] = self.execute_wall_time
-        res['iters']['execute_cpu_time'] = self.execute_cpu_time
-        res['iters']['solve_constraint_wall_time'] = self.solve_constraint_wall_time
-        res['iters']['solve_constraint_cpu_time'] = self.solve_constraint_cpu_time
+    def _build_progress(self):
+        progress = self.extra_meta.get("progress")
+        if progress is not None:
+            return progress
+        ton_current = self.extra_meta.get("ton")
+        ton_next = self.extra_meta.get("ton_next")
+        if ton_current is None and ton_next is None:
+            return None
+        return {
+            "ton_current": ton_current,
+            "ton_next": ton_next,
+            "stop_at": None,
+            "reason": None,
+        }
 
+    def output_stats_dict(self, constraint_complexity=None):
+        status = "incomplete"
+        if self.attack_label is not None:
+            status = "success"
+        elif self.is_timeout:
+            status = "timeout"
+        elif self.solve_all_ctr:
+            status = "exhausted"
 
+        meta = {
+            "input_name": self.input_name,
+            "original_label": self.original_label,
+            "attack_label": self.attack_label,
+            "is_finish": self.is_finish,
+            "is_timeout": self.is_timeout,
+            "solve_all_ctr": self.solve_all_ctr,
+            "status": status,
+            "finished": self.is_finish,
+        }
+        if isinstance(self.extra_meta, dict):
+            meta.update(self.extra_meta)
+
+        summary = {
+            "total_wall_time": self.total_wall_time,
+            "total_cpu_time": self.total_cpu_time,
+            "total_iter": self.total_iter,
+        }
+        attack_wall_time = getattr(self, "attack_wall_time", None)
+        if attack_wall_time is not None:
+            summary["attack_wall_time"] = attack_wall_time
+
+        solver = {
+            "sat": sum(self.sat),
+            "unsat": sum(self.unsat),
+            "unknown": sum(self.unknown),
+            "solver_time_total": sum(self.solve_constraint_wall_time),
+        }
+
+        constraints = {
+            "generated_total": sum(self.gen_constraint),
+            "solved_total": sum(self.solve_constraint),
+            "queue_max": self.queue_max,
+        }
+
+        iters_summary = {
+            "sat": self._summarize_numeric(self.sat),
+            "unsat": self._summarize_numeric(self.unsat),
+            "unknown": self._summarize_numeric(self.unknown),
+            "solve_constraint": self._summarize_numeric(self.solve_constraint),
+            "gen_constraint": self._summarize_numeric(self.gen_constraint),
+            "iter_wall_time": self._summarize_numeric(self.iter_wall_time),
+        }
+
+        complexity_summary = None
+        if isinstance(constraint_complexity, dict):
+            complexity_summary = {}
+            type_counts = self._count_values(constraint_complexity.get("type"))
+            if type_counts is not None:
+                complexity_summary["type_counts"] = type_counts
+            for key in ("assert_num", "byte", "time"):
+                summary_stats = self._summarize_numeric(constraint_complexity.get(key, []))
+                if summary_stats is not None:
+                    complexity_summary[key] = summary_stats
+
+        res = {
+            "meta": meta,
+            "progress": self._build_progress(),
+            "summary": summary,
+            "solver": solver,
+            "constraints": constraints,
+            "constraint_complexity": complexity_summary,
+            "iters_summary": iters_summary,
+        }
         return res
 
 
     def save_stats_dict(self, constraint_complexity=None):
         if self.save_dir:
             os.makedirs(self.save_dir, exist_ok=True)
-            stats_dict = self.output_stats_dict()
-            stats_dict['constraint_complexity'] = constraint_complexity
-
-            # 讓分析工具在頂層也讀得到
-            stats_dict['original_label'] = stats_dict['meta'].get('original_label')
-            stats_dict['attack_label']   = stats_dict['meta'].get('attack_label')
-            
+            stats_dict = self.output_stats_dict(constraint_complexity=constraint_complexity)
             with open(os.path.join(self.save_dir, "stats.json"), 'w') as f:
-                stats_dict = self.output_stats_dict()
-                stats_dict['constraint_complexity'] = constraint_complexity
                 # json.dump(stats_dict, f, indent="\t") # 較容易讀懂但浪費儲存空間
                 json.dump(stats_dict, f) # 最節省儲存空間但不容易讀懂
             

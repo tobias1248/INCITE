@@ -67,7 +67,9 @@ class Solver:
         # Build the command from the solver type
         if solver == "cvc4":
             #cls.cmd = ["cvc4"] + ["--produce-models", "--lang", "smt", "--strings-exp"]
-             cls.cmd = ["cvc4"] + ["--produce-models", "--lang", "smt", "--quiet", "--strings-exp"]
+            cls.cmd = ["cvc4"] + ["--produce-models", "--lang", "smt", "--quiet", "--strings-exp"]
+        elif solver == "cvc5":
+            cls.cmd = ["cvc5"] + ["--produce-models", "--lang", "smt", "--quiet", "--strings-exp"]
         # elif solver == "z3seq":
         #     cls.cmd = "z3 -in".split(' ')
         # elif solver == "z3str":

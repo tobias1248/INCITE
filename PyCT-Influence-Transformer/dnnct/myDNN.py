@@ -660,7 +660,7 @@ class MultiHeadAttentionLayer:
         context_vector = self.matrix_multiply(attention_scores, V)#500,32
         # print("783")
         return context_vector
-  
+
     def myMax(self,x,i):
         
         max = x[i][0]
