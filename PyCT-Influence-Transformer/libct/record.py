@@ -106,7 +106,8 @@ class ConcolicTestRecorder:
 
 
     def total_timeout(self):
-        self.is_timeout = True
+        if self.attack_label is None:
+            self.is_timeout = True
         
     def no_ctr_to_solve(self):
         self.solve_all_ctr = True

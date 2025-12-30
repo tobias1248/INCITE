@@ -182,6 +182,9 @@ class ExplorationEngine:
             recorder.solve_constr_start()
             solve_constr_num = len(self.constraints_to_solve)
             while len(self.constraints_to_solve) > 0:
+                if _check_deadline():
+                    timed_out = True
+                    break
                 popped = self.pop_constraint()
                 if isinstance(popped, tuple) and len(popped) == 3:
                     constraint, shap_value, position = popped
@@ -204,6 +207,10 @@ class ExplorationEngine:
             recorder.solve_constr_end()
             solve_constr_num = solve_constr_num - \
                 len(self.constraints_to_solve)
+
+            if timed_out:
+                recorder.total_timeout()
+                break
 
             # solve new input and use it to execute
             if not self.only_first_forward:
