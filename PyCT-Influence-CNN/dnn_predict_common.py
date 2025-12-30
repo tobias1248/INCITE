@@ -92,6 +92,30 @@ def _read_model_config(model_path):
         return None
 
 
+def _get_input_shape_from_h5(model_path):
+    """從 H5 model_config 直接讀取第一個 batch_input_shape（備援用）。"""
+    try:
+        with h5py.File(model_path, 'r') as f:
+            raw = f.attrs.get('model_config')
+            if raw is None:
+                return None
+            if isinstance(raw, bytes):
+                raw = raw.decode('utf-8')
+            config = json.loads(raw)
+    except Exception:
+        return None
+
+    layers = config.get('config', {}).get('layers', [])
+    for layer in layers:
+        layer_conf = layer.get('config', {})
+        batch_shape = layer_conf.get('batch_input_shape') or layer_conf.get('batch_shape')
+        if batch_shape:
+            if len(batch_shape) > 1:
+                return tuple(None if dim is None else int(dim) for dim in batch_shape[1:])
+            return tuple(None if dim is None else int(dim) for dim in batch_shape)
+    return None
+
+
 def _extract_specs_from_weights(model_path):
     specs = {}
     try:
@@ -122,6 +146,7 @@ def _extract_specs_from_weights(model_path):
 
             if input_channels is not None:
                 specs['input_shape'] = (None, None, int(input_channels))
+
             # 分類模型中，最後一個 Dense 層的權重矩陣大小正好是 (特徵數, 類別數)，所以只要抓到那個權重，就能把 final_out 視為 num_classes
             if dense_candidates:
                 dense_candidates.sort(key=lambda tup: (tup[0], tup[1]))
@@ -161,6 +186,11 @@ def _extract_specs_from_h5(model_path):
     for key, value in weight_specs.items():
         specs.setdefault(key, value)
 
+    if 'input_shape' not in specs:
+        fallback_shape = _get_input_shape_from_h5(model_path)
+        if fallback_shape is not None:
+            specs['input_shape'] = fallback_shape
+
     return specs
 
 
@@ -177,6 +207,7 @@ def _infer_resnet_specs(model_path, input_shape_override=None, num_classes_overr
             if input_shape_override is not None:
                 specs["input_shape"] = input_shape_override
             else:
+                # 若形狀不完整，寧可要求使用者提供，避免不可靠的推斷
                 specs.pop("input_shape", None)
 
     if "depth" not in specs:

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-import dnn_predict_common_generic as dpc
+import dnn_predict_common as dpc
 from utils_out.dataset import MnistDataset, ImagenetMiniDataset
 from tensorflow.keras.utils import img_to_array, load_img
 
