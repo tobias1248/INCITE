@@ -398,6 +398,9 @@ class ExplorationEngine:
 
     def _record_result(self, inputs: Dict[str, Any], result: Any) -> bool:
         """Update cached prediction and persist adversarial example if it changed."""
+        if result in (self.Timeout, self.Exception, self.Unpicklable):
+            self.previous_result = result
+            return True
         if self.previous_result is not None and self.previous_result != result:
             log.warning(
                 "[RESULT_CHANGE] Previous result %s differs from current %s",

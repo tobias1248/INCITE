@@ -108,10 +108,10 @@ class ConcolicTestRecorder:
     def total_timeout(self):
         if self.attack_label is None:
             self.is_timeout = True
-        
+
     def no_ctr_to_solve(self):
         self.solve_all_ctr = True
-     
+
         
     def first_execution_end(self):
         # the iteration 0 has no constraint to solve
@@ -260,10 +260,13 @@ class ConcolicTestRecorder:
             type_counts = self._count_values(constraint_complexity.get("type"))
             if type_counts is not None:
                 complexity_summary["type_counts"] = type_counts
-            for key in ("assert_num", "byte", "time"):
+            for key in ("assert_num", "byte", "time", "path_len", "build_time", "total_time"):
                 summary_stats = self._summarize_numeric(constraint_complexity.get(key, []))
                 if summary_stats is not None:
                     complexity_summary[key] = summary_stats
+            entries = constraint_complexity.get("detail")
+            if isinstance(entries, list) and entries:
+                complexity_summary["entries"] = entries
 
         res = {
             "meta": meta,
@@ -295,5 +298,4 @@ class ConcolicTestRecorder:
             else:
                 np.save(os.path.join(self.save_dir, "sat_inputs.npy"),
                         np.stack(self.sat_inputs).astype(np.float32))
-
 

@@ -53,7 +53,17 @@ class Solver:
         cls.run_timeout = solver_run_timeout
         
         # assert_len 是一個二維的list，第一個維度是每個iteration，第二個維度是該iteration的每個assert的長度
-        cls.ctr_size = {'type':[], 'time': [], 'byte': [], 'assert_num': [], 'assert_len':[]}
+        cls.ctr_size = {
+            'type': [],
+            'time': [],
+            'byte': [],
+            'assert_num': [],
+            'assert_len': [],
+            'path_len': [],
+            'build_time': [],
+            'total_time': [],
+            'detail': [],
+        }
         
         if cls.smtdir:            
             os.makedirs(os.path.join(cls.smtdir, 'formula'))
@@ -139,7 +149,59 @@ class Solver:
             shap_value,
         )
         log_path = cls._resolve_constraint_log_path(engine, idx)
+        path_len = getattr(constraint, "height", None)
+
+        def _record_constraint_complexity(status, formulas, build_elapsed, solver_elapsed):
+            file_byte = None
+            assert_count = None
+            assert_lens = []
+            if formulas is not None:
+                file_byte = len(formulas.encode("utf-8"))
+                assert_count = 0
+                pattern = r'\(assert.*'
+                for match in re.finditer(pattern, formulas):
+                    line = match.group()
+                    assert_count += 1
+                    assert_lens.append(len(line))
+
+            total_time = None
+            if build_elapsed is not None and solver_elapsed is not None:
+                total_time = build_elapsed + solver_elapsed
+            elif build_elapsed is not None:
+                total_time = build_elapsed
+            elif solver_elapsed is not None:
+                total_time = solver_elapsed
+
+            if status is not None:
+                cls.ctr_size['type'].append(status)
+            if solver_elapsed is not None:
+                cls.ctr_size['time'].append(solver_elapsed)
+            if file_byte is not None:
+                cls.ctr_size['byte'].append(file_byte)
+            if assert_count is not None:
+                cls.ctr_size['assert_num'].append(assert_count)
+            cls.ctr_size['assert_len'].append(assert_lens)
+            if path_len is not None:
+                cls.ctr_size['path_len'].append(path_len)
+            if build_elapsed is not None:
+                cls.ctr_size['build_time'].append(build_elapsed)
+            if total_time is not None:
+                cls.ctr_size['total_time'].append(total_time)
+
+            detail = {
+                "status": status,
+                "path_len": path_len,
+                "assert_num": assert_count,
+                "byte": file_byte,
+                "total_time": total_time,
+            }
+            if build_elapsed is not None:
+                detail["build_time"] = build_elapsed
+            if solver_elapsed is not None:
+                detail["solver_time"] = solver_elapsed
+            cls.ctr_size['detail'].append(detail)
         #limit_constraint_time_start
+        build_elapsed = None
         try:
             build_formula_start = time.time()
             if cls.build_timeout_enabled:
@@ -147,13 +209,16 @@ class Solver:
             else:
                 formulas = Solver._build_formulas_from_constraint(engine, constraint, ori_args)
             build_formula_end = time.time()
+            build_elapsed = build_formula_end - build_formula_start
             cls._append_constraint_log(
                 log_path,
                 position,
                 shap_value,
-                f"formulas built time:{build_formula_end - build_formula_start}",
+                f"formulas built time:{build_elapsed}",
             )
         except func_timeout.exceptions.FunctionTimedOut:
+            if build_elapsed is None:
+                build_elapsed = time.time() - build_formula_start
             cls._append_constraint_log(
                 log_path,
                 position,
@@ -174,6 +239,12 @@ class Solver:
                 cls.stats["sat_number"],
                 cls.stats["unsat_number"],
                 cls.stats["otherwise_number"],
+            )
+            _record_constraint_complexity(
+                "build_timeout",
+                None,
+                build_elapsed,
+                None,
             )
             return None
         #limit_constraint_time_end
@@ -204,15 +275,29 @@ class Solver:
                 timeout=cls.run_timeout if cls.run_timeout else None,
             )
         except subprocess.CalledProcessError as e:
+            solver_elapsed = time.time() - start
             log.error("SMT solver process failed (idx=%s)", idx, exc_info=e)
+            _record_constraint_complexity(
+                "error",
+                formulas,
+                build_elapsed,
+                solver_elapsed,
+            )
             with open("smt_error.txt", 'a') as f:
                 f.writelines(e.output)
             return None
         except subprocess.TimeoutExpired:
+            solver_elapsed = time.time() - start
             log.warning("SMT solver subprocess timed out (idx=%s)", idx)
+            _record_constraint_complexity(
+                "timeout",
+                formulas,
+                build_elapsed,
+                solver_elapsed,
+            )
             return None
 
-        elapsed = time.time() - start
+        solver_elapsed = time.time() - start
         
         
         output = completed_process.stdout.decode()
@@ -232,12 +317,12 @@ class Solver:
                 log.error("Failing formula:\n%s", formulas)
                 sys.exit(1)
             if "sat" == status:
-                cls.stats['sat_number'] += 1; cls.stats['sat_time'] += elapsed
+                cls.stats['sat_number'] += 1; cls.stats['sat_time'] += solver_elapsed
                 model = Solver._get_model(engine, outputs[1:])
                 # FIXME make the value of non-concolic argument unchanged
             else:
-                if "unsat" == status: cls.stats['unsat_number'] += 1; cls.stats['unsat_time'] += elapsed
-                else: status = "UNKNOWN"; cls.stats['otherwise_number'] += 1; cls.stats['otherwise_time'] += elapsed
+                if "unsat" == status: cls.stats['unsat_number'] += 1; cls.stats['unsat_time'] += solver_elapsed
+                else: status = "UNKNOWN"; cls.stats['otherwise_number'] += 1; cls.stats['otherwise_time'] += solver_elapsed
         log.info(
             "[SOLVER] idx=%s attack=%s ton=%s position=%s status=%s sat=%d unsat=%d unknown=%d",
             idx,
@@ -249,28 +334,12 @@ class Solver:
             cls.stats["unsat_number"],
             cls.stats["otherwise_number"],
         )
-        
-        
-        # {'type':[], 'time': [], 'byte': [], 'assert_num': [], 'assert_len':[]}
-        def save_constraint_complexity():
-            file_byte = len(formulas.encode('utf-8'))
-            
-            assert_count = 0  # 计数满足条件的行数
-            assert_lens = []  # 用于存储每行字符串的长度
-            pattern = r'\(assert.*'
-            for match in re.finditer(pattern, formulas):
-                line = match.group()
-                assert_count += 1
-                assert_lens.append(len(line))
-            
-            cls.ctr_size['type'].append(status)
-            cls.ctr_size['time'].append(elapsed)
-            cls.ctr_size['byte'].append(file_byte)            
-            cls.ctr_size['assert_num'].append(assert_count)
-            cls.ctr_size['assert_len'].append(assert_lens)
-            
-        
-        save_constraint_complexity()
+        _record_constraint_complexity(
+            status,
+            formulas,
+            build_elapsed,
+            solver_elapsed,
+        )
         
         ##########################################################################################
         if cls.store is not None:
