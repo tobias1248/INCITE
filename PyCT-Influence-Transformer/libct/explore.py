@@ -5,6 +5,7 @@ import func_timeout
 import gc
 import inspect
 import logging
+import math
 import multiprocessing
 import os
 import pickle
@@ -54,6 +55,8 @@ def prepare():
 
 
 class ExplorationEngine:
+    SHAP_SCORE_EPS = 1e-12
+    SHAP_SCORE_ALPHA = 0.4
     # indicate occurrence of Exception during execution
     class Exception(metaclass=type(
         '', (type,), {"__repr__": lambda self: '<EXCEPTION>'})): pass
@@ -797,19 +800,25 @@ class ExplorationEngine:
         if position is not None and hasattr(self, "comparator") and self.comparator is not None:
             layer_number, indices = position
             shap_value = self.comparator.get_shap_influence(layer_number, indices)
+        path_len = getattr(constraint, "height", None)
         if self.constraints_collection_type == 'priority_queue':
-            heapq.heappush(self.constraints_to_solve, (-abs(shap_value), constraint.id, position, constraint))
+            score, _assert_num = self._compute_priority_score(shap_value, constraint)
+            heapq.heappush(
+                self.constraints_to_solve,
+                (-score, constraint.id, position, constraint, abs(shap_value)),
+            )
             if recorder is not None:
                 current_size = len(self.constraints_to_solve)
                 recorder.queue_last = current_size
                 if current_size > recorder.queue_max:
                     recorder.queue_max = current_size
             log.info(
-                "[PUSH] idx=%s layer=%s position=%s shap=%.3e queue_size=%s",
+                "[PUSH] idx=%s layer=%s position=%s shap=%.3e path_len=%s queue_size=%s",
                 self.idx,
                 position[0],
                 position[1],
                 abs(shap_value),
+                path_len,
                 len(self.constraints_to_solve),
             )
         else:
@@ -820,14 +829,30 @@ class ExplorationEngine:
                 if current_size > recorder.queue_max:
                     recorder.queue_max = current_size
             log.info(
-                "[PUSH] idx=%s queue=%s position=%s shap=%.3e total=%s",
+                "[PUSH] idx=%s queue=%s position=%s shap=%.3e path_len=%s total=%s",
                 self.idx,
                 self.constraints_collection_type,
                 position,
                 abs(shap_value),
+                path_len,
                 len(self.constraints_to_solve),
             )
     
+    def _estimate_assert_num(self, constraint: Constraint) -> int:
+        base = int(getattr(constraint, "height", 0) or 0)
+        extra = 0
+        if Solver.norm:
+            extra += len(self.concolic_name_list)
+        if Solver.limit_change_range is not None:
+            extra += len(self.concolic_name_list)
+        return base + extra
+
+    def _compute_priority_score(self, shap_value: float, constraint: Constraint) -> tuple[float, int]:
+        assert_num = self._estimate_assert_num(constraint)
+        score = math.log10(abs(shap_value) + self.SHAP_SCORE_EPS)
+        score -= self.SHAP_SCORE_ALPHA * math.log10(assert_num + 1)
+        return score, assert_num
+
     def _log_pop_event(
         self,
         *,
@@ -836,40 +861,51 @@ class ExplorationEngine:
         layer: Any = None,
         indices: Any = None,
         shap_value: float | None = None,
+        path_len: int | None = None,
     ) -> None:
         attack_mode = getattr(self, "popped_log_attack_mode", "unknown")
         sample_idx = getattr(self, "idx", "unknown")
         if queue_mode == "priority":
             log.info(
-                "[POP] idx=%s attack=%s queue=%s layer=%s position=%s shap=%s remaining=%d",
+                "[POP] idx=%s attack=%s queue=%s layer=%s position=%s shap=%s path_len=%s remaining=%d",
                 sample_idx,
                 attack_mode,
                 queue_mode,
                 layer,
                 indices,
                 shap_value,
+                path_len,
                 remaining,
             )
         else:
             log.info(
-                "[POP] idx=%s attack=%s queue=%s remaining=%d",
+                "[POP] idx=%s attack=%s queue=%s path_len=%s remaining=%d",
                 sample_idx,
                 attack_mode,
                 queue_mode,
+                path_len,
                 remaining,
             )
 
     def pop_constraint(self) -> Constraint:
         if self.constraints_collection_type =='stack':
             constraint = self.constraints_to_solve.pop()
-            self._log_pop_event(queue_mode="stack", remaining=len(self.constraints_to_solve))
+            self._log_pop_event(
+                queue_mode="stack",
+                remaining=len(self.constraints_to_solve),
+                path_len=getattr(constraint, "height", None),
+            )
             return constraint
         elif self.constraints_collection_type == 'queue':
             constraint = self.constraints_to_solve.popleft()
-            self._log_pop_event(queue_mode="queue", remaining=len(self.constraints_to_solve))
+            self._log_pop_event(
+                queue_mode="queue",
+                remaining=len(self.constraints_to_solve),
+                path_len=getattr(constraint, "height", None),
+            )
             return constraint
         elif self.constraints_collection_type == 'priority_queue':
-            shap_value, constraint_id, position,  constraint = heapq.heappop(self.constraints_to_solve)
+            score, constraint_id, position, constraint, shap_value = heapq.heappop(self.constraints_to_solve)
             layer_number, indices = position
             self._log_pop_event(
                 queue_mode="priority",
@@ -877,11 +913,12 @@ class ExplorationEngine:
                 layer=layer_number,
                 indices=indices,
                 shap_value=f"{abs(shap_value):.3e}",
+                path_len=getattr(constraint, "height", None),
             )
             log.debug(
                 "Popped constraint from queue (position=%s shap_value=%s constraint_id=%s)",
                 position,
-                -shap_value,
+                shap_value,
                 constraint_id,
             )
             return constraint, shap_value, position

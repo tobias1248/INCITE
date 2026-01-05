@@ -178,7 +178,7 @@ class ExploreLoggingTests(unittest.TestCase):
         engine.constraints_collection_type = "priority_queue"
         engine.constraints_to_solve = []
         constraint = object()
-        heapq.heappush(engine.constraints_to_solve, (-0.5, 42, ("layer", 1), constraint))
+        heapq.heappush(engine.constraints_to_solve, (-0.5, 42, ("layer", 1), constraint, 0.5))
 
         with self.assertLogs("ct.explore", level="DEBUG") as captured:
             popped_constraint, shap_value, position = engine.pop_constraint()
