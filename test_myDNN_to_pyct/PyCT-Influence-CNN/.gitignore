@@ -1,0 +1,19 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Jupyter / temp
+.ipynb_checkpoints/
+*.DS_Store
+
+# Experiment outputs
+exp/
+shap_value/
+*.json
+*.jpg
+*.png
+*.jpeg
+# Local configs
+*.log
+
+utils_out/dataset/
