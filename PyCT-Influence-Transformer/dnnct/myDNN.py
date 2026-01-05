@@ -200,7 +200,7 @@ class ActivationLayer:
         elif len(out_shape)==2:
             # print('start 2')
             for i, j in product( range(0, out_shape[0]),
-                                 range(0, out_shape[1])):
+                                range(0, out_shape[1])):
                 tensor_out[i][j] = actFunc(tensor_in[i][j], self.type)
             # print('end 2')
         elif len(out_shape)==3:
@@ -290,8 +290,8 @@ class Conv2DLayer:
         ## For now, we assume stride=1 and padding='valid'
         ## TODO  stride!=1 and padding!='valid'
         out_shape = [in_shape[0]-self.shape[1]+1,
-                     in_shape[1]-self.shape[2]+1,
-                     self.shape[0]]
+                    in_shape[1]-self.shape[2]+1,
+                    self.shape[0]]
         #tensor_out = np.zeros( out_shape ).tolist()
         tensor_out = []
         for _ in range(out_shape[0]):
@@ -339,8 +339,8 @@ class MaxPool2DLayer:
         ## TODO  stride!=1 and padding!='valid'
         r, c = self.pool_size[0], self.pool_size[1]
         out_shape = [ in_shape[0] // r,
-                      in_shape[1] // c,
-                      in_shape[2]]
+                        in_shape[1] // c,
+                        in_shape[2]]
         # tensor_out = np.zeros(out_shape).tolist()
         tensor_out = []
         for _ in range(out_shape[0]):
@@ -509,34 +509,34 @@ class LSTMLayer:
         self.input_size = input_size                
         W, U, b = (w for w in weights)
         self.hidden_size = int(W.shape[1] / 4)
-       
+    
         # load weights
         self.W_i = W[:, :self.hidden_size].tolist()
         self.W_f = W[:, self.hidden_size: self.hidden_size * 2].tolist()
         self.W_c = W[:, self.hidden_size * 2: self.hidden_size * 3].tolist()
         self.W_o = W[:, self.hidden_size * 3:].tolist()
-       
+    
         self.U_i = U[:, :self.hidden_size].tolist()
         self.U_f = U[:, self.hidden_size: self.hidden_size * 2].tolist()
         self.U_c = U[:, self.hidden_size * 2: self.hidden_size * 3].tolist()
         self.U_o = U[:, self.hidden_size * 3:].tolist()
-       
+    
         # load biases
         self.b_i = b[:self.hidden_size].tolist()
         self.b_f = b[self.hidden_size: self.hidden_size * 2].tolist()
         self.b_c = b[self.hidden_size * 2: self.hidden_size * 3].tolist()
         self.b_o = b[self.hidden_size * 3:].tolist()
-       
+    
     def forward(self, X):
         # init states
         h0 = np.zeros(self.hidden_size).astype('float32').tolist()
         c0 = np.zeros(self.hidden_size).astype('float32').tolist()
-       
+    
         for i in range(len(X)):
             h0, c0 = self.step(X[i], h0, c0)
-           
+        
         return h0
-       
+    
     def step(self, x, h, c):                
         i = [0.0] * self.hidden_size
         f = [0.0] * self.hidden_size
@@ -556,7 +556,7 @@ class LSTMLayer:
                 f[j] += h[l] * self.U_f[l][j]
                 o[j] += h[l] * self.U_o[l][j]
                 g[j] += h[l] * self.U_c[l][j]
-       
+    
             i[j] += self.b_i[j]
             f[j] += self.b_f[j]
             o[j] += self.b_o[j]
@@ -614,7 +614,7 @@ class MultiHeadAttentionLayer:
         return outputs
     
     def transform_and_split(self,sequence_of_vectors, weights, bias):
-       
+    
 
         outputs = [
                         [
@@ -628,16 +628,16 @@ class MultiHeadAttentionLayer:
     def concatenate_and_transform(self,attentions, output_weights, output_bias):
         assert np.array(output_bias).shape == (self.model_dim,)
         outputs = [
-              [
-                  self.mySum([
+            [
+                self.mySum([
                       attentions[j][word][k] * output_weights[j][k][i]
-                      for j in range(self.num_heads)
-                      for k in range(self.key_dim_per_heads)
-                  ]) + output_bias[i]
-                  for i in range(self.model_dim)
-              ]
-              for word in range(self.seq_len)
-          ]
+                    for j in range(self.num_heads)
+                    for k in range(self.key_dim_per_heads)
+                ]) + output_bias[i]
+                for i in range(self.model_dim)
+            ]
+            for word in range(self.seq_len)
+        ]
         assert np.array(outputs).shape == (self.seq_len, self.model_dim)
         return outputs
     def mySum(self,x):

@@ -87,14 +87,47 @@ def _derive_resume_plan(
 
 
 def _derive_stage_outcome(stats_path: Path) -> Tuple[bool, str]:
+    stats, reason = _load_stats_payload(stats_path)
+    if not stats:
+        return False, reason
+    return _derive_stage_outcome_payload(stats)
+
+
+def _load_stats_payload(stats_path: Path) -> Tuple[Optional[Dict[str, Any]], str]:
     if not stats_path.is_file():
-        return False, "missing_stats"
+        return None, "missing_stats"
     try:
         with stats_path.open("r", encoding="utf-8") as handle:
-            stats = json.load(handle)
+            return json.load(handle), "ok"
     except (OSError, json.JSONDecodeError):
-        return False, "invalid_stats"
+        return None, "invalid_stats"
 
+
+def _coerce_int(value: Any) -> Optional[int]:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _extract_last_ton(stats: Dict[str, Any]) -> Optional[int]:
+    meta = stats.get("meta") or {}
+    ton = _coerce_int(meta.get("ton"))
+    if ton is not None:
+        return ton
+    progress = meta.get("progress") or stats.get("progress") or {}
+    ton = _coerce_int(progress.get("ton_current"))
+    if ton is not None:
+        return ton
+    ton_progress = meta.get("ton_progress") or stats.get("ton_progress") or {}
+    ton = _coerce_int(ton_progress.get("current"))
+    if ton is not None:
+        return ton
+    return None
+
+
+def _derive_stage_outcome_payload(stats: Dict[str, Any]) -> Tuple[bool, str]:
     meta = stats.get("meta") or {}
     attack_label = meta.get("attack_label")
     solved_all = bool(meta.get("solve_all_ctr"))
@@ -106,6 +139,57 @@ def _derive_stage_outcome(stats_path: Path) -> Tuple[bool, str]:
     if is_timeout:
         return True, "timeout"
     return False, "incomplete"
+
+
+def _should_run_ton(
+    case: Dict[str, Any],
+    ton_value: int,
+    ton_sequence: Sequence[int],
+    *,
+    force_refresh: bool,
+) -> bool:
+    if force_refresh:
+        return True
+    stats_path = Path(case["save_dir"]) / "stats.json"
+    stats, _ = _load_stats_payload(stats_path)
+    if not stats:
+        return ton_value == ton_sequence[0]
+    meta = stats.get("meta") or {}
+    if meta.get("attack_label") is not None:
+        return False
+    last_ton = _extract_last_ton(stats)
+    if last_ton is None:
+        return ton_value == ton_sequence[0]
+    if last_ton > ton_value:
+        return False
+    should_continue, reason = _derive_stage_outcome_payload(stats)
+    if last_ton == ton_value:
+        return reason == "incomplete"
+    try:
+        idx = list(ton_sequence).index(last_ton)
+    except ValueError:
+        return ton_value == ton_sequence[0]
+    if idx + 1 >= len(ton_sequence) or ton_sequence[idx + 1] != ton_value:
+        return False
+    return should_continue
+
+
+def _should_run_payload(payload: Dict[str, Any], *, force_refresh: bool) -> bool:
+    if force_refresh:
+        return True
+    save_exp = payload.get("save_exp") or {}
+    attack_mode = save_exp.get("attack_mode", payload.get("popped_log_attack_mode", "unknown"))
+    save_dir = get_save_dir_from_save_exp(
+        save_exp,
+        payload.get("model_name", "unknown"),
+        attack_mode,
+        only_first_forward=bool(save_exp.get("only_first_forward", False)),
+    )
+    stats_path = Path(save_dir) / "stats.json"
+    stats, _ = _load_stats_payload(stats_path)
+    if not stats:
+        return True
+    return not _stats_indicate_completion(stats)
 
 
 def _collect_stage_cases(inputs: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -239,21 +323,13 @@ def run_launcher(args: Any) -> None:
         if not args.solver_run_timeout or args.solver_run_timeout <= 0
         else f"{attack_mode}_solver{args.solver_run_timeout}s"
     )
-    resume_index = 0
     force_refresh = args.force_refresh
-    if not args.force_refresh:
-        resume_index, require_force = _derive_resume_plan(
-            args.model_name, attack_mode_for_paths, args.first_n
-        )
-        force_refresh = require_force
-        if resume_index >= args.first_n:
-            logger.info("All requested inputs already completed; nothing to do.")
-            return
-
-    first_n_range = range(resume_index, args.first_n)
-    logger.info("Scheduling inputs from idx=%s to %s", resume_index, args.first_n - 1)
-    if resume_index > 0:
-        logger.info("Resuming from idx=%s (force=%s)", resume_index, "yes" if force_refresh else "no")
+    force_generate = True
+    first_n_range = range(0, args.first_n)
+    if force_refresh:
+        logger.info("Force refresh enabled; scheduling inputs from idx=0 to %s", args.first_n - 1)
+    else:
+        logger.info("Full scan enabled; scheduling inputs from idx=0 to %s", args.first_n - 1)
 
     def _select_shap_fn():
         if args.dataset == "cifar10":
@@ -274,7 +350,7 @@ def run_launcher(args: Any) -> None:
         inputs = shap_fn(
             args.model_name,
             first_n_img=first_n_range,
-            force=force_refresh,
+            force=force_generate,
             ton_values=args.pixel_search,
             attack_mode=attack_mode_for_paths,
         )
@@ -283,7 +359,7 @@ def run_launcher(args: Any) -> None:
             args.model_name,
             first_n_img=first_n_range,
             ton_values=args.pixel_search,
-            force=force_refresh,
+            force=force_generate,
             base_seed=args.random_seed,
             attack_mode=attack_mode_for_paths,
         )
@@ -294,7 +370,7 @@ def run_launcher(args: Any) -> None:
                 args.model_name,
                 first_n_img=first_n_range,
                 ton_values=args.pixel_search,
-                force=force_refresh,
+                force=force_generate,
                 base_seed=args.random_seed,
                 exp_prefix=exp_prefix,
                 attack_mode=attack_mode_for_paths,
@@ -303,7 +379,7 @@ def run_launcher(args: Any) -> None:
             inputs = shap_fn(
                 args.model_name,
                 first_n_img=first_n_range,
-                force=force_refresh,
+                force=force_generate,
                 ton_values=args.pixel_search,
                 exp_prefix=exp_prefix,
                 attack_mode=attack_mode_for_paths,
@@ -313,7 +389,7 @@ def run_launcher(args: Any) -> None:
         inputs = shap_fn(
             args.model_name,
             first_n_img=first_n_range,
-            force=force_refresh,
+            force=force_generate,
             ton_values=args.pixel_search,
             exp_prefix="queue",
             attack_mode=attack_mode_for_paths,
@@ -398,6 +474,12 @@ def run_launcher(args: Any) -> None:
 
     cases = _collect_stage_cases(inputs)
     if not cases:
+        if not force_refresh:
+            filtered_inputs = [payload for payload in inputs if _should_run_payload(payload, force_refresh=force_refresh)]
+            skipped = len(inputs) - len(filtered_inputs)
+            if skipped:
+                logger.info("Skipping %s already-completed task(s) after scan", skipped)
+            inputs = filtered_inputs
         logger.info("No ton_plans found; running %s task(s) directly", len(inputs))
         try:
             _run_stage_tasks(inputs)
@@ -418,6 +500,13 @@ def run_launcher(args: Any) -> None:
                     plan = case["plans"].get(ton_value)
                     if not plan:
                         continue
+                    if not _should_run_ton(
+                        case,
+                        ton_value,
+                        ton_sequence,
+                        force_refresh=force_refresh,
+                    ):
+                        continue
                     payload = dict(case["base_payload"])
                     payload["con_dict"] = plan["con_dict"]
                     save_exp = dict(plan["save_exp"])
@@ -437,10 +526,23 @@ def run_launcher(args: Any) -> None:
                     logger.info("Shutdown requested; stopping stage loop")
                     break
 
-                remaining: List[Dict[str, Any]] = []
+                next_candidates = 0
                 for case in cases:
                     stats_path = Path(case["save_dir"]) / "stats.json"
-                    should_continue, reason = _derive_stage_outcome(stats_path)
+                    stats, reason = _load_stats_payload(stats_path)
+                    if not stats:
+                        if reason != "missing_stats":
+                            logger.warning(
+                                "[TON-STAGE] idx=%s ton=%s stats_update=failed reason=%s",
+                                case["idx"],
+                                ton_value,
+                                reason,
+                            )
+                        continue
+                    last_ton = _extract_last_ton(stats)
+                    if last_ton != ton_value:
+                        continue
+                    should_continue, reason = _derive_stage_outcome_payload(stats)
                     status = "continue" if should_continue else "stop"
                     updated = update_ton_progress_stats(
                         stats_path,
@@ -456,17 +558,22 @@ def run_launcher(args: Any) -> None:
                             ton_value,
                             reason,
                         )
-                    if should_continue and next_ton is not None:
-                        remaining.append(case)
+                if next_ton is not None:
+                    for case in cases:
+                        if _should_run_ton(
+                            case,
+                            next_ton,
+                            ton_sequence,
+                            force_refresh=force_refresh,
+                        ):
+                            next_candidates += 1
 
                 logger.info(
-                    "[TON-STAGE-END] ton=%s continue=%s stop=%s",
+                    "[TON-STAGE-END] ton=%s next_candidates=%s",
                     ton_value,
-                    len(remaining),
-                    len(cases) - len(remaining),
+                    next_candidates,
                 )
-                cases = remaining
-                if not cases:
+                if next_ton is None or next_candidates == 0:
                     break
         except KeyboardInterrupt:
             logger.warning("Main loop interrupted; shutting down workers")
