@@ -28,8 +28,11 @@ __all__ = [
     "sentiment_lstm_lstm_15_1_2_3_4_8_range02",
     "fashion_mnist_transformer_shap",
     "fashion_mnist_transformer_shap_calculate_all",
+    "mnist_transformer_shap_calculate_all",
     "cifar10_cal_shap_specs",
     "fashion_mnist_transformer_random",
+    "mnist_transformer_shap",
+    "mnist_transformer_random",
     "cifar10_transformer_shap",
     "cifar10_transformer_random",
 ]
@@ -334,6 +337,98 @@ def fashion_mnist_transformer_shap(
     return inputs
 
 
+def mnist_transformer_shap(
+    model_name: str,
+    first_n_img: Iterable[int],
+    force: bool = False,
+    *,
+    ton_values: Optional[Sequence[int]] = None,
+    ton: Optional[int] = None,
+    exp_prefix: Optional[str] = None,
+    attack_mode: str = "shap",
+) -> List[Dict[str, Any]]:
+    from utils.dataset import MnistDataset
+
+    ton_sequence = _normalize_ton_sequence(ton_values, fallback=ton or 1)
+
+    pixel_provider = JsonShapPixelProvider(
+        model_name=model_name,
+        shap_root="shap_value_all_layer",
+        coordinate_dims=3,
+    )
+    queue_mode = QueueMode("priority_queue", "priority_queue")
+
+    prefix = f"{exp_prefix.strip('/')}/" if exp_prefix else ""
+    dataset = MnistDataset()
+    indices = _normalize_indices(first_n_img)
+
+    inputs: List[Dict[str, Any]] = []
+    skipped = 0
+
+    for idx in indices:
+        ton_plans: List[Dict[str, Any]] = []
+        base_in_dict: Optional[Dict[str, Any]] = None
+        input_for_shap = None
+        background_dataset_for_shap = None
+        input_name = f"case_{idx}"
+
+        for ton_value in ton_sequence:
+            save_exp = {
+                "input_name": input_name,
+                "exp_name": f"{prefix}shap_{ton_value}",
+                "idx": idx,
+                "attack_mode": attack_mode,
+            }
+            save_dir = get_save_dir_from_save_exp(
+                save_exp,
+                model_name,
+                attack_mode,
+                only_first_forward=False,
+            )
+            if not force and os.path.exists(save_dir):
+                skipped += 1
+                continue
+
+            attack_pixels = pixel_provider.top_pixels(idx, ton_value)
+            (
+                in_dict,
+                con_dict,
+                input_for_shap,
+                background_dataset_for_shap,
+            ) = dataset.get_mnist_test_data(idx)
+            for i, j, k in attack_pixels:
+                key = f"v_{i}_{j}_{k}"
+                con_dict[key] = 1
+            if base_in_dict is None:
+                base_in_dict = in_dict
+            ton_plans.append(
+                {
+                    "ton": ton_value,
+                    "con_dict": con_dict,
+                    "save_exp": save_exp,
+                }
+            )
+
+        if not ton_plans or base_in_dict is None:
+            continue
+
+        entry: Dict[str, Any] = {
+            "model_name": model_name,
+            "idx": idx,
+            "in_dict": base_in_dict,
+            "input_for_shap": input_for_shap,
+            "background_dataset_for_shap": background_dataset_for_shap,
+            "solve_order_stack": queue_mode.solve_order_stack,
+            "shap_value_pre_calculated": True,
+            "popped_log_attack_mode": attack_mode,
+            "ton_plans": ton_plans,
+        }
+        inputs.append(entry)
+
+    log.info("built inputs=%s skipped=%s", len(inputs), skipped)
+    return inputs
+
+
 def cifar10_transformer_shap(
     model_name: str,
     first_n_img: Iterable[int],
@@ -512,6 +607,95 @@ def fashion_mnist_transformer_random(
     return inputs
 
 
+def mnist_transformer_random(
+    model_name: str,
+    first_n_img: Iterable[int],
+    *,
+    ton_values: Sequence[int],
+    force: bool = False,
+    base_seed: int = 2024,
+    exp_prefix: Optional[str] = None,
+    attack_mode: str = "random",
+) -> List[Dict[str, Any]]:
+    from utils.dataset import MnistDataset
+
+    ton_sequence = _normalize_ton_sequence(ton_values)
+
+    dataset = MnistDataset()
+    sample_shape = tuple(int(dim) for dim in dataset.x_test.shape[1:])
+    coordinate_provider = _make_coordinate_provider(sample_shape, ton_sequence, base_seed=base_seed)
+    queue_mode = QueueMode("priority_queue", "priority_queue")
+
+    prefix = exp_prefix.strip("/") if exp_prefix else "random_select"
+    indices = _normalize_indices(first_n_img)
+
+    inputs: List[Dict[str, Any]] = []
+    skipped = 0
+
+    for idx in indices:
+        ton_plans: List[Dict[str, Any]] = []
+        base_in_dict: Optional[Dict[str, Any]] = None
+        input_for_shap = None
+        background_dataset_for_shap = None
+        input_name = f"case_{idx}"
+
+        for ton_value in ton_sequence:
+            save_exp = {
+                "input_name": input_name,
+                "exp_name": f"{prefix}/random_{ton_value}",
+                "idx": idx,
+                "attack_mode": attack_mode,
+            }
+            save_dir = get_save_dir_from_save_exp(
+                save_exp,
+                model_name,
+                attack_mode,
+                only_first_forward=False,
+            )
+            if not force and os.path.exists(save_dir):
+                skipped += 1
+                continue
+
+            attack_pixels = [list(coord) for coord in coordinate_provider(idx, ton_value)]
+            (
+                in_dict,
+                con_dict,
+                input_for_shap,
+                background_dataset_for_shap,
+            ) = dataset.get_mnist_test_data(idx)
+            for i, j, k in attack_pixels:
+                key = f"v_{i}_{j}_{k}"
+                con_dict[key] = 1
+            if base_in_dict is None:
+                base_in_dict = in_dict
+            ton_plans.append(
+                {
+                    "ton": ton_value,
+                    "con_dict": con_dict,
+                    "save_exp": save_exp,
+                }
+            )
+
+        if not ton_plans or base_in_dict is None:
+            continue
+
+        entry: Dict[str, Any] = {
+            "model_name": model_name,
+            "idx": idx,
+            "in_dict": base_in_dict,
+            "input_for_shap": input_for_shap,
+            "background_dataset_for_shap": background_dataset_for_shap,
+            "solve_order_stack": queue_mode.solve_order_stack,
+            "shap_value_pre_calculated": True,
+            "popped_log_attack_mode": attack_mode,
+            "ton_plans": ton_plans,
+        }
+        inputs.append(entry)
+
+    log.info("built inputs=%s skipped=%s", len(inputs), skipped)
+    return inputs
+
+
 def cifar10_transformer_random(
     model_name: str,
     first_n_img: Iterable[int],
@@ -619,6 +803,52 @@ def fashion_mnist_transformer_shap_calculate_all(
             input_for_shap,
             background_dataset_for_shap,
         ) = dataset.get_fashion_mnist_test_data_and_set_condict(idx, [])
+
+        calculator = ShapValuesCalculator(
+            model_path=f"./model/{model_name}.h5",
+            background_dataset=background_dataset_for_shap,
+            input_data=np.expand_dims(input_for_shap, axis=0),
+            idx=idx,
+            explainer_type=explainer_type,
+            output_root=output_root,
+        )
+        cache_exists = calculator.cache_path.is_file()
+        calculator.ensure(
+            assume_cached=cache_exists and not force_refresh,
+            force_refresh=force_refresh,
+        )
+        artifacts.append(
+            {
+                "idx": idx,
+                "output_path": str(calculator.cache_path),
+                "was_cached": cache_exists and not force_refresh,
+            }
+        )
+
+    return artifacts
+
+
+def mnist_transformer_shap_calculate_all(
+    model_name: str,
+    first_n_img: int,
+    *,
+    force_refresh: bool = False,
+    explainer_type: str = "gradient",
+    output_root: str = "shap_value_all_layer",
+) -> List[Dict[str, Any]]:
+    from utils.dataset import MnistDataset
+
+    dataset = MnistDataset()
+    indices = _normalize_indices(first_n_img)
+    artifacts: List[Dict[str, Any]] = []
+
+    for idx in indices:
+        (
+            _,
+            _,
+            input_for_shap,
+            background_dataset_for_shap,
+        ) = dataset.get_mnist_test_data(idx)
 
         calculator = ShapValuesCalculator(
             model_path=f"./model/{model_name}.h5",

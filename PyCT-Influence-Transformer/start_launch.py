@@ -335,12 +335,18 @@ def run_launcher(args: Any) -> None:
         if args.dataset == "cifar10":
             from utils.experiment_task_specs import cifar10_transformer_shap
             return cifar10_transformer_shap
+        if args.dataset == "mnist":
+            from utils.experiment_task_specs import mnist_transformer_shap
+            return mnist_transformer_shap
         return fashion_mnist_transformer_shap
 
     def _select_random_fn():
         if args.dataset == "cifar10":
             from utils.experiment_task_specs import cifar10_transformer_random
             return cifar10_transformer_random
+        if args.dataset == "mnist":
+            from utils.experiment_task_specs import mnist_transformer_random
+            return mnist_transformer_random
         return fashion_mnist_transformer_random
 
     shap_fn = _select_shap_fn()

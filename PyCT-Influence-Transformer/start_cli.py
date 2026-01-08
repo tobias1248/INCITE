@@ -79,7 +79,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--dataset",
         default="fashion_mnist",
-        choices=("fashion_mnist", "cifar10"),
+        choices=("fashion_mnist", "cifar10", "mnist"),
         help="Dataset to use for task generation.",
     )
     parser.add_argument(

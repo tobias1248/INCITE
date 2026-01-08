@@ -15,8 +15,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--dataset",
-        choices=("fashion_mnist", "cifar10"),
-        help="Dataset to use when preparing inputs/backgrounds for SHAP ['fashion_mnist', 'cifar10'].",
+        choices=("fashion_mnist", "cifar10", "mnist"),
+        help="Dataset to use when preparing inputs/backgrounds for SHAP ['fashion_mnist', 'cifar10', 'mnist'].",
     )
     parser.add_argument(
         "--first-n",
@@ -61,6 +61,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     # Import heavy dependencies lazily to keep startup fast.
     from utils.experiment_task_specs import (
         fashion_mnist_transformer_shap_calculate_all,
+        mnist_transformer_shap_calculate_all,
         cifar10_cal_shap_specs,
     )
 
@@ -70,6 +71,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     dataset_handlers = {
         "fashion_mnist": fashion_mnist_transformer_shap_calculate_all,
         "cifar10": cifar10_cal_shap_specs,
+        "mnist": mnist_transformer_shap_calculate_all,
     }
     handler = dataset_handlers[args.dataset]
 
