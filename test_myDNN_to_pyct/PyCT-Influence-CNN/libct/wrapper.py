@@ -124,6 +124,7 @@ class ConcolicWrapperFunctionDef(NodeTransformer):
             and dump(node.body[0].value.func) == dump(parse('libct.concolic.str.ConcolicStr()').body[0].value.func):
             node.body[0].value = node.body[0].value.args[0]
         if node.name in ['__bool__']: # other type castings (e.g., '__str__') can also be put here if required
+            print("wrapper bool")
             return self.ConcolicWrapperReturn().visit(node)
         return node
 

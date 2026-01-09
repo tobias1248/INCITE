@@ -1,9 +1,37 @@
-import logging, os, re, subprocess, sys, time
+import logging, os, re, subprocess, sys, time, traceback, func_timeout, unittest
+from typing import Optional
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 from libct.concolic import Concolic
 from libct.predicate import Predicate
 from libct.utils import py2smt
 
+
 log = logging.getLogger("ct.solver")
+_SMTLIB2_REGISTERED = False
+
+
+def _ensure_smtlib2_logger() -> None:
+    """Register the custom SMTLIB2 logging level once per process."""
+    global _SMTLIB2_REGISTERED
+    if _SMTLIB2_REGISTERED:
+        return
+
+    level = getattr(logging, "SMTLIB2", (logging.DEBUG + logging.INFO) // 2)
+    logging.SMTLIB2 = level
+    logging.addLevelName(level, "SMTLIB2")
+
+    if not hasattr(logging.Logger, "smtlib2"):
+        def smtlib2(self, message, *args, **kwargs):
+            if self.isEnabledFor(level):
+                self._log(level, message, args, **kwargs)
+        logging.Logger.smtlib2 = smtlib2  # type: ignore[attr-defined]
+
+    _SMTLIB2_REGISTERED = True
+
+
+_ensure_smtlib2_logger()
 
 class Solver:
     # options = {"lan": "smt.string_solver=z3str3", "stdin": "-in"}
@@ -13,15 +41,29 @@ class Solver:
     norm = None
     iter = None # for the filename of saved smt constraint
     iter_count = 1 # for the filename of saved smt constraint
+    build_timeout_enabled = True
+    run_timeout: Optional[int] = None
     
 
     @classmethod # similar to our constructor
-    def set_basic_configurations(cls, solver, timeout, safety, store, smtdir):
+    def set_basic_configurations(cls, solver, timeout, safety, store, smtdir, constraint_build_timeout=True, solver_run_timeout: Optional[int] = None):
         cls.safety = safety; cls.smtdir = smtdir
         cls.stats = {'sat_number': 0, 'sat_time': 0, 'unsat_number': 0, 'unsat_time': 0, 'otherwise_number': 0, 'otherwise_time': 0}
+        cls.build_timeout_enabled = bool(constraint_build_timeout)
+        cls.run_timeout = solver_run_timeout
         
         # assert_len 是一個二維的list，第一個維度是每個iteration，第二個維度是該iteration的每個assert的長度
-        cls.ctr_size = {'type':[], 'time': [], 'byte': [], 'assert_num': [], 'assert_len':[]}
+        cls.ctr_size = {
+            'type': [],
+            'time': [],
+            'byte': [],
+            'assert_num': [],
+            'assert_len': [],
+            'path_len': [],
+            'build_time': [],
+            'total_time': [],
+            'detail': [],
+        }
         
         if cls.smtdir:            
             os.makedirs(os.path.join(cls.smtdir, 'formula'))
@@ -35,7 +77,9 @@ class Solver:
         # Build the command from the solver type
         if solver == "cvc4":
             #cls.cmd = ["cvc4"] + ["--produce-models", "--lang", "smt", "--strings-exp"]
-             cls.cmd = ["cvc4"] + ["--produce-models", "--lang", "smt", "--quiet", "--strings-exp"]
+            cls.cmd = ["cvc4"] + ["--produce-models", "--lang", "smt", "--quiet", "--strings-exp"]
+        elif solver == "cvc5":
+            cls.cmd = ["cvc5"] + ["--produce-models", "--lang", "smt", "--quiet", "--strings-exp"]
         # elif solver == "z3seq":
         #     cls.cmd = "z3 -in".split(' ')
         # elif solver == "z3str":
@@ -53,60 +97,249 @@ class Solver:
             cls.cmd += ["--tlimit=" + str(1000 * timeout)]
 
     @classmethod
-    def find_model_from_constraint(cls, engine, constraint, ori_args):
-        print("[DEBUG]Finding model ... ")
-        formulas = Solver._build_formulas_from_constraint(engine, constraint, ori_args); log.smtlib2(f"Solving To: {constraint}")
+    def _derive_attack_mode(cls, engine) -> str:
+        """Return attack mode label derived from engine metadata."""
+        override = getattr(engine, "popped_log_attack_mode", None)
+        if isinstance(override, str):
+            normalized = override.strip().lower()
+            if normalized and normalized != "unknown":
+                return normalized
+        shap_flag = getattr(engine, "shap_value_pre_calculated", None)
+        if shap_flag is True:
+            return "shap"
+        if shap_flag is False:
+            return "random"
+        return "unknown"
+
+    @classmethod
+    def _derive_attack_ton(cls, engine) -> str:
+        """Estimate ton value from concolic flags; fall back to 'unknown'."""
+        flags = getattr(engine, "concolic_flag_dict", None)
+        if not flags:
+            return "unknown"
+        ton = sum(1 for flag in flags.values() if flag)
+        return str(ton if ton > 0 else 0)
+
+    @classmethod
+    def _resolve_constraint_log_path(cls, engine, idx: int) -> Path:
+        """Compute constraint log path grouped by model and attack parameters."""
+        model_path = getattr(engine, "model_path", None)
+        model_name = Path(model_path).stem if model_path else "unknown_model"
+        attack_mode = cls._derive_attack_mode(engine)
+        ton_label = cls._derive_attack_ton(engine)
+        output_dir = Path("popped_constraint_position") / model_name / f"{attack_mode}_{ton_label}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return output_dir / f"constraint_{idx}.txt"
+
+    @staticmethod
+    def _append_constraint_log(log_path: Path, position, shap_value, message: str) -> None:
+        """Append a constraint entry to the resolved log file."""
+        with log_path.open("a", encoding="utf-8") as file:
+            file.write("\n")
+            file.write(f"popped constraint with position: {position}\n")
+            file.write(f"popped constraint with shap value: {shap_value}\n")
+            file.write(f"{message}")
+
+    @classmethod
+    def find_model_from_constraint(cls, engine,constraint,shap_value, position, idx, ori_args):
+        log.debug(
+            "Finding model (idx=%s, position=%s, shap_value=%s)",
+            idx,
+            position,
+            shap_value,
+        )
+        log_path = cls._resolve_constraint_log_path(engine, idx)
+        path_len = getattr(constraint, "height", None)
+
+        def _record_constraint_complexity(status, formulas, build_elapsed, solver_elapsed):
+            file_byte = None
+            assert_count = None
+            assert_lens = []
+            if formulas is not None:
+                file_byte = len(formulas.encode("utf-8"))
+                assert_count = 0
+                pattern = r'\(assert.*'
+                for match in re.finditer(pattern, formulas):
+                    line = match.group()
+                    assert_count += 1
+                    assert_lens.append(len(line))
+
+            total_time = None
+            if build_elapsed is not None and solver_elapsed is not None:
+                total_time = build_elapsed + solver_elapsed
+            elif build_elapsed is not None:
+                total_time = build_elapsed
+            elif solver_elapsed is not None:
+                total_time = solver_elapsed
+
+            if status is not None:
+                cls.ctr_size['type'].append(status)
+            if solver_elapsed is not None:
+                cls.ctr_size['time'].append(solver_elapsed)
+            if file_byte is not None:
+                cls.ctr_size['byte'].append(file_byte)
+            if assert_count is not None:
+                cls.ctr_size['assert_num'].append(assert_count)
+            cls.ctr_size['assert_len'].append(assert_lens)
+            if path_len is not None:
+                cls.ctr_size['path_len'].append(path_len)
+            if build_elapsed is not None:
+                cls.ctr_size['build_time'].append(build_elapsed)
+            if total_time is not None:
+                cls.ctr_size['total_time'].append(total_time)
+
+            detail = {
+                "status": status,
+                "path_len": path_len,
+                "assert_num": assert_count,
+                "byte": file_byte,
+                "total_time": total_time,
+            }
+            if build_elapsed is not None:
+                detail["build_time"] = build_elapsed
+            if solver_elapsed is not None:
+                detail["solver_time"] = solver_elapsed
+            cls.ctr_size['detail'].append(detail)
+        #limit_constraint_time_start
+        build_elapsed = None
+        try:
+            build_formula_start = time.time()
+            if cls.build_timeout_enabled:
+                formulas = func_timeout.func_timeout(30, Solver._build_formulas_from_constraint, args=(engine, constraint, ori_args))
+            else:
+                formulas = Solver._build_formulas_from_constraint(engine, constraint, ori_args)
+            build_formula_end = time.time()
+            build_elapsed = build_formula_end - build_formula_start
+            cls._append_constraint_log(
+                log_path,
+                position,
+                shap_value,
+                f"formulas built time:{build_elapsed}",
+            )
+        except func_timeout.exceptions.FunctionTimedOut:
+            if build_elapsed is None:
+                build_elapsed = time.time() - build_formula_start
+            cls._append_constraint_log(
+                log_path,
+                position,
+                shap_value,
+                "Solver timeout",
+            )
+            log.warning(
+                "SMT formula construction timed out (idx=%s, position=%s)",
+                idx,
+                position,
+            )
+            log.info(
+                "[SOLVER] idx=%s attack=%s ton=%s position=%s status=timeout sat=%d unsat=%d unknown=%d",
+                idx,
+                cls._derive_attack_mode(engine),
+                cls._derive_attack_ton(engine),
+                position,
+                cls.stats["sat_number"],
+                cls.stats["unsat_number"],
+                cls.stats["otherwise_number"],
+            )
+            _record_constraint_complexity(
+                "build_timeout",
+                None,
+                build_elapsed,
+                None,
+            )
+            return None
+        #limit_constraint_time_end
+
+        #skip_last_start
+        # with open(f"./popped_constraint_position/transformer_fashion_mnist_two_mha/skip_last/shap-constraint-{idx}.txt", "a") as file:
+        #         file.write("\n")
+        #         file.write(f"popped constraint with position: {position}\n")
+        #         file.write(f"popped constraint with shap value: {shap_value}\n")
+        # build_formula_start = time.time()
+        # formulas = Solver._build_formulas_from_constraint(engine, constraint, ori_args)
+        # build_formula_end = time.time()
+        # with open(f"./popped_constraint_position/transformer_fashion_mnist_two_mha/skip_last/shap-constraint-{idx}.txt", "a") as file:
+        #         file.write("\n")
+        #         file.write(f"popped constraint with position: {position}\n")
+        #         file.write(f"popped constraint with shap value: {shap_value}\n")
+        #         file.write(f"formulas built time:{build_formula_end - build_formula_start}")
+        #skip_last_end
+        #original_start
+        # formulas = Solver._build_formulas_from_constraint(engine, constraint, ori_args)
+        #original_end
         start = time.time()
-        try: completed_process = subprocess.run(cls.cmd, input=formulas.encode(), capture_output=True)
+        try:
+            completed_process = subprocess.run(
+                cls.cmd,
+                input=formulas.encode(),
+                capture_output=True,
+                timeout=cls.run_timeout if cls.run_timeout else None,
+            )
         except subprocess.CalledProcessError as e:
-            print(e.output)
+            solver_elapsed = time.time() - start
+            log.error("SMT solver process failed (idx=%s)", idx, exc_info=e)
+            _record_constraint_complexity(
+                "error",
+                formulas,
+                build_elapsed,
+                solver_elapsed,
+            )
             with open("smt_error.txt", 'a') as f:
                 f.writelines(e.output)
+            return None
+        except subprocess.TimeoutExpired:
+            solver_elapsed = time.time() - start
+            log.warning("SMT solver subprocess timed out (idx=%s)", idx)
+            _record_constraint_complexity(
+                "timeout",
+                formulas,
+                build_elapsed,
+                solver_elapsed,
+            )
+            return None
 
-        elapsed = time.time() - start
+        solver_elapsed = time.time() - start
         
         
         output = completed_process.stdout.decode()
         model = None
         if output is None or len(output) == 0:
             status = "UNKNOWN"
+            log.warning("SMT solver returned empty output (idx=%s)", idx)
         else:
             outputs = output.splitlines()
             status = outputs[0].lower()
             if "error" in status:
-                print('solver error:', status)
-                print(f"at SMT-id: {Solver.cnt}")
-                print(formulas)
+                log.error(
+                    "Solver error '%s' at SMT-id=%s. See smt_error.txt for formula",
+                    status,
+                    Solver.cnt,
+                )
+                log.error("Failing formula:\n%s", formulas)
                 sys.exit(1)
             if "sat" == status:
-                cls.stats['sat_number'] += 1; cls.stats['sat_time'] += elapsed
+                cls.stats['sat_number'] += 1; cls.stats['sat_time'] += solver_elapsed
                 model = Solver._get_model(engine, outputs[1:])
                 # FIXME make the value of non-concolic argument unchanged
             else:
-                if "unsat" == status: cls.stats['unsat_number'] += 1; cls.stats['unsat_time'] += elapsed
-                else: status = "UNKNOWN"; cls.stats['otherwise_number'] += 1; cls.stats['otherwise_time'] += elapsed
-        
-        
-        # {'type':[], 'time': [], 'byte': [], 'assert_num': [], 'assert_len':[]}
-        def save_constraint_complexity():
-            file_byte = len(formulas.encode('utf-8'))
-            
-            assert_count = 0  # 计数满足条件的行数
-            assert_lens = []  # 用于存储每行字符串的长度
-            pattern = r'\(assert.*'
-            for match in re.finditer(pattern, formulas):
-                line = match.group()
-                assert_count += 1
-                assert_lens.append(len(line))
-            
-            cls.ctr_size['type'].append(status)
-            cls.ctr_size['time'].append(elapsed)
-            cls.ctr_size['byte'].append(file_byte)            
-            cls.ctr_size['assert_num'].append(assert_count)
-            cls.ctr_size['assert_len'].append(assert_lens)
-            
-        
-        save_constraint_complexity()
+                if "unsat" == status: cls.stats['unsat_number'] += 1; cls.stats['unsat_time'] += solver_elapsed
+                else: status = "UNKNOWN"; cls.stats['otherwise_number'] += 1; cls.stats['otherwise_time'] += solver_elapsed
+        log.info(
+            "[SOLVER] idx=%s attack=%s ton=%s position=%s status=%s sat=%d unsat=%d unknown=%d",
+            idx,
+            cls._derive_attack_mode(engine),
+            cls._derive_attack_ton(engine),
+            position,
+            status,
+            cls.stats["sat_number"],
+            cls.stats["unsat_number"],
+            cls.stats["otherwise_number"],
+        )
+        _record_constraint_complexity(
+            status,
+            formulas,
+            build_elapsed,
+            solver_elapsed,
+        )
         
         ##########################################################################################
         if cls.store is not None:
@@ -123,9 +356,9 @@ class Solver:
             with open(os.path.join(cls.smtdir, "formula", save_smt_filename), 'w') as f:
                 f.write(formulas)
             
-        print(status)
+        log.info("SMT solver status for idx=%s: %s", idx, status)
         ##########################################################################################
-        # log.smtlib2(f"SMT-id: {Solver.cnt}／Status: {status}／Model: {model}")
+        log.smtlib2(f"SMT-id: {Solver.cnt}／Status: {status}／Model: {model}")
         Solver.cnt += 1
         Solver.iter_count += 1
         return model
@@ -174,7 +407,7 @@ class Solver:
         # declare_vars = "\n".join(f"(declare-const {name} {_type})" 
         #                for (name, _type) in engine.var_to_types.items()) #if engine.concolic_dict.get(name, 1))
         #NOTE DNN
-        declare_vars = "\n".join(f"(declare-const {name} {engine.var_to_types[name]})"         ##問題在隻鱷        
+        declare_vars = "\n".join(f"(declare-const {name} {engine.var_to_types[name]})"                 
                                  for (name) in engine.concolic_name_list)
         queries = "\n".join(assertion.get_formula() for assertion in constraint.get_all_asserts())
         
@@ -213,13 +446,19 @@ class Solver:
                 formulas = f"(assert (and (<= (- (/ 1 1000000000000000)) (- {Predicate.get_formula_shallow(expr)} {py2smt(value)})) (<= (- {Predicate.get_formula_shallow(expr)} {py2smt(value)}) (/ 1 1000000000000000))))\n(check-sat)"
             else:
                 formulas = f"(assert (= {Predicate.get_formula_shallow(expr)} {py2smt(value)}))\n(check-sat)"
-            try: completed_process = subprocess.run(cls.cmd, input=formulas.encode(), capture_output=True)
-            except subprocess.CalledProcessError as e: print(e.output)
             try:
-                if completed_process.stdout.decode().splitlines()[0] == 'sat': return e
-                raise Exception # move to the following block
-            except:
-                print(formulas); print(completed_process.stdout.decode().splitlines()); print()
-                import traceback; traceback.print_stack()
-                if cls.safety >= 2: sys.exit(1)
+                completed_process = subprocess.run(cls.cmd, input=formulas.encode(), capture_output=True)
+            except subprocess.CalledProcessError as exc:
+                log.error("Safety solver invocation failed", exc_info=exc)
+                return None
+            output_lines = completed_process.stdout.decode().splitlines()
+            if output_lines and output_lines[0] == 'sat':
+                return e
+            log.error(
+                "Safety validation mismatch. Formulas: %s Output: %s",
+                formulas,
+                output_lines,
+            )
+            log.debug("Safety validation stack:\n%s", "".join(traceback.format_stack()))
+            if cls.safety >= 2: sys.exit(1)
         return None

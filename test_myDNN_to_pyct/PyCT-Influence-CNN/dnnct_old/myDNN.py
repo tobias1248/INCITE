@@ -1,27 +1,46 @@
 
 
-import collections.abc
+import numpy as np
 import math
 from itertools import product
+import collections
+from functools import reduce
 import logging
 
-import numpy as np
+from typing import Tuple
 from libct.position import register_current_indices, register_current_layer_number, to_Keras_layer_number
+
 from keras.layers import (
     Dense,
-    Conv2D,
+    Conv1D, Conv2D,
+    LocallyConnected1D, LocallyConnected2D,
     Flatten,
+    ELU,
     Activation,
     MaxPool2D,
     LSTM,
+    Embedding,
     BatchNormalization,
     SimpleRNN,
     Add,
     ZeroPadding2D,
-    GlobalAveragePooling2D,
-    GlobalAveragePooling1D,
-    Reshape,
-    MultiHeadAttention,
+    GlobalAveragePooling2D
+)
+
+LAYERS = (
+    Dense,
+    Conv1D, Conv2D,
+    LocallyConnected1D, LocallyConnected2D,
+    Flatten,
+    ELU,
+    Activation,
+    MaxPool2D,
+    LSTM,
+    Embedding,
+    BatchNormalization,
+    Add,
+    ZeroPadding2D,
+    GlobalAveragePooling2D
 )
 
 ACTIVATIONS = (
@@ -53,12 +72,6 @@ def act_tanh(x):
 
 def act_sigmoid(x):
     return 1.0 / (1.0 + math.exp(-x))
-
-
-def my_exp(x):
-    if x < -15:
-        return 0.0
-    return math.exp(x)
 
 # https://stackoverflow.com/questions/17531796/find-the-dimensions-of-a-multidimensional-python-array
 # return the dimension of a python list
@@ -472,57 +485,32 @@ class ZeroPadding2DLayer:
 # 只做推論重現前向傳播結果 把keras層保存的參數傳進來（假設學習率1e-3）
 
 
-# Transformer專案自訂的 BatchNorm，支援任意維度（最後一維為通道）；請勿移除。
-class BatchNormLayer:
-    """BatchNorm supporting arbitrary prefix dims; normalizes last axis."""
-
+class BatchNormalization2DLayer:
     def __init__(self, gamma, beta, moving_mean, moving_var, epsilon=1e-3):
-        # Convert to plain Python lists of float
-        self.gamma = [float(v) for v in gamma]
-        self.beta = [float(v) for v in beta]
-        self.moving_mean = [float(v) for v in moving_mean]
-        self.moving_var = [float(v) for v in moving_var]
-        self.epsilon = float(epsilon)
+        self.gamma = gamma
+        self.beta = beta
+        self.moving_mean = moving_mean
+        self.moving_var = moving_var
+        self.epsilon = epsilon
         self._output = None
 
     def forward(self, tensor_in):
-        shape = dim(tensor_in)
-        if not shape:
-            raise ValueError("BatchNorm expects tensor input.")
-        channels = shape[-1]
-        if not (
-            len(self.gamma)
-            == len(self.beta)
-            == len(self.moving_mean)
-            == len(self.moving_var)
-            == channels
-        ):
-            raise ValueError(
-                f"BatchNorm channel mismatch: weights={len(self.gamma)} input_channels={channels}"
-            )
-
-        def _norm_leaf(vec):
-            if len(vec) != channels:
-                raise ValueError(
-                    "BatchNorm expects last dimension size == channel count.")
-            out = []
-            for c, x in enumerate(vec):
-                norm = (float(x) - self.moving_mean[c]) / math.sqrt(
-                    self.moving_var[c] + self.epsilon
-                )
-                out.append(self.gamma[c] * norm + self.beta[c])
-            return out
-
-        def _recurse(t):
-            if not isinstance(t, collections.abc.Iterable) or isinstance(t, (str, bytes)):
-                raise ValueError("BatchNorm expects iterable tensor.")
-            # leaf: last dimension
-            if not t or not isinstance(t[0], collections.abc.Iterable):
-                return _norm_leaf(list(t))
-            return [_recurse(sub) for sub in t]
-
-        self._output = _recurse(tensor_in)
-        return self._output
+        in_shape = dim(tensor_in)
+        assert len(
+            in_shape) == 3, "BatchNormalization2D expects 3D input [H][W][C]"
+        h, w, c = in_shape  # height, width, channels
+        tensor_out = [[[0.0 for _ in range(c)] for _ in range(w)]
+                      for _ in range(h)]
+        for i in range(h):
+            for j in range(w):
+                for ch in range(c):
+                    x = tensor_in[i][j][ch]
+                    norm = (
+                        x - self.moving_mean[ch]) / math.sqrt(self.moving_var[ch] + self.epsilon)
+                    tensor_out[i][j][ch] = self.gamma[ch] * \
+                        norm + self.beta[ch]
+        self._output = tensor_out
+        return tensor_out
 
     def getOutput(self):
         return self._output
@@ -551,166 +539,6 @@ class GlobalAveragePooling2DLayer:
 
     def getOutput(self):
         return self._output
-
-
-class GlobalAveragePooling1DLayer:
-    def __init__(self):
-        self._output = None
-
-    def forward(self, tensor_in):
-        if not isinstance(tensor_in, collections.abc.Iterable):
-            raise ValueError("Input tensor must be iterable")
-        if not tensor_in or not isinstance(tensor_in[0], collections.abc.Iterable):
-            raise ValueError(
-                "Input tensor must be 2D for GlobalAveragePooling1D")
-        pooled = []
-        for channel in zip(*tensor_in):
-            pooled.append(sum(channel) / len(channel))
-        self._output = pooled
-        return pooled
-
-    def getOutput(self):
-        return self._output
-
-
-class ReshapeLayer:
-    def __init__(self, target_shape):
-        self.target_shape = tuple(int(d) for d in target_shape)
-        self._output = None
-
-    def forward(self, tensor_in):
-        flat = self._flatten(tensor_in)
-        expected_size = 1
-        for dim in self.target_shape:
-            expected_size *= dim
-        if len(flat) != expected_size:
-            raise ValueError(
-                f"Reshape expected {expected_size} elements, got {len(flat)}")
-        it = iter(flat)
-
-        def _build(shape):
-            if not shape:
-                return next(it)
-            return [_build(shape[1:]) for _ in range(shape[0])]
-
-        self._output = _build(list(self.target_shape))
-        return self._output
-
-    def _flatten(self, x):
-        if isinstance(x, collections.abc.Iterable) and not isinstance(x, (str, bytes)):
-            flat = []
-            for item in x:
-                flat.extend(self._flatten(item))
-            return flat
-        return [x]
-
-    def getOutput(self):
-        return self._output
-
-
-class MultiHeadAttentionLayer:
-    def __init__(self, num_heads, key_dim_per_heads, wq, bq, wk, bk, wv, bv, output_weights, output_bias):
-        self.num_heads = num_heads
-        self.key_dim_per_heads = key_dim_per_heads
-        self.WQ = wq.numpy().tolist()
-        self.BQ = bq.numpy().tolist()
-        self.WK = wk.numpy().tolist()
-        self.BK = bk.numpy().tolist()
-        self.WV = wv.numpy().tolist()
-        self.BV = bv.numpy().tolist()
-        self.WO = output_weights.numpy().tolist()
-        self.BO = output_bias.numpy().tolist()
-
-    def forward(self, input, mask=None):
-        if len(dim(input)) == 2:
-            return self.forwardSingle(input, mask)
-        return self.forwardBatch(input, mask)
-
-    def forwardBatch(self, inputs, mask=None):
-        return [self.forwardSingle(input, mask) for input in inputs]
-
-    def forwardSingle(self, input, mask=None):
-        self.seq_len, self.model_dim = np.array(input).shape
-        Q = self.transform_and_split(input, self.WQ, self.BQ)
-        K = self.transform_and_split(input, self.WK, self.BK)
-        V = self.transform_and_split(input, self.WV, self.BV)
-        attentions = [self.dot_product_attention(
-            Q[i], K[i], V[i]) for i in range(self.num_heads)]
-        outputs = self.concatenate_and_transform(
-            attentions, self.WO, self.BO)
-        return outputs
-
-    def transform_and_split(self, sequence_of_vectors, weights, bias):
-        outputs = [
-            [
-                [self._sum((weights[k][i][j] * vector[k]) for k in range(self.model_dim)
-                           ) + bias[i][j] for j in range(self.key_dim_per_heads)]
-                for vector in sequence_of_vectors
-            ]
-            for i in range(self.num_heads)
-        ]
-        return outputs
-
-    def concatenate_and_transform(self, attentions, output_weights, output_bias):
-        assert np.array(output_bias).shape == (self.model_dim,)
-        outputs = [
-            [
-                self._sum([
-                    attentions[j][word][k] * output_weights[j][k][i]
-                    for j in range(self.num_heads)
-                    for k in range(self.key_dim_per_heads)
-                ]) + output_bias[i]
-                for i in range(self.model_dim)
-            ]
-            for word in range(self.seq_len)
-        ]
-        assert np.array(outputs).shape == (self.seq_len, self.model_dim)
-        return outputs
-
-    def _sum(self, seq):
-        total = 0.0
-        for val in seq:
-            total += val
-        return total
-
-    def dot_product_attention(self, Q, K, V):
-        K_T = [*zip(*K)]
-        attention_scores = self.matrix_multiply(Q, K_T)
-        attention_scores = [[score / (self.key_dim_per_heads ** 0.5)
-                             for score in attention_score] for attention_score in attention_scores]
-        attention_scores = self.softmax(attention_scores)
-        context_vector = self.matrix_multiply(attention_scores, V)
-        return context_vector
-
-    def _row_max(self, x, i):
-        max_val = x[i][0]
-        register_current_indices([(i, j) for j in range(self.model_dim)])
-        for j in range(len(x[i])):
-            if x[i][j] > max_val:
-                max_val = x[i][j]
-        return max_val
-
-    def softmax(self, x):
-        x_max = [self._row_max(x, i) for i in range(len(x))]
-        e_x = [[my_exp(x[i][j] - x_max[i]) for j in range(len(x[i]))]
-               for i in range(len(x))]
-        e_x_sum = [self._sum(e_x[i]) for i in range(len(e_x))]
-        result = [[e_x[i][j] / e_x_sum[i]
-                   for j in range(len(e_x[i]))] for i in range(len(e_x))]
-        return result
-
-    def matrix_multiply(self, matrix1, matrix2):
-        if len(matrix1[0]) != len(matrix2):
-            raise ValueError("矩陣的維度不符合乘法要求。")
-        result = [[0] * len(matrix2[0]) for _ in range(len(matrix1))]
-        for i in range(len(matrix1)):
-            for j in range(len(matrix2[0])):
-                for k in range(len(matrix2)):
-                    result[i][j] += matrix1[i][k] * matrix2[k][j]
-        return result
-
-    def dot_product(self, vector1, vector2):
-        return self._sum(vector1[i] * vector2[i] for i in range(self.model_dim))
 
 
 # Define SimpleRNN class
@@ -987,7 +815,7 @@ class NNModel:
                     "BatchNormalization epsilon mismatch (%s vs %s) for layer %s",
                     cfg_epsilon, epsilon, keras_name
                 )
-            bn_layer = BatchNormLayer(
+            bn_layer = BatchNormalization2DLayer(
                 gamma, beta, moving_mean, moving_var, epsilon)
             if resolved_inbounds:
                 bn_layer.input_from = resolved_inbounds
@@ -1027,24 +855,6 @@ class NNModel:
             key = self._append_layer(lstm_layer)
             created += 1
             self._register_cache_key(keras_name, key)
-        elif isinstance(layer, MultiHeadAttention):
-            num_heads = layer.get_config()['num_heads']
-            key_dim_per_heads = layer.get_config()['key_dim']
-            wq = layer._query_dense.kernel
-            bq = layer._query_dense.bias
-            wk = layer._key_dense.kernel
-            bk = layer._key_dense.bias
-            wv = layer._value_dense.kernel
-            bv = layer._value_dense.bias
-            output_weights = layer._output_dense.kernel
-            output_bias = layer._output_dense.bias
-            mha_layer = MultiHeadAttentionLayer(
-                num_heads, key_dim_per_heads, wq, bq, wk, bk, wv, bv, output_weights, output_bias)
-            if resolved_inbounds:
-                mha_layer.input_from = resolved_inbounds
-            key = self._append_layer(mha_layer)
-            created += 1
-            self._register_cache_key(keras_name, key)
         elif isinstance(layer, Add):
             key = self._append_layer(AddLayer(resolved_inbounds))
             created += 1
@@ -1054,20 +864,6 @@ class NNModel:
             if resolved_inbounds:
                 gap_layer.input_from = resolved_inbounds
             key = self._append_layer(gap_layer)
-            created += 1
-            self._register_cache_key(keras_name, key)
-        elif isinstance(layer, GlobalAveragePooling1D):
-            gap1d_layer = GlobalAveragePooling1DLayer()
-            if resolved_inbounds:
-                gap1d_layer.input_from = resolved_inbounds
-            key = self._append_layer(gap1d_layer)
-            created += 1
-            self._register_cache_key(keras_name, key)
-        elif isinstance(layer, Reshape):
-            reshape_layer = ReshapeLayer(layer.target_shape)
-            if resolved_inbounds:
-                reshape_layer.input_from = resolved_inbounds
-            key = self._append_layer(reshape_layer)
             created += 1
             self._register_cache_key(keras_name, key)
         else:

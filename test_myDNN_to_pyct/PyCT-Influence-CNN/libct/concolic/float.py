@@ -48,6 +48,7 @@ class ConcolicFloat(float, Concolic, metaclass=MetaFinal):
         value = super().__bool__()
         expr = ["not", ["=", self, "0"]]
         ConcolicObject(value, expr).__bool__() # insert handmade branch, since
+        print("float bool")
         return value # "__bool__" can only return primitive objects...
 
     ############# Binary Operation ################

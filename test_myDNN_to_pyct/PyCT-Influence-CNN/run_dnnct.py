@@ -1,110 +1,194 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 import os
+import gc
 import libct.explore
-import libct.tnn_explore
-import json
-from libct.utils import get_module_from_rootdir_and_modpath, get_function_from_module_and_funcname
-from utils_out.pyct_attack_exp import get_save_dir_from_save_exp  # <-- 修正成 utils_out
+from dataclasses import dataclass
+from typing import Any, Callable, Optional, Literal
+from types import ModuleType
 
-PYCT_ROOT = os.path.dirname(__file__)  # <-- 改成當前 repo 根目錄更穩
+from utils.experiment_task_specs import get_save_dir_from_save_exp
+from libct.utils import (
+    get_module_from_rootdir_and_modpath,
+    get_function_from_module_and_funcname,
+)
+
+PYCT_ROOT = './'
 MODEL_ROOT = os.path.join(PYCT_ROOT, 'model')
+VALID_COLLECT_MODES = {"priority_queue", "queue", "stack"}
+DEFAULT_SOLVER = "cvc5"
 
 
-def get_matrix_shape(model_name):
-    if "mnist" in model_name.lower():
-        return (28, 28, 1)
-    elif "imdb" in model_name.lower():
-        return (500, 32, 1)
-    else:
-        return None
+@dataclass
+class ExplorerConfig:
+    model_path: str
+    module: ModuleType
+    execute: Callable[..., Any]
+    solver: str = DEFAULT_SOLVER
+    timeout: int = 900
+    constraint_build_timeout: bool = True
+    solver_run_timeout: Optional[int] = None
+    safety: int = 0
+    verbose: int = 1
+    logfile: Optional[str] = None
+    statsdir: Optional[str] = None
+    smtdir: Optional[str] = None
+    save_dir: Optional[str] = None
+    input_name: Optional[str] = None
+    only_first_forward: bool = False
 
 
-def calculate_matrix_shape(in_dict):
-    keys = list(in_dict.keys())
-    if not keys:
-        return None
-    dimensions = [int(dim) for dim in keys[0].split('_')[1:]]
-    max_dims = [max(int(key.split('_')[i+1])
-                    for key in keys) + 1 for i in range(len(dimensions))]
-    return tuple(max_dims)
-
-
-def run(model_name, in_dict, con_dict, norm, solve_order_stack,
-        model_type="cnn", save_exp=None,
-        max_iter=0, single_timeout=900, timeout=900, total_timeout=900, verbose=1,
-        limit_change_percentage=None, only_first_forward=False, delta_factor=0.75):
-
+def _resolve_model_artifacts(model_name: str) -> tuple[str, str, str]:
     model_path = os.path.join(MODEL_ROOT, f"{model_name}.h5")
-    modpath = os.path.join(PYCT_ROOT, "dnn_predict_common.py")
-    func = "predict"
-    funcname = func
-    save_dir = None
-    smtdir = None
-    matrix_shape = get_matrix_shape(model_name)
-
-    dump_projstats = False
-    file_as_total = False
-    formula = None
-    include_exception = False
-    lib = None
-    logfile = None
+    if not os.path.isfile(model_path):
+        raise FileNotFoundError(f"Model file not found: {model_path}")
+    module_path = os.path.join(PYCT_ROOT, "dnn_predict_common.py")
     root = os.path.dirname(__file__)
-    safety = 0
+    return model_path, module_path, root
 
-    if matrix_shape is None:
-        matrix_shape = calculate_matrix_shape(in_dict)
 
-    statsdir = None
-    if dump_projstats:
-        statsdir = os.path.join(
-            os.path.abspath(os.path.dirname(__file__)), "project_statistics",
-            os.path.abspath(root).split('/')[-1], modpath, funcname
-        )
+def _load_predictor(module_path: str, root: str) -> tuple[ModuleType, Callable[..., Any], Callable[..., Any]]:
+    module = get_module_from_rootdir_and_modpath(root, module_path)
+    func_init_model = get_function_from_module_and_funcname(module, "init_model")
+    execute = get_function_from_module_and_funcname(module, "predict")
+    return module, func_init_model, execute
 
-    module = get_module_from_rootdir_and_modpath(root, modpath)
-    func_init_model = get_function_from_module_and_funcname(
-        module, "init_model")
-    execute = get_function_from_module_and_funcname(module, funcname)
-    # func_init_model(model_path, model_type=model_type,
-    #                 delta_factor=delta_factor)
 
-    func_init_model(model_path)
+def _prepare_experiment_paths(
+    model_name: str,
+    attack_mode: str,
+    save_exp: Optional[dict[str, str]],
+    only_first_forward: bool,
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    save_dir = None
+    smt_dir = None
+    input_name = None
 
-    if save_exp is not None:
-        s_or_q = "stack" if solve_order_stack else "queue"
-        save_dir = get_save_dir_from_save_exp(
-            save_exp, model_name, s_or_q, only_first_forward=only_first_forward)
+    if save_exp is None:
+        return save_dir, smt_dir, input_name
 
-        if save_exp.get('save_smt', False):
-            smtdir = save_dir
+    path_kwargs = {
+        "save_exp": save_exp,
+        "model_name": model_name,
+        "attack_mode": attack_mode,
+        "only_first_forward": only_first_forward,
+    }
+    save_dir = get_save_dir_from_save_exp(**path_kwargs)
+    input_name = save_exp.get("input_name")
+    if save_exp.get("save_smt", False):
+        smt_dir = get_save_dir_from_save_exp(**path_kwargs)
 
-    if model_type == "origin":
-        engine = libct.explore.ExplorationEngine(
-            solver='cvc4', timeout=timeout, safety=safety,
-            store=formula, verbose=verbose, logfile=logfile,
-            statsdir=statsdir, smtdir=smtdir,
-            save_dir=save_dir, input_name=save_exp['input_name'],
-            module_=module, execute_=execute,
-            only_first_forward=only_first_forward
-        )
-    elif model_type == "qnn":
-        engine = libct.tnn_explore.ExplorationEngine(
-            solver='cvc4', timeout=timeout, safety=safety,
-            store=formula, verbose=verbose, logfile=logfile,
-            statsdir=statsdir, smtdir=smtdir,
-            save_dir=save_dir, input_name=save_exp['input_name'],
-            module_=module, execute_=execute,
-            only_first_forward=only_first_forward,
-            model_name=model_name, matrix_shape=matrix_shape
-        )
+    return save_dir, smt_dir, input_name
 
-    result = engine.explore(
-        modpath, in_dict, concolic_dict=con_dict, root=root, funcname=func, max_iterations=max_iter,
-        single_timeout=single_timeout, total_timeout=total_timeout, deadcode=set(),
-        include_exception=include_exception, lib=lib,
-        file_as_total=file_as_total, norm=norm, solve_order_stack=solve_order_stack,
-        limit_change_range=limit_change_percentage,
+
+def _validate_collect_mode(collect_mode: str) -> Literal["priority_queue", "queue", "stack"]:
+    if collect_mode not in VALID_COLLECT_MODES:
+        valid = ", ".join(sorted(VALID_COLLECT_MODES))
+        raise ValueError(f"Unsupported collect_constraints_with='{collect_mode}'. Expected one of: {valid}")
+    return collect_mode
+
+
+def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEngine:
+    return libct.explore.ExplorationEngine(
+        solver=explorer_cfg.solver,
+        timeout=explorer_cfg.timeout,
+        constraint_build_timeout=explorer_cfg.constraint_build_timeout,
+        solver_run_timeout=explorer_cfg.solver_run_timeout,
+        safety=explorer_cfg.safety,
+        store=None,
+        verbose=explorer_cfg.verbose,
+        logfile=explorer_cfg.logfile,
+        statsdir=explorer_cfg.statsdir,
+        smtdir=explorer_cfg.smtdir,
+        save_dir=explorer_cfg.save_dir,
+        input_name=explorer_cfg.input_name,
+        module_=explorer_cfg.module,
+        execute_=explorer_cfg.execute,
+        only_first_forward=explorer_cfg.only_first_forward,
     )
 
+
+def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
+        save_exp: dict[str, str] | None = None,
+        max_iter=0, single_timeout=900, timeout=900, total_timeout=900, verbose=1,
+        constraint_build_timeout: bool = True,
+        solver_run_timeout: Optional[int] = None,
+        limit_change_range=None,
+        only_first_forward=False,
+        collect_constraints_with='priority_queue',
+        input_for_shap=None, background_dataset_for_shap=None, shap_value_pre_calculated: Optional[bool] = None,
+        popped_log_attack_mode=None) -> tuple[int, Any]:
+
+    collect_mode: Literal["priority_queue", "queue", "stack"] = _validate_collect_mode(collect_constraints_with)
+    model_path, module_path, root = _resolve_model_artifacts(model_name)
+
+    module, func_init_model, execute = _load_predictor(module_path, root)
+    func_init_model(model_path)
+
+    attack_mode = popped_log_attack_mode or (save_exp.get("attack_mode") if save_exp else "unknown")
+    save_dir, smtdir, input_name = _prepare_experiment_paths(
+        model_name,
+        attack_mode,
+        save_exp,
+        only_first_forward,
+    )
+
+    explorer_cfg = ExplorerConfig(
+        model_path=model_path,
+        module=module,
+        execute=execute,
+        timeout=timeout,
+        constraint_build_timeout=constraint_build_timeout,
+        solver_run_timeout=solver_run_timeout,
+        verbose=verbose,
+        smtdir=smtdir,
+        save_dir=save_dir,
+        input_name=input_name,
+        only_first_forward=only_first_forward,
+    )
+
+    engine = _build_explorer(explorer_cfg)
+    extra_meta = {
+        "model_name": model_name,
+        "attack_mode": attack_mode,
+        "idx": idx,
+    }
+    if save_exp:
+        if "ton" in save_exp:
+            extra_meta["ton"] = save_exp.get("ton")
+        if "ton_next" in save_exp:
+            extra_meta["ton_next"] = save_exp.get("ton_next")
+    engine.extra_meta = extra_meta
+
+    result: tuple[int, Any] = engine.explore(
+        module_path,
+        in_dict,
+        idx=idx,
+        concolic_dict=con_dict,
+        root=root,
+        funcname="predict",
+        max_iterations=max_iter,
+        single_timeout=single_timeout,
+        total_timeout=total_timeout,
+        deadcode=set(),
+        include_exception=False,
+        lib=None,
+        file_as_total=False,
+        norm=norm,
+        solve_order_stack=solve_order_stack,
+        limit_change_range=limit_change_range,
+        model_path=model_path,
+        input_for_shap=input_for_shap,
+        background_dataset_for_shap=background_dataset_for_shap,
+        shap_value_pre_calculated=bool(shap_value_pre_calculated) if shap_value_pre_calculated is not None else False,
+        collect_constraints_with=collect_mode,
+        popped_log_attack_mode=popped_log_attack_mode or "unknown",
+    )
+
+    libct.explore.clear_global_context()
+    del engine
+    gc.collect()
+
     return result
+
