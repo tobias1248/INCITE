@@ -34,6 +34,7 @@ class ConcolicTestRecorder:
         self.original_label = None 
         self.attack_label = None
         self.adversarial_input = None
+        self.original_input = None
         self.is_finish = False # finish all iteration or generate an adversarial input
         self.is_timeout = False
         self.solve_all_ctr = False # solve all constraints
@@ -122,43 +123,41 @@ class ConcolicTestRecorder:
         self.solve_constraint_cpu_time.append(0)
 
     def find_adversarial_input(self, input_dict, attack_label):
-        adv_input = np.zeros(self.input_shape).astype(np.float32)
-
-        for k, v in input_dict.items():
-            idx = k.split('_')[1:]
-            
-            if len(self.input_shape) == 2:
-                i, j = (int(i) for i in idx)
-                adv_input[i, j] = v
-            elif len(self.input_shape) == 3:
-                i, j, k = (int(i) for i in idx)
-                adv_input[i, j, k] = v
-            elif len(self.input_shape) == 4:
-                i, j, k, l = (int(i) for i in idx)
-                adv_input[i, j, k, l] = v
-        
-        self.adversarial_input = adv_input
+        adv_input = self._build_input_from_dict(input_dict)
+        if adv_input is not None:
+            self.adversarial_input = adv_input
         self.attack_label = attack_label
         
         
     def save_sat_input(self, input_dict):
         # 儲存solver找到的滿足條件的input
-        sat_input = np.zeros(self.input_shape).astype(np.float32)
+        sat_input = self._build_input_from_dict(input_dict)
+        if sat_input is not None:
+            self.sat_inputs.append(sat_input)
+    
+    def save_original_input(self, input_dict):
+        if self.original_input is not None:
+            return
+        ori_input = self._build_input_from_dict(input_dict)
+        if ori_input is not None:
+            self.original_input = ori_input
 
+    def _build_input_from_dict(self, input_dict):
+        if self.input_shape is None:
+            return None
+        built = np.zeros(self.input_shape, dtype=np.float32)
         for k, v in input_dict.items():
             idx = k.split('_')[1:]
-            
             if len(self.input_shape) == 2:
                 i, j = (int(i) for i in idx)
-                sat_input[i, j] = v
+                built[i, j] = v
             elif len(self.input_shape) == 3:
                 i, j, k = (int(i) for i in idx)
-                sat_input[i, j, k] = v
+                built[i, j, k] = v
             elif len(self.input_shape) == 4:
                 i, j, k, l = (int(i) for i in idx)
-                sat_input[i, j, k, l] = v
-        
-        self.sat_inputs.append(sat_input)
+                built[i, j, k, l] = v
+        return built
         
     
     def save_adversarial_input_as_image(self, save_path):
@@ -218,7 +217,6 @@ class ConcolicTestRecorder:
             "is_timeout": self.is_timeout,
             "solve_all_ctr": self.solve_all_ctr,
             "status": status,
-            "finished": self.is_finish,
         }
         if isinstance(self.extra_meta, dict):
             meta.update(self.extra_meta)
@@ -228,6 +226,24 @@ class ConcolicTestRecorder:
             "total_cpu_time": self.total_cpu_time,
             "total_iter": self.total_iter,
         }
+        summary["execute_wall_time_total"] = (
+            sum(self.execute_wall_time) if self.execute_wall_time else None
+        )
+        summary["execute_cpu_time_total"] = (
+            sum(self.execute_cpu_time) if self.execute_cpu_time else None
+        )
+        summary["solve_constraint_wall_time_total"] = (
+            sum(self.solve_constraint_wall_time) if self.solve_constraint_wall_time else None
+        )
+        summary["solve_constraint_cpu_time_total"] = (
+            sum(self.solve_constraint_cpu_time) if self.solve_constraint_cpu_time else None
+        )
+        summary["iter_wall_time_total"] = (
+            sum(self.iter_wall_time) if self.iter_wall_time else None
+        )
+        summary["iter_cpu_time_total"] = (
+            sum(self.iter_cpu_time) if self.iter_cpu_time else None
+        )
         attack_wall_time = getattr(self, "attack_wall_time", None)
         if attack_wall_time is not None:
             summary["attack_wall_time"] = attack_wall_time
@@ -252,6 +268,11 @@ class ConcolicTestRecorder:
             "solve_constraint": self._summarize_numeric(self.solve_constraint),
             "gen_constraint": self._summarize_numeric(self.gen_constraint),
             "iter_wall_time": self._summarize_numeric(self.iter_wall_time),
+            "iter_cpu_time": self._summarize_numeric(self.iter_cpu_time),
+            "execute_wall_time": self._summarize_numeric(self.execute_wall_time),
+            "execute_cpu_time": self._summarize_numeric(self.execute_cpu_time),
+            "solve_constraint_wall_time": self._summarize_numeric(self.solve_constraint_wall_time),
+            "solve_constraint_cpu_time": self._summarize_numeric(self.solve_constraint_cpu_time),
         }
 
         complexity_summary = None
@@ -270,7 +291,6 @@ class ConcolicTestRecorder:
 
         res = {
             "meta": meta,
-            "progress": self._build_progress(),
             "summary": summary,
             "solver": solver,
             "constraints": constraints,
@@ -290,6 +310,17 @@ class ConcolicTestRecorder:
             
             img_name = f"adv_{self.original_label}_to_{self.attack_label}.jpg"
             self.save_adversarial_input_as_image(os.path.join(self.save_dir, img_name))
+
+            if self.original_input is not None:
+                np.save(
+                    os.path.join(self.save_dir, "ori_input.npy"),
+                    self.original_input.astype(np.float32, copy=False),
+                )
+            if self.adversarial_input is not None:
+                np.save(
+                    os.path.join(self.save_dir, "adv_input.npy"),
+                    self.adversarial_input.astype(np.float32, copy=False),
+                )
                         
             # 取代原本的 np.save(..., np.array(self.sat_inputs))
             if len(self.sat_inputs) == 0:
@@ -298,4 +329,3 @@ class ConcolicTestRecorder:
             else:
                 np.save(os.path.join(self.save_dir, "sat_inputs.npy"),
                         np.stack(self.sat_inputs).astype(np.float32))
-

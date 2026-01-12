@@ -153,6 +153,7 @@ class ExplorationEngine:
         # first self.previous_result is the original label
 
         recorder.original_label = self.previous_result
+        recorder.save_original_input(all_args)
         recorder.save_stats_dict()
 
         # After First execution, no constr to solve

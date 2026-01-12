@@ -66,28 +66,25 @@ def update_ton_progress_stats(
         "status": status,
         "reason": reason,
     }
-    schema_progress = {
-        "ton_current": current_ton,
-        "ton_next": next_ton,
-        "stop_at": current_ton if status == "stop" else None,
-        "reason": reason,
-        "status": status,
-    }
-    stats["ton_progress"] = progress
     meta = stats.setdefault("meta", {})
     meta["ton_progress"] = progress
-    stats["progress"] = schema_progress
-    meta["progress"] = schema_progress
-    existing = stats.get("ton_sequence")
-    if not isinstance(existing, list) or len(existing) <= 1:
-        stats["ton_sequence"] = [current_ton]
-    meta_existing = meta.get("ton_sequence")
-    if not isinstance(meta_existing, list) or len(meta_existing) <= 1:
-        meta["ton_sequence"] = [current_ton]
+    stats.pop("ton_progress", None)
+    stats.pop("progress", None)
+    stats.pop("ton_sequence", None)
+    meta.pop("progress", None)
+    meta.pop("ton_sequence", None)
+    meta.pop("finished", None)
 
     try:
         with stats_path.open("w", encoding="utf-8") as handle:
             json.dump(stats, handle)
+    except OSError:
+        return False
+    try:
+        history_path = stats_path.with_name("stats_history.jsonl")
+        with history_path.open("a", encoding="utf-8") as handle:
+            json.dump(stats, handle)
+            handle.write("\n")
     except OSError:
         return False
     return True
