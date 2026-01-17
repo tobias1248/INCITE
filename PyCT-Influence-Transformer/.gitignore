@@ -12,6 +12,7 @@ __pycache__/
 
 # Experiment results
 exp/
+tmp/
 popped_constraint_position/
 
 # my test

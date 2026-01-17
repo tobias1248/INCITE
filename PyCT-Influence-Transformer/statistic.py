@@ -5,7 +5,21 @@ import json
 import math
 import os
 import statistics
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+
+TIME_METRICS: List[Tuple[str, str]] = [
+    ("summary.total_wall_time", "total_wall_time"),
+    ("summary.total_cpu_time", "total_cpu_time"),
+    ("summary.attack_wall_time", "attack_wall_time"),
+    ("summary.execute_wall_time_total", "execute_wall_time_total"),
+    ("summary.execute_cpu_time_total", "execute_cpu_time_total"),
+    ("summary.solve_constraint_wall_time_total", "solve_constraint_wall_time_total"),
+    ("summary.solve_constraint_cpu_time_total", "solve_constraint_cpu_time_total"),
+    ("summary.iter_wall_time_total", "iter_wall_time_total"),
+    ("summary.iter_cpu_time_total", "iter_cpu_time_total"),
+    ("solver.solver_time_total", "solver_time_total"),
+]
 
 
 def _collect_files(root: str, pattern: str) -> List[str]:
@@ -111,6 +125,11 @@ def main() -> int:
         action="store_true",
         help="Output machine-readable JSON instead of text.",
     )
+    parser.add_argument(
+        "--include-history",
+        action="store_true",
+        help="Also summarize stats_history.jsonl entries when present.",
+    )
     args = parser.parse_args()
 
     files = _collect_files(args.path, args.pattern)
@@ -132,10 +151,7 @@ def main() -> int:
 
     status_counts: Dict[Any, int] = {}
 
-    metric_keys = [
-        "summary.total_wall_time",
-        "solver.solver_time_total",
-    ]
+    metric_keys = [key for key, _ in TIME_METRICS]
     metric_values: Dict[str, List[float]] = {k: [] for k in metric_keys}
 
     # constraint complexity
@@ -247,10 +263,7 @@ def main() -> int:
             "success_rate": (counts["success"] / total) if total else 0.0,
         },
         "status_counts": status_counts,
-        "time": {
-            "total_wall_time": _summarize(metric_values["summary.total_wall_time"]),
-            "solver_time_total": _summarize(metric_values["solver.solver_time_total"]),
-        },
+        "time": {label: _summarize(metric_values[key]) for key, label in TIME_METRICS},
         "constraint_complexity": {
             "status_counts": status_counter,
             "all": {
@@ -297,6 +310,94 @@ def main() -> int:
         "sat_rate_by_assert_num_threshold": sat_rate_by_threshold,
     }
 
+    if args.include_history:
+        history_files = _collect_files(args.path, "stats_history.jsonl")
+        history_entries = 0
+        history_parse_errors = 0
+        history_counts: Dict[str, int] = {
+            "success": 0,
+            "timeout": 0,
+            "exhausted": 0,
+            "incomplete": 0,
+            "finished": 0,
+        }
+        history_status_counts: Dict[Any, int] = {}
+        history_ton_counts: Dict[Any, int] = {}
+        history_reason_counts: Dict[Any, int] = {}
+        history_metric_values: Dict[str, List[float]] = {k: [] for k in metric_keys}
+
+        for path in history_files:
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        history_entries += 1
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            history_parse_errors += 1
+                            continue
+                        meta = data.get("meta") or {}
+                        attack_label = meta.get("attack_label", data.get("attack_label"))
+                        is_timeout = bool(meta.get("is_timeout", False))
+                        solve_all_ctr = bool(meta.get("solve_all_ctr", False))
+                        is_finish = bool(meta.get("is_finish", False))
+                        status = meta.get("status", data.get("status"))
+                        if status is not None:
+                            _increment(history_status_counts, status)
+
+                        success = attack_label is not None
+                        exhausted = solve_all_ctr
+                        timeout = is_timeout
+                        incomplete = not success and not exhausted and not timeout
+                        if success:
+                            history_counts["success"] += 1
+                        if exhausted:
+                            history_counts["exhausted"] += 1
+                        if timeout:
+                            history_counts["timeout"] += 1
+                        if incomplete:
+                            history_counts["incomplete"] += 1
+                        if is_finish:
+                            history_counts["finished"] += 1
+
+                        ton = meta.get("ton")
+                        if ton is not None:
+                            _increment(history_ton_counts, ton)
+                        progress = meta.get("ton_progress") or data.get("ton_progress") or {}
+                        reason = progress.get("reason")
+                        if reason is not None:
+                            _increment(history_reason_counts, reason)
+
+                        metrics = _collect_metrics(data, metric_keys)
+                        for key, value in metrics.items():
+                            if value is not None:
+                                history_metric_values[key].append(value)
+            except OSError:
+                history_parse_errors += 1
+
+        history_payload = {
+            "files": len(history_files),
+            "entries": history_entries,
+            "parse_errors": history_parse_errors,
+            "outcome": {
+                **history_counts,
+                "success_rate": (history_counts["success"] / history_entries)
+                if history_entries
+                else 0.0,
+            },
+            "status_counts": history_status_counts,
+            "ton_counts": history_ton_counts,
+            "reason_counts": history_reason_counts,
+            "time": {
+                label: _summarize(history_metric_values[key])
+                for key, label in TIME_METRICS
+            },
+        }
+        summary_payload["history"] = history_payload
+
     if args.json:
         print(json.dumps(summary_payload, indent=2))
         return 0
@@ -317,8 +418,8 @@ def main() -> int:
         print(f"Note: parse_errors={parse_errors} missing_entries={missing_entries}")
 
     print("Time:")
-    print(f"  {_format_stat('total_wall_time', summary_payload['time']['total_wall_time'])}")
-    print(f"  {_format_stat('solver_time_total', summary_payload['time']['solver_time_total'])}")
+    for _, label in TIME_METRICS:
+        print(f"  {_format_stat(label, summary_payload['time'][label])}")
 
     print("Constraint complexity (all constraints):")
     print(f"  {_format_stat('assert_num', summary_payload['constraint_complexity']['all']['assert_num'])}")
@@ -368,6 +469,48 @@ def main() -> int:
                 unsat=unsat_time_summary["median"],
             )
         )
+
+    if args.include_history:
+        history = summary_payload.get("history") or {}
+        if history.get("files", 0) <= 0 or history.get("entries", 0) <= 0:
+            print("History (ton stages): (no stats_history.jsonl entries)")
+            return 0
+        print("History (ton stages):")
+        print(
+            "  entries: files={files} total={total} parse_errors={errors}".format(
+                files=history.get("files", 0),
+                total=history.get("entries", 0),
+                errors=history.get("parse_errors", 0),
+            )
+        )
+        outcome = history.get("outcome") or {}
+        if outcome:
+            print(
+                "  outcome: success={success} timeout={timeout} incomplete={incomplete} "
+                "exhausted={exhausted} (success_rate={rate:.1%})".format(
+                    success=outcome.get("success", 0),
+                    timeout=outcome.get("timeout", 0),
+                    incomplete=outcome.get("incomplete", 0),
+                    exhausted=outcome.get("exhausted", 0),
+                    rate=outcome.get("success_rate", 0.0),
+                )
+            )
+        ton_counts = history.get("ton_counts") or {}
+        if ton_counts:
+            ton_line = " ".join(
+                f"{ton}={count}" for ton, count in sorted(ton_counts.items(), key=lambda x: str(x[0]))
+            )
+            print(f"  ton_counts: {ton_line}")
+        reason_counts = history.get("reason_counts") or {}
+        if reason_counts:
+            reason_line = " ".join(
+                f"{reason}={count}" for reason, count in sorted(reason_counts.items(), key=lambda x: str(x[0]))
+            )
+            print(f"  reason_counts: {reason_line}")
+        time_stats = history.get("time") or {}
+        print("  time:")
+        for _, label in TIME_METRICS:
+            print(f"    {_format_stat(label, time_stats.get(label, {}))}")
 
     return 0
 
