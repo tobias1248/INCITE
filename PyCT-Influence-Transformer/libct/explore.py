@@ -56,7 +56,6 @@ def prepare():
 
 class ExplorationEngine:
     SHAP_SCORE_EPS = 1e-12
-    SHAP_SCORE_ALPHA = 0.4
     # indicate occurrence of Exception during execution
     class Exception(metaclass=type(
         '', (type,), {"__repr__": lambda self: '<EXCEPTION>'})): pass
@@ -88,7 +87,8 @@ class ExplorationEngine:
                 input_name=None,
                 module_: ModuleType,
                 execute_: Callable,
-                only_first_forward: bool):
+                only_first_forward: bool,
+                shap_score_alpha: Optional[float] = None):
         global module, execute
 
         module = module_
@@ -97,6 +97,9 @@ class ExplorationEngine:
         self.save_dir = save_dir
         self.input_name = input_name
         self.only_first_forward = only_first_forward
+        if shap_score_alpha is None:
+            raise ValueError("shap_score_alpha is required; pass via --score-alpha")
+        self.shap_score_alpha = float(shap_score_alpha)
         self.verbose = verbose
         self.logfile = logfile
 
@@ -838,21 +841,13 @@ class ExplorationEngine:
                 path_len,
                 len(self.constraints_to_solve),
             )
-    
-    def _estimate_assert_num(self, constraint: Constraint) -> int:
-        base = int(getattr(constraint, "height", 0) or 0)
-        extra = 0
-        if Solver.norm:
-            extra += len(self.concolic_name_list)
-        if Solver.limit_change_range is not None:
-            extra += len(self.concolic_name_list)
-        return base + extra
 
     def _compute_priority_score(self, shap_value: float, constraint: Constraint) -> tuple[float, int]:
-        assert_num = self._estimate_assert_num(constraint)
-        score = math.log10(abs(shap_value) + self.SHAP_SCORE_EPS)
-        score -= self.SHAP_SCORE_ALPHA * math.log10(assert_num + 1)
-        return score, assert_num
+        path_len = int(getattr(constraint, "height", 0) or 0)
+        alpha = self.shap_score_alpha
+        score = (1 - alpha) * math.log10(abs(shap_value) + self.SHAP_SCORE_EPS)
+        score -= alpha * math.log10(path_len + 1)
+        return score, path_len
 
     def _log_pop_event(
         self,

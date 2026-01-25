@@ -403,6 +403,9 @@ def run_launcher(args: Any) -> None:
     else:
         raise ValueError(f"Unsupported attack mode: {args.attack_mode}")
 
+    for payload in inputs:
+        payload["score_alpha"] = args.score_alpha
+
     logger.info(
         "Prepared %s input(s) for attack=%s ton_sequence=%s",
         len(inputs),

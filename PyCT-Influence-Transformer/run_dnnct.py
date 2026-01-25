@@ -37,6 +37,7 @@ class ExplorerConfig:
     save_dir: Optional[str] = None
     input_name: Optional[str] = None
     only_first_forward: bool = False
+    shap_score_alpha: Optional[float] = None
 
 
 def _resolve_model_artifacts(model_name: str) -> tuple[str, str, str]:
@@ -106,6 +107,7 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
         module_=explorer_cfg.module,
         execute_=explorer_cfg.execute,
         only_first_forward=explorer_cfg.only_first_forward,
+        shap_score_alpha=explorer_cfg.shap_score_alpha,
     )
 
 
@@ -118,7 +120,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         only_first_forward=False,
         collect_constraints_with='priority_queue',
         input_for_shap=None, background_dataset_for_shap=None, shap_value_pre_calculated: Optional[bool] = None,
-        popped_log_attack_mode=None) -> tuple[int, Any]:
+        popped_log_attack_mode=None,
+        score_alpha: Optional[float] = None) -> tuple[int, Any]:
 
     collect_mode: Literal["priority_queue", "queue", "stack"] = _validate_collect_mode(collect_constraints_with)
     model_path, module_path, root = _resolve_model_artifacts(model_name)
@@ -146,6 +149,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         save_dir=save_dir,
         input_name=input_name,
         only_first_forward=only_first_forward,
+        shap_score_alpha=score_alpha,
     )
 
     engine = _build_explorer(explorer_cfg)
@@ -191,4 +195,3 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
     gc.collect()
 
     return result
-
