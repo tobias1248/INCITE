@@ -71,6 +71,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Weight for path_len term in priority score (0..1).",
     )
     parser.add_argument(
+        "--symbolic-path-threshold",
+        type=int,
+        default=8000,
+        help="Disable symbolic tracking when path_len reaches this threshold (default: 8000).",
+    )
+    parser.add_argument(
         "--pixel-search",
         type=_parse_pixel_search,
         default=_parse_pixel_search(",".join(str(v) for v in _DEFAULT_PIXEL_SEARCH)),

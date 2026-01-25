@@ -408,7 +408,7 @@ class Solver:
         #                for (name, _type) in engine.var_to_types.items()) #if engine.concolic_dict.get(name, 1))
         #NOTE DNN
         declare_vars = "\n".join(f"(declare-const {name} {engine.var_to_types[name]})"                 
-                                 for (name) in engine.concolic_name_list)
+                                for (name) in engine.concolic_name_list)
         queries = "\n".join(assertion.get_formula() for assertion in constraint.get_all_asserts())
         
         norm_queries = ""        

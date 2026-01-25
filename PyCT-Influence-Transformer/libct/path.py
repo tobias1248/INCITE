@@ -18,6 +18,9 @@ class PathToConstraint:
         self.current_constraint: Constraint | None = self.root_constraint
 
     def add_branch(self, conbool):
+        engine = getattr(conbool, "engine", None)
+        if engine is not None and getattr(engine, "symbolic_enabled", True) is False:
+            return
         p = Predicate(conbool.expr, unwrap(conbool))
         c = self.current_constraint.find_child(p)
         pneg = Predicate(conbool.expr, not unwrap(conbool))

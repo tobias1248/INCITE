@@ -405,6 +405,7 @@ def run_launcher(args: Any) -> None:
 
     for payload in inputs:
         payload["score_alpha"] = args.score_alpha
+        payload["symbolic_path_threshold"] = args.symbolic_path_threshold
 
     logger.info(
         "Prepared %s input(s) for attack=%s ton_sequence=%s",

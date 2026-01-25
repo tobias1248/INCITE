@@ -38,6 +38,7 @@ class ExplorerConfig:
     input_name: Optional[str] = None
     only_first_forward: bool = False
     shap_score_alpha: Optional[float] = None
+    symbolic_path_threshold: Optional[int] = None
 
 
 def _resolve_model_artifacts(model_name: str) -> tuple[str, str, str]:
@@ -108,6 +109,7 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
         execute_=explorer_cfg.execute,
         only_first_forward=explorer_cfg.only_first_forward,
         shap_score_alpha=explorer_cfg.shap_score_alpha,
+        symbolic_path_threshold=explorer_cfg.symbolic_path_threshold,
     )
 
 
@@ -121,7 +123,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         collect_constraints_with='priority_queue',
         input_for_shap=None, background_dataset_for_shap=None, shap_value_pre_calculated: Optional[bool] = None,
         popped_log_attack_mode=None,
-        score_alpha: Optional[float] = None) -> tuple[int, Any]:
+        score_alpha: Optional[float] = None,
+        symbolic_path_threshold: Optional[int] = None) -> tuple[int, Any]:
 
     collect_mode: Literal["priority_queue", "queue", "stack"] = _validate_collect_mode(collect_constraints_with)
     model_path, module_path, root = _resolve_model_artifacts(model_name)
@@ -150,6 +153,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         input_name=input_name,
         only_first_forward=only_first_forward,
         shap_score_alpha=score_alpha,
+        symbolic_path_threshold=symbolic_path_threshold,
     )
 
     engine = _build_explorer(explorer_cfg)
@@ -157,6 +161,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         "model_name": model_name,
         "attack_mode": attack_mode,
         "idx": idx,
+        "score_alpha": score_alpha,
+        "symbolic_path_threshold": symbolic_path_threshold,
     }
     if save_exp:
         if "ton" in save_exp:

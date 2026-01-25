@@ -18,8 +18,16 @@ class ConcolicBool(int, Concolic, metaclass=MetaFinal):
 
     def __bool__(self): # <slot wrapper '__bool__' of 'int' objects>
         log.debug("ConBool, __bool__ is called")
-        if self.engine: # Please note that this is the only place where branches are generated.
-            self.engine.path.add_branch(self)
+        engine = getattr(self, "engine", None)
+        if engine: # Please note that this is the only place where branches are generated.
+            if getattr(engine, "symbolic_enabled", True):
+                current = getattr(getattr(engine, "path", None), "current_constraint", None)
+                current_height = getattr(current, "height", 0)
+                maybe_disable = getattr(engine, "_maybe_disable_symbolic", None)
+                if callable(maybe_disable):
+                    maybe_disable(current_height)
+            if getattr(engine, "symbolic_enabled", True):
+                engine.path.add_branch(self)
         return super().__bool__()
 
     def __xor__(self, other): # <slot wrapper '__xor__' of 'bool' objects>

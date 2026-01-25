@@ -88,7 +88,8 @@ class ExplorationEngine:
                 module_: ModuleType,
                 execute_: Callable,
                 only_first_forward: bool,
-                shap_score_alpha: Optional[float] = None):
+                shap_score_alpha: Optional[float] = None,
+                symbolic_path_threshold: Optional[int] = None):
         global module, execute
 
         module = module_
@@ -100,6 +101,9 @@ class ExplorationEngine:
         if shap_score_alpha is None:
             raise ValueError("shap_score_alpha is required; pass via --score-alpha")
         self.shap_score_alpha = float(shap_score_alpha)
+        self.symbolic_path_threshold = None if symbolic_path_threshold is None else int(symbolic_path_threshold)
+        self.symbolic_enabled = True
+        self.symbolic_disabled_at_path_len = None
         self.verbose = verbose
         self.logfile = logfile
 
@@ -115,6 +119,7 @@ class ExplorationEngine:
     def __init2__(self):
         global recorder
         recorder = ConcolicTestRecorder(self.save_dir, self.input_name)
+        self._reset_symbolic_guard()
 
         # consists of the constraints that are going to be solved by the solver
         self.path = PathToConstraint()
@@ -126,6 +131,21 @@ class ExplorationEngine:
         self.concolic_flag_dict: dict[str, int] = {}  # NOTE for DNN testing
         self.previous_result = None
         self.original_args = None  # used to limit variable range
+
+    def _reset_symbolic_guard(self) -> None:
+        self.symbolic_enabled = True
+        self.symbolic_disabled_at_path_len = None
+
+    def _maybe_disable_symbolic(self, current_height: int) -> None:
+        if not self.symbolic_enabled:
+            return
+        threshold = self.symbolic_path_threshold
+        if threshold is None:
+            return
+        if current_height >= threshold:
+            self.symbolic_enabled = False
+            if self.symbolic_disabled_at_path_len is None:
+                self.symbolic_disabled_at_path_len = current_height
 
     def _execution_loop(self, max_iterations: int, all_args, concolic_dict, *, deadline: Optional[float] = None) -> bool:
         recorder.start()
@@ -157,6 +177,7 @@ class ExplorationEngine:
 
         recorder.original_label = self.previous_result
         recorder.save_original_input(all_args)
+        self._update_symbolic_meta()
         recorder.save_stats_dict()
 
         # After First execution, no constr to solve
@@ -231,6 +252,7 @@ class ExplorationEngine:
 
             iterations += 1
             recorder.iter_end(Solver.stats, solve_constr_num)
+            self._update_symbolic_meta()
             recorder.save_stats_dict()
             ##############################################################
             log.info(
@@ -252,6 +274,13 @@ class ExplorationEngine:
                 break
 
         return timed_out
+
+    def _update_symbolic_meta(self) -> None:
+        if recorder is None:
+            return
+        recorder.extra_meta["symbolic_path_threshold"] = self.symbolic_path_threshold
+        recorder.extra_meta["symbolic_disabled_at_path_len"] = self.symbolic_disabled_at_path_len
+        recorder.extra_meta["symbolic_disabled"] = self.symbolic_disabled_at_path_len is not None
 
     def explore(
             self, modpath, all_args={}, /, *, root='.', funcname=None,
@@ -353,6 +382,7 @@ class ExplorationEngine:
         finally:
             if timed_out:
                 log.info('[TOTAL TIMEOUT]: Total Timeout happened')
+            self._update_symbolic_meta()
             recorder.end(
                 constraint_complexity=Solver.ctr_size,
                 completed=not (timed_out or interrupted),
@@ -469,6 +499,7 @@ class ExplorationEngine:
             sys.dont_write_bytecode = True
             prepare()
             self.path.__init__()
+            self._reset_symbolic_guard()
             # log.info("Inputs: " + str(all_args))
             if self.can_use_concolic_wrapper:
                 import libct.wrapper
@@ -520,8 +551,14 @@ class ExplorationEngine:
                 s2.send(self.Unpicklable)
 
             try:
-                s3.send((Constraint.global_constraints,
-                        self.constraints_to_solve, self.path))
+                s3.send(
+                    (
+                        Constraint.global_constraints,
+                        self.constraints_to_solve,
+                        self.path,
+                        self.symbolic_disabled_at_path_len,
+                    )
+                )
             except Exception:
                 log.exception(
                     "Failed to send constraints back to parent process due to unpicklable objects",
@@ -551,7 +588,13 @@ class ExplorationEngine:
             result = r2.recv()
 
             if (t := r3.recv()) is not self.Unpicklable:
-                Constraint.global_constraints, self.constraints_to_solve, self.path = t
+                symbolic_disabled_at_path_len = None
+                if isinstance(t, tuple) and len(t) == 4:
+                    Constraint.global_constraints, self.constraints_to_solve, self.path, symbolic_disabled_at_path_len = t
+                else:
+                    Constraint.global_constraints, self.constraints_to_solve, self.path = t
+                if symbolic_disabled_at_path_len is not None:
+                    self.symbolic_disabled_at_path_len = symbolic_disabled_at_path_len
             else:
                 log.warning(
                     "Constraints payload contains unpicklable objects; skipping constraint transfer",

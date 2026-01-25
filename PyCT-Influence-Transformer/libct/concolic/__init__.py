@@ -4,7 +4,10 @@ class Concolic:
     def __init2__(self, value, expr=None, engine=None): # named __init2__ to be called "manually"
         from libct.solver import Solver
         from libct.utils import py2smt
-        self.engine = engine if engine is not None else Solver._expr_has_engines_and_equals_value(expr, value)
+        resolved_engine = engine if engine is not None else Solver._expr_has_engines_and_equals_value(expr, value)
+        if resolved_engine is not None and getattr(resolved_engine, "symbolic_enabled", True) is False:
+            resolved_engine = None
+        self.engine = resolved_engine
         self.value = py2smt(value)
         self.expr = expr if expr is not None and self.engine is not None else self.value
         self.formula = None

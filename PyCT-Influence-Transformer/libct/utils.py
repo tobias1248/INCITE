@@ -19,10 +19,17 @@ def _is(obj1, obj2):
     return obj1 is obj2
 
 def ConcolicObject(value, expr=None, engine=None):
+    from libct.concolic import Concolic
     from libct.concolic.bool import ConcolicBool
     from libct.concolic.float import ConcolicFloat
     from libct.concolic.int import ConcolicInt
     from libct.concolic.str import ConcolicStr
+    resolved_engine = engine
+    if resolved_engine is None and expr is not None:
+        resolved_engine = Concolic.find_engine_in_expr(expr)
+    if resolved_engine is not None and getattr(resolved_engine, "symbolic_enabled", True) is False:
+        return unwrap(value)
+    engine = resolved_engine
     if type(value) is bool: return ConcolicBool(value, expr, engine)
     if type(value) is float: return ConcolicFloat(value, expr, engine)
     if type(value) is int: return ConcolicInt(value, expr, engine)
