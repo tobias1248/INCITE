@@ -165,11 +165,13 @@ def main() -> int:
     sat_byte: List[float] = []
     sat_path: List[float] = []
     sat_total_time: List[float] = []
+    sat_total_time_sum = 0.0
 
     unsat_assert: List[float] = []
     unsat_byte: List[float] = []
     unsat_path: List[float] = []
     unsat_total_time: List[float] = []
+    unsat_total_time_sum = 0.0
 
     for path in files:
         total += 1
@@ -241,6 +243,7 @@ def main() -> int:
                     sat_path.append(path_len)
                 if total_time is not None:
                     sat_total_time.append(total_time)
+                    sat_total_time_sum += total_time
             elif status == "unsat":
                 if assert_num is not None:
                     unsat_assert.append(assert_num)
@@ -250,6 +253,7 @@ def main() -> int:
                     unsat_path.append(path_len)
                 if total_time is not None:
                     unsat_total_time.append(total_time)
+                    unsat_total_time_sum += total_time
 
     summary_payload = {
         "path": args.path,
@@ -467,6 +471,12 @@ def main() -> int:
             "  median_total_time: sat={sat:.4g}s unsat={unsat:.4g}s".format(
                 sat=sat_time_summary["median"],
                 unsat=unsat_time_summary["median"],
+            )
+        )
+        print(
+            "  total_time_sum: sat={sat:.4g}s unsat={unsat:.4g}s".format(
+                sat=sat_total_time_sum,
+                unsat=unsat_total_time_sum,
             )
         )
 

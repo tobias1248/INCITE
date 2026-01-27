@@ -28,7 +28,7 @@ class ExplorerConfig:
     solver: str = DEFAULT_SOLVER
     timeout: int = 900
     constraint_build_timeout: bool = True
-    solver_run_timeout: Optional[int] = None
+    solver_run_timeout: Optional[int] = 60
     safety: int = 0
     verbose: int = 1
     logfile: Optional[str] = None
@@ -62,6 +62,9 @@ def _prepare_experiment_paths(
     attack_mode: str,
     save_exp: Optional[dict[str, str]],
     only_first_forward: bool,
+    timeout: Optional[int],
+    score_alpha: Optional[float],
+    symbolic_path_threshold: Optional[int],
 ) -> tuple[Optional[str], Optional[str], Optional[str]]:
     save_dir = None
     smt_dir = None
@@ -75,6 +78,9 @@ def _prepare_experiment_paths(
         "model_name": model_name,
         "attack_mode": attack_mode,
         "only_first_forward": only_first_forward,
+        "timeout": timeout,
+        "score_alpha": score_alpha,
+        "symbolic_path_threshold": symbolic_path_threshold,
     }
     save_dir = get_save_dir_from_save_exp(**path_kwargs)
     input_name = save_exp.get("input_name")
@@ -117,7 +123,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         save_exp: dict[str, str] | None = None,
         max_iter=0, single_timeout=900, timeout=900, total_timeout=900, verbose=1,
         constraint_build_timeout: bool = True,
-        solver_run_timeout: Optional[int] = None,
+        solver_run_timeout: Optional[int] = 60,
         limit_change_range=None,
         only_first_forward=False,
         collect_constraints_with='priority_queue',
@@ -138,6 +144,9 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         attack_mode,
         save_exp,
         only_first_forward,
+        timeout,
+        score_alpha,
+        symbolic_path_threshold,
     )
 
     explorer_cfg = ExplorerConfig(

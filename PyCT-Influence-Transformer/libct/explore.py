@@ -478,10 +478,10 @@ class ExplorationEngine:
         # Note only in the self.single_coverage mode does the program go here.
         if self.file_as_total:
             s = (self.module_lines_range -
-                 self.deadcode) & self.coverage_accumulated_missing_lines[self.target_file]
+                self.deadcode) & self.coverage_accumulated_missing_lines[self.target_file]
         else:
             s = (self.function_lines_range -
-                 self.deadcode) & self.coverage_accumulated_missing_lines[self.target_file]
+                self.deadcode) & self.coverage_accumulated_missing_lines[self.target_file]
         log.info(
             f"Not Covered Yet: {self.target_file} {sorted(s) if s else '{}'}")
 

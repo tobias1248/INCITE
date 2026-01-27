@@ -44,8 +44,49 @@ def get_save_dir_from_save_exp(
     attack_mode: str,
     *,
     only_first_forward: bool = False,
+    timeout: Optional[int] = None,
+    score_alpha: Optional[float] = None,
+    symbolic_path_threshold: Optional[int] = None,
 ) -> str:
+    def _format_alpha(value: Optional[Any]) -> str:
+        if value is None:
+            return "aNA"
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            return f"a{value}"
+        scaled = val * 10.0
+        if abs(scaled - round(scaled)) < 1e-6:
+            return f"a{int(round(scaled)):02d}"
+        cleaned = f"{val:g}".replace(".", "p").replace("-", "m")
+        return f"a{cleaned}"
+
+    def _resolve_value(key: str, explicit: Optional[Any], env_key: str) -> Optional[Any]:
+        if explicit is not None:
+            return explicit
+        if isinstance(save_exp, dict) and key in save_exp:
+            return save_exp.get(key)
+        return os.environ.get(env_key)
+
+    def _format_component(value: Optional[Any]) -> str:
+        if value is None:
+            return "na"
+        if isinstance(value, float):
+            return f"{value:g}"
+        return str(value)
+
     base_model = f"{model_name}_only_first_forward" if only_first_forward else model_name
+    timeout_val = _resolve_value("timeout", timeout, "PYCT_TIMEOUT")
+    alpha_val = _resolve_value("score_alpha", score_alpha, "PYCT_SCORE_ALPHA")
+    threshold_val = _resolve_value("symbolic_path_threshold", symbolic_path_threshold, "PYCT_SYMBOLIC_PATH_THRESHOLD")
+    alpha_component = _format_alpha(alpha_val)
+    base_dir = "{}_{}_{}_{}_{}".format(
+        base_model,
+        attack_mode,
+        _format_component(timeout_val),
+        alpha_component,
+        _format_component(threshold_val),
+    )
     idx = save_exp.get("idx")
     if idx is None:
         # try to infer from input_name fallback
@@ -58,7 +99,7 @@ def get_save_dir_from_save_exp(
         else:
             idx = "unknown"
     case_name = save_exp.get("input_name", f"case_{idx}")
-    return os.path.join("exp", base_model, attack_mode, case_name)
+    return os.path.join("exp", base_dir, case_name)
 
 
 def _always_false(_: Dict[str, Any], __: Any) -> bool:

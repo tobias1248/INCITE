@@ -61,8 +61,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--solver-run-timeout",
         type=int,
-        default=0,
-        help="Wall-clock timeout (seconds) for each SMT solver invocation; 0 disables this wrapper timeout.",
+        default=60,
+        help="Wall-clock timeout (seconds) for each SMT solver invocation; 0 disables this wrapper timeout (default: 60).",
     )
     parser.add_argument(
         "--score-alpha",

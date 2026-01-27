@@ -318,6 +318,9 @@ def run_launcher(args: Any) -> None:
         args.pixel_search,
         pixel_source=args.pixel_source,
     )
+    os.environ["PYCT_TIMEOUT"] = str(args.timeout)
+    os.environ["PYCT_SCORE_ALPHA"] = str(args.score_alpha)
+    os.environ["PYCT_SYMBOLIC_PATH_THRESHOLD"] = str(args.symbolic_path_threshold)
     attack_mode_for_paths = (
         attack_mode
         if not args.solver_run_timeout or args.solver_run_timeout <= 0
