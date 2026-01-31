@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 from typing import Optional, Sequence
 
@@ -41,6 +42,18 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Recompute SHAP even if cached results already exist.",
     )
     parser.add_argument(
+        "--background-per-class",
+        type=int,
+        default=3,
+        help="Number of background samples per class for SHAP (default: 3).",
+    )
+    parser.add_argument(
+        "--background-seed",
+        type=int,
+        default=2233,
+        help="Random seed for SHAP background sampling (default: 2233).",
+    )
+    parser.add_argument(
         "--sleep-seconds",
         type=float,
         default=3.0,
@@ -67,6 +80,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     if args.sleep_seconds:
         time.sleep(args.sleep_seconds)
+
+    os.environ["PYCT_BG_PER_CLASS"] = str(args.background_per_class)
+    os.environ["PYCT_BG_SEED"] = str(args.background_seed)
 
     dataset_handlers = {
         "fashion_mnist": fashion_mnist_transformer_shap_calculate_all,

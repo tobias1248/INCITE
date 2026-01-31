@@ -87,6 +87,10 @@ class JsonShapPixelProvider:
             data = json.load(handle)
         if not isinstance(data, dict):
             raise TypeError(f"Expected SHAP cache {path} to be a JSON dict.")
+        if "values" in data:
+            data = data.get("values", {})
+        if not isinstance(data, dict):
+            raise TypeError(f"Expected SHAP cache {path} to contain a JSON dict of values.")
         return {str(k): float(v) for k, v in data.items()}
 
     def _extract_sorted_coordinates(

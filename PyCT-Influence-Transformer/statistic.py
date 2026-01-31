@@ -78,8 +78,8 @@ def _format_stat(label: str, summary: Dict[str, float]) -> str:
         return f"{label}: (no data)"
     return (
         f"{label}: n={int(summary['count'])} "
-        f"median={summary['median']:.4g} p90={summary['p90']:.4g} "
-        f"max={summary['max']:.4g}"
+        f"mean={summary['mean']:.4g} median={summary['median']:.4g} "
+        f"p90={summary['p90']:.4g} max={summary['max']:.4g}"
     )
 
 

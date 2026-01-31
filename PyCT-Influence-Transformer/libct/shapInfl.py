@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, Literal, Tuple
 
@@ -54,6 +55,7 @@ class ShapValuesCalculator:
         # Avoid recompiling saved models (optimizer state may be incompatible across TF/Keras versions).
         self._model = load_model(model_path, compile=False)
         self._shap_values: Dict[str, float] | None = None
+        self._cache_meta = self._read_background_meta()
         self._layer_count = (
             len(self._model.layers)
             if isinstance(self._model, Sequential)
@@ -105,11 +107,34 @@ class ShapValuesCalculator:
     def _load_cache(self) -> Dict[str, float]:
         with self.cache_path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
-        return {str(k): float(v) for k, v in data.items()}
+        if isinstance(data, dict) and "values" in data:
+            self._cache_meta = data.get("__meta__") or self._cache_meta
+            values = data.get("values", {})
+        else:
+            values = data
+        if not isinstance(values, dict):
+            raise TypeError(f"Expected SHAP cache {self.cache_path} to be a JSON dict.")
+        return {str(k): float(v) for k, v in values.items()}
 
     def _save_cache(self, shap_values: Dict[str, float]) -> None:
         with self.cache_path.open("w", encoding="utf-8") as handle:
-            json.dump(shap_values, handle)
+            if self._cache_meta:
+                payload = {"__meta__": self._cache_meta, "values": shap_values}
+                json.dump(payload, handle)
+            else:
+                json.dump(shap_values, handle)
+
+    def _read_background_meta(self) -> Dict[str, int]:
+        meta: Dict[str, int] = {}
+        try:
+            meta["background_per_class"] = int(os.environ.get("PYCT_BG_PER_CLASS", ""))
+        except ValueError:
+            pass
+        try:
+            meta["background_seed"] = int(os.environ.get("PYCT_BG_SEED", ""))
+        except ValueError:
+            pass
+        return meta
 
     def _compute_shap_values(self) -> Dict[str, float]:
         shap_values: Dict[str, float] = {}
