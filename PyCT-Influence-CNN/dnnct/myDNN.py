@@ -59,19 +59,21 @@ ACTIVATIONS = (
 debug = False
 
 
+def safe_exp(x):
+    """Symbolic-friendly exp approximation (3rd-order Taylor)."""
+    x2 = x * x
+    x3 = x2 * x
+    return 1.0 + x + 0.5 * x2 + (1.0/6.0) * x3
+
+
 def act_tanh(x):
-    if x == 0:
-        return 0.0
-    elif x < 0:
-        return -act_tanh(-x)
-    else:
-        exp_x = math.exp(x)
-        exp_minus_x = math.exp(-x)
-        return (exp_x - exp_minus_x) / (exp_x + exp_minus_x)
+    exp_x = safe_exp(x)
+    exp_minus_x = safe_exp(-x)
+    return (exp_x - exp_minus_x) / (exp_x + exp_minus_x + 1e-12)
 
 
 def act_sigmoid(x):
-    return 1.0 / (1.0 + math.exp(-x))
+    return 1.0 / (1.0 + safe_exp(-x))
 
 # https://stackoverflow.com/questions/17531796/find-the-dimensions-of-a-multidimensional-python-array
 # return the dimension of a python list
@@ -159,11 +161,11 @@ class ActivationLayer:
         tensor_out = tensor_in
         if len(out_shape) == 1:
             if self.type == "softmax":
-                denom = 0
+                denom = 0.0
                 for idx in range(0, out_shape[0]):
-                    denom = denom + math.exp(tensor_in[idx])
+                    denom = denom + safe_exp(tensor_in[idx])
                 for idx in range(0, out_shape[0]):
-                    tensor_out[idx] = math.exp(tensor_in[idx]) / denom
+                    tensor_out[idx] = safe_exp(tensor_in[idx]) / (denom + 1e-12)
             else:
                 for idx in range(0, out_shape[0]):
                     tensor_out[idx] = actFunc(tensor_in[idx], self.type)
@@ -492,6 +494,8 @@ class BatchNormalization2DLayer:
         self.moving_mean = moving_mean
         self.moving_var = moving_var
         self.epsilon = epsilon
+        self.inv_std = [1.0 / math.sqrt(v + self.epsilon)
+                        for v in self.moving_var]
         self._output = None
 
     def forward(self, tensor_in):
@@ -505,8 +509,7 @@ class BatchNormalization2DLayer:
             for j in range(w):
                 for ch in range(c):
                     x = tensor_in[i][j][ch]
-                    norm = (
-                        x - self.moving_mean[ch]) / math.sqrt(self.moving_var[ch] + self.epsilon)
+                    norm = (x - self.moving_mean[ch]) * self.inv_std[ch]
                     tensor_out[i][j][ch] = self.gamma[ch] * \
                         norm + self.beta[ch]
         self._output = tensor_out

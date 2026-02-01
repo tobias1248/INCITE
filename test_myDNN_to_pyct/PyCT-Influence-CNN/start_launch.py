@@ -265,6 +265,10 @@ def run_launcher(args: Any) -> None:
         if args.dataset == "cifar10":
             from utils.experiment_task_specs import cifar10_transformer_random
             return cifar10_transformer_random
+        # 針對resnet50_imagenet做擴充
+        if args.dataset == "imagenet_mini":
+            from utils.experiment_task_specs import imagenet_mini_transformer_random
+            return imagenet_mini_transformer_random
         return fashion_mnist_transformer_random
 
     shap_fn = _select_shap_fn()
@@ -309,12 +313,13 @@ def run_launcher(args: Any) -> None:
                 attack_mode=attack_mode_for_paths,
             )
     elif args.attack_mode == "queue":
-        # For queue mode, reuse SHAP task generation and execute via QueueRunner inline.
-        inputs = shap_fn(
+       # Queue 模式改用隨機座標，不依賴 SHAP cache
+        inputs = random_fn(
             args.model_name,
             first_n_img=first_n_range,
-            force=force_refresh,
             ton_values=args.pixel_search,
+            force=force_refresh,
+            base_seed=args.random_seed,
             exp_prefix="queue",
             attack_mode=attack_mode_for_paths,
         )

@@ -259,3 +259,52 @@ class Cifar10Dataset:
             con_dict[key] = 1
 
         return in_dict, con_dict, input_for_shap, background_dataset_for_shap
+
+class ImagenetMiniSubsetDataset:
+    def __init__(self, dataset_root=None, subset_dir="imagenet-mini-224-subset"):
+        from tensorflow.keras.utils import load_img, img_to_array
+
+        base = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+        root = dataset_root if dataset_root else os.path.join(base, "utils_out", "dataset", subset_dir)
+
+        npy_path = os.path.join(root, "images.npy")
+        images_dir = os.path.join(root, "images")
+
+        if os.path.isfile(npy_path):
+            self.x_test = np.load(npy_path).astype("float32")
+            return
+
+        files = []
+        for dirpath, _, filenames in os.walk(images_dir):
+            for fname in filenames:
+                if fname.lower().endswith((".jpg", ".jpeg", ".png", ".bmp")):
+                    files.append(os.path.join(dirpath, fname))
+        files.sort()
+
+        if not files:
+            raise FileNotFoundError(f"No images found under {images_dir}")
+
+        arrs = []
+        for f in files:
+            arr = img_to_array(load_img(f, target_size=(224, 224)))  # force 224x224x3
+            arrs.append(arr.astype("float32") / 255.0)
+        self.x_test = np.stack(arrs)
+
+    def get_imagenet_mini_test_data(self, idx):
+        in_dict, con_dict = {}, {}
+        test_img = self.x_test[idx]
+        for i, j, k in itertools.product(
+            range(test_img.shape[0]), range(test_img.shape[1]), range(test_img.shape[2])
+        ):
+            key = f"v_{i}_{j}_{k}"
+            in_dict[key] = float(test_img[i][j][k])
+            con_dict[key] = 0
+        return in_dict, con_dict
+
+    def get_imagenet_mini_test_data_and_set_condict(self, idx, attack_pixels):
+        in_dict, con_dict = self.get_imagenet_mini_test_data(idx)
+        input_for_shap = self.x_test[idx]
+        background_dataset_for_shap = self.x_test[:5]
+        for i, j, k in attack_pixels:
+            con_dict[f"v_{i}_{j}_{k}"] = 1
+        return in_dict, con_dict, input_for_shap, background_dataset_for_shap
