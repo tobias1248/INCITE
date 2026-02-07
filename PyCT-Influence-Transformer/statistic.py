@@ -11,14 +11,12 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 TIME_METRICS: List[Tuple[str, str]] = [
     ("summary.total_wall_time", "total_wall_time"),
     ("summary.total_cpu_time", "total_cpu_time"),
-    ("summary.attack_wall_time", "attack_wall_time"),
     ("summary.execute_wall_time_total", "execute_wall_time_total"),
     ("summary.execute_cpu_time_total", "execute_cpu_time_total"),
     ("summary.solve_constraint_wall_time_total", "solve_constraint_wall_time_total"),
     ("summary.solve_constraint_cpu_time_total", "solve_constraint_cpu_time_total"),
     ("summary.iter_wall_time_total", "iter_wall_time_total"),
     ("summary.iter_cpu_time_total", "iter_cpu_time_total"),
-    ("solver.solver_time_total", "solver_time_total"),
 ]
 
 
@@ -130,6 +128,11 @@ def main() -> int:
         action="store_true",
         help="Also summarize stats_history.jsonl entries when present.",
     )
+    parser.add_argument(
+        "--split-by-status",
+        action="store_true",
+        help="Also print per-status summaries (e.g. success vs timeout).",
+    )
     args = parser.parse_args()
 
     files = _collect_files(args.path, args.pattern)
@@ -153,6 +156,8 @@ def main() -> int:
 
     metric_keys = [key for key, _ in TIME_METRICS]
     metric_values: Dict[str, List[float]] = {k: [] for k in metric_keys}
+    iter_total_values: List[float] = []
+    iter_count_values: List[float] = []
 
     # constraint complexity
     status_counter: Dict[Any, int] = {}
@@ -173,6 +178,41 @@ def main() -> int:
     unsat_total_time: List[float] = []
     unsat_total_time_sum = 0.0
 
+    def _new_status_acc() -> Dict[str, Any]:
+        return {
+            "total": 0,
+            "finished": 0,
+            "missing_entries": 0,
+            "metric_values": {k: [] for k in metric_keys},
+            "iter_total_values": [],
+            "iter_count_values": [],
+            "constraint_status_counter": {},
+            "all_assert": [],
+            "all_byte": [],
+            "all_path": [],
+            "all_total_time": [],
+            "sat_assert": [],
+            "sat_byte": [],
+            "sat_path": [],
+            "sat_total_time": [],
+            "sat_total_time_sum": 0.0,
+            "unsat_assert": [],
+            "unsat_byte": [],
+            "unsat_path": [],
+            "unsat_total_time": [],
+            "unsat_total_time_sum": 0.0,
+        }
+
+    by_status: Dict[str, Dict[str, Any]] = {}
+    if args.split_by_status:
+        by_status = {
+            "success": _new_status_acc(),
+            "timeout": _new_status_acc(),
+            "exhausted": _new_status_acc(),
+            "incomplete": _new_status_acc(),
+            "other": _new_status_acc(),
+        }
+
     for path in files:
         total += 1
         try:
@@ -187,9 +227,9 @@ def main() -> int:
         is_timeout = bool(meta.get("is_timeout", False))
         solve_all_ctr = bool(meta.get("solve_all_ctr", False))
         is_finish = bool(meta.get("is_finish", False))
-        status = meta.get("status", data.get("status"))
-        if status is not None:
-            _increment(status_counts, status)
+        raw_status = meta.get("status", data.get("status"))
+        if raw_status is not None:
+            _increment(status_counts, raw_status)
 
         success = attack_label is not None
         exhausted = solve_all_ctr
@@ -206,19 +246,58 @@ def main() -> int:
         if is_finish:
             counts["finished"] += 1
 
+        # Prefer stored status when it is one of the expected ones; otherwise derive it.
+        if isinstance(raw_status, str) and raw_status in ("success", "timeout", "exhausted", "incomplete"):
+            case_status = raw_status
+        elif success:
+            case_status = "success"
+        elif timeout:
+            case_status = "timeout"
+        elif exhausted:
+            case_status = "exhausted"
+        elif incomplete:
+            case_status = "incomplete"
+        else:
+            case_status = "other"
+
+        acc = by_status.get(case_status) if args.split_by_status else None
+        if args.split_by_status:
+            if acc is None:
+                acc = by_status["other"]
+            acc["total"] += 1
+            if is_finish:
+                acc["finished"] += 1
+
         metrics = _collect_metrics(data, metric_keys)
         for key, value in metrics.items():
             if value is not None:
                 metric_values[key].append(value)
+                if acc is not None:
+                    acc["metric_values"][key].append(value)
+
+        total_iter_raw = (data.get("summary") or {}).get("total_iter")
+        total_iter = _safe_float(total_iter_raw)
+        if total_iter is not None:
+            iter_total_values.append(total_iter)
+            if total_iter >= 0:
+                iter_count_values.append(total_iter + 1.0)
+            if acc is not None:
+                acc["iter_total_values"].append(total_iter)
+                if total_iter >= 0:
+                    acc["iter_count_values"].append(total_iter + 1.0)
 
         entries = (data.get("constraint_complexity") or {}).get("entries")
         if not isinstance(entries, list):
             missing_entries += 1
+            if acc is not None:
+                acc["missing_entries"] += 1
             continue
 
         for entry in entries:
             status = entry.get("status")
             _increment(status_counter, status)
+            if acc is not None:
+                _increment(acc["constraint_status_counter"], status)
 
             assert_num = _safe_float(entry.get("assert_num"))
             byte = _safe_float(entry.get("byte"))
@@ -227,33 +306,59 @@ def main() -> int:
 
             if assert_num is not None:
                 all_assert.append(assert_num)
+                if acc is not None:
+                    acc["all_assert"].append(assert_num)
             if byte is not None:
                 all_byte.append(byte)
+                if acc is not None:
+                    acc["all_byte"].append(byte)
             if path_len is not None:
                 all_path.append(path_len)
+                if acc is not None:
+                    acc["all_path"].append(path_len)
             if total_time is not None:
                 all_total_time.append(total_time)
+                if acc is not None:
+                    acc["all_total_time"].append(total_time)
 
             if status == "sat":
                 if assert_num is not None:
                     sat_assert.append(assert_num)
+                    if acc is not None:
+                        acc["sat_assert"].append(assert_num)
                 if byte is not None:
                     sat_byte.append(byte)
+                    if acc is not None:
+                        acc["sat_byte"].append(byte)
                 if path_len is not None:
                     sat_path.append(path_len)
+                    if acc is not None:
+                        acc["sat_path"].append(path_len)
                 if total_time is not None:
                     sat_total_time.append(total_time)
                     sat_total_time_sum += total_time
+                    if acc is not None:
+                        acc["sat_total_time"].append(total_time)
+                        acc["sat_total_time_sum"] += total_time
             elif status == "unsat":
                 if assert_num is not None:
                     unsat_assert.append(assert_num)
+                    if acc is not None:
+                        acc["unsat_assert"].append(assert_num)
                 if byte is not None:
                     unsat_byte.append(byte)
+                    if acc is not None:
+                        acc["unsat_byte"].append(byte)
                 if path_len is not None:
                     unsat_path.append(path_len)
+                    if acc is not None:
+                        acc["unsat_path"].append(path_len)
                 if total_time is not None:
                     unsat_total_time.append(total_time)
                     unsat_total_time_sum += total_time
+                    if acc is not None:
+                        acc["unsat_total_time"].append(total_time)
+                        acc["unsat_total_time_sum"] += total_time
 
     summary_payload = {
         "path": args.path,
@@ -268,6 +373,10 @@ def main() -> int:
         },
         "status_counts": status_counts,
         "time": {label: _summarize(metric_values[key]) for key, label in TIME_METRICS},
+        "iterations": {
+            "total_iter": _summarize(iter_total_values),
+            "iter_count": _summarize(iter_count_values),
+        },
         "constraint_complexity": {
             "status_counts": status_counter,
             "all": {
@@ -313,6 +422,74 @@ def main() -> int:
         "sat_le_1000_rate": (sat_small / sat_total) if sat_total else 0.0,
         "sat_rate_by_assert_num_threshold": sat_rate_by_threshold,
     }
+
+    if args.split_by_status:
+        by_status_payload: Dict[str, Any] = {}
+        for st, st_acc in by_status.items():
+            payload = {
+                "cases": {
+                    "total": st_acc["total"],
+                    "missing_entries": st_acc["missing_entries"],
+                },
+                "outcome": {
+                    "finished": st_acc["finished"],
+                    "finished_rate": (st_acc["finished"] / st_acc["total"]) if st_acc["total"] else 0.0,
+                },
+                "time": {label: _summarize(st_acc["metric_values"][key]) for key, label in TIME_METRICS},
+                "iterations": {
+                    "total_iter": _summarize(st_acc["iter_total_values"]),
+                    "iter_count": _summarize(st_acc["iter_count_values"]),
+                },
+                "constraint_complexity": {
+                    "status_counts": st_acc["constraint_status_counter"],
+                    "all": {
+                        "assert_num": _summarize(st_acc["all_assert"]),
+                        "byte": _summarize(st_acc["all_byte"]),
+                        "path_len": _summarize(st_acc["all_path"]),
+                        "total_time": _summarize(st_acc["all_total_time"]),
+                    },
+                    "sat": {
+                        "assert_num": _summarize(st_acc["sat_assert"]),
+                        "byte": _summarize(st_acc["sat_byte"]),
+                        "path_len": _summarize(st_acc["sat_path"]),
+                        "total_time": _summarize(st_acc["sat_total_time"]),
+                        "total_time_sum": float(st_acc["sat_total_time_sum"]),
+                    },
+                    "unsat": {
+                        "assert_num": _summarize(st_acc["unsat_assert"]),
+                        "byte": _summarize(st_acc["unsat_byte"]),
+                        "path_len": _summarize(st_acc["unsat_path"]),
+                        "total_time": _summarize(st_acc["unsat_total_time"]),
+                        "total_time_sum": float(st_acc["unsat_total_time_sum"]),
+                    },
+                },
+            }
+
+            st_thresholds = [300, 500, 1000, 5000]
+            st_all_assert_vals = [v for v in st_acc["all_assert"] if v is not None]
+            st_sat_assert_vals = [v for v in st_acc["sat_assert"] if v is not None]
+            st_sat_rate_by_threshold: Dict[int, Dict[str, float]] = {}
+            for th in st_thresholds:
+                total_le = _count_le(st_all_assert_vals, th)
+                sat_le = _count_le(st_sat_assert_vals, th)
+                sat_rate = (sat_le / total_le) if total_le else 0.0
+                st_sat_rate_by_threshold[th] = {
+                    "sat": float(sat_le),
+                    "total": float(total_le),
+                    "sat_rate": float(sat_rate),
+                }
+            st_sat_small = _count_le(st_sat_assert_vals, 1000)
+            st_sat_total = len(st_sat_assert_vals)
+            payload["constraint_complexity"]["sat_preference"] = {
+                "sat_le_1000": st_sat_small,
+                "sat_total": st_sat_total,
+                "sat_le_1000_rate": (st_sat_small / st_sat_total) if st_sat_total else 0.0,
+                "sat_rate_by_assert_num_threshold": st_sat_rate_by_threshold,
+            }
+
+            by_status_payload[st] = payload
+
+        summary_payload["by_status"] = by_status_payload
 
     if args.include_history:
         history_files = _collect_files(args.path, "stats_history.jsonl")
@@ -425,6 +602,12 @@ def main() -> int:
     for _, label in TIME_METRICS:
         print(f"  {_format_stat(label, summary_payload['time'][label])}")
 
+    iter_stats = summary_payload.get("iterations") or {}
+    if iter_stats:
+        print("Iterations:")
+        print(f"  {_format_stat('total_iter', iter_stats.get('total_iter') or {})}")
+        print(f"  {_format_stat('iter_count', iter_stats.get('iter_count') or {})}")
+
     print("Constraint complexity (all constraints):")
     print(f"  {_format_stat('assert_num', summary_payload['constraint_complexity']['all']['assert_num'])}")
     print(f"  {_format_stat('byte', summary_payload['constraint_complexity']['all']['byte'])}")
@@ -484,43 +667,140 @@ def main() -> int:
         history = summary_payload.get("history") or {}
         if history.get("files", 0) <= 0 or history.get("entries", 0) <= 0:
             print("History (ton stages): (no stats_history.jsonl entries)")
-            return 0
-        print("History (ton stages):")
-        print(
-            "  entries: files={files} total={total} parse_errors={errors}".format(
-                files=history.get("files", 0),
-                total=history.get("entries", 0),
-                errors=history.get("parse_errors", 0),
-            )
-        )
-        outcome = history.get("outcome") or {}
-        if outcome:
+        else:
+            print("History (ton stages):")
             print(
-                "  outcome: success={success} timeout={timeout} incomplete={incomplete} "
-                "exhausted={exhausted} (success_rate={rate:.1%})".format(
-                    success=outcome.get("success", 0),
-                    timeout=outcome.get("timeout", 0),
-                    incomplete=outcome.get("incomplete", 0),
-                    exhausted=outcome.get("exhausted", 0),
-                    rate=outcome.get("success_rate", 0.0),
+                "  entries: files={files} total={total} parse_errors={errors}".format(
+                    files=history.get("files", 0),
+                    total=history.get("entries", 0),
+                    errors=history.get("parse_errors", 0),
                 )
             )
-        ton_counts = history.get("ton_counts") or {}
-        if ton_counts:
-            ton_line = " ".join(
-                f"{ton}={count}" for ton, count in sorted(ton_counts.items(), key=lambda x: str(x[0]))
-            )
-            print(f"  ton_counts: {ton_line}")
-        reason_counts = history.get("reason_counts") or {}
-        if reason_counts:
-            reason_line = " ".join(
-                f"{reason}={count}" for reason, count in sorted(reason_counts.items(), key=lambda x: str(x[0]))
-            )
-            print(f"  reason_counts: {reason_line}")
-        time_stats = history.get("time") or {}
-        print("  time:")
-        for _, label in TIME_METRICS:
-            print(f"    {_format_stat(label, time_stats.get(label, {}))}")
+            outcome = history.get("outcome") or {}
+            if outcome:
+                print(
+                    "  outcome: success={success} timeout={timeout} incomplete={incomplete} "
+                    "exhausted={exhausted} (success_rate={rate:.1%})".format(
+                        success=outcome.get("success", 0),
+                        timeout=outcome.get("timeout", 0),
+                        incomplete=outcome.get("incomplete", 0),
+                        exhausted=outcome.get("exhausted", 0),
+                        rate=outcome.get("success_rate", 0.0),
+                    )
+                )
+            ton_counts = history.get("ton_counts") or {}
+            if ton_counts:
+                ton_line = " ".join(
+                    f"{ton}={count}" for ton, count in sorted(ton_counts.items(), key=lambda x: str(x[0]))
+                )
+                print(f"  ton_counts: {ton_line}")
+            reason_counts = history.get("reason_counts") or {}
+            if reason_counts:
+                reason_line = " ".join(
+                    f"{reason}={count}" for reason, count in sorted(reason_counts.items(), key=lambda x: str(x[0]))
+                )
+                print(f"  reason_counts: {reason_line}")
+            time_stats = history.get("time") or {}
+            print("  time:")
+            for _, label in TIME_METRICS:
+                print(f"    {_format_stat(label, time_stats.get(label, {}))}")
+
+    if args.split_by_status:
+        by_status_out = summary_payload.get("by_status") or {}
+        if by_status_out:
+            print("By status:")
+            for st in ("success", "timeout"):
+                payload = by_status_out.get(st)
+                if not isinstance(payload, dict):
+                    continue
+                cases = payload.get("cases") or {}
+                outcome = payload.get("outcome") or {}
+                print(
+                    "  [{st}] cases: total={total} finished={finished} (finished_rate={rate:.1%}) missing_entries={missing}".format(
+                        st=st,
+                        total=cases.get("total", 0),
+                        finished=outcome.get("finished", 0),
+                        rate=outcome.get("finished_rate", 0.0),
+                        missing=cases.get("missing_entries", 0),
+                    )
+                )
+                print("  Time:")
+                time_stats = payload.get("time") or {}
+                for _, label in TIME_METRICS:
+                    print(f"    {_format_stat(label, time_stats.get(label) or {})}")
+
+                iter_stats = payload.get("iterations") or {}
+                if iter_stats:
+                    print("  Iterations:")
+                    print(f"    {_format_stat('total_iter', iter_stats.get('total_iter') or {})}")
+                    print(f"    {_format_stat('iter_count', iter_stats.get('iter_count') or {})}")
+
+                cc = payload.get("constraint_complexity") or {}
+                all_cc = (cc.get("all") or {})
+                print("  Constraint complexity (all constraints):")
+                print(f"    {_format_stat('assert_num', all_cc.get('assert_num') or {})}")
+                print(f"    {_format_stat('byte', all_cc.get('byte') or {})}")
+                print(f"    {_format_stat('path_len', all_cc.get('path_len') or {})}")
+                print(f"    {_format_stat('total_time', all_cc.get('total_time') or {})}")
+                st_counter = cc.get("status_counts") or {}
+                if st_counter:
+                    status_line = " ".join(
+                        f"{k}={v}" for k, v in sorted(st_counter.items(), key=lambda x: str(x[0]))
+                    )
+                    print(f"    status_counts: {status_line}")
+
+                print("  SAT preference (assert_num):")
+                sat_pref = (cc.get("sat_preference") or {})
+                sat_total = sat_pref.get("sat_total", 0)
+                if sat_total:
+                    print(
+                        "    sat<=1000: {sat}/{total} ({rate:.1%})".format(
+                            sat=sat_pref.get("sat_le_1000", 0),
+                            total=sat_total,
+                            rate=sat_pref.get("sat_le_1000_rate", 0.0),
+                        )
+                    )
+                else:
+                    print("    sat<=1000: (no sat data)")
+
+                st_rate_by_threshold = sat_pref.get("sat_rate_by_assert_num_threshold") or {}
+                if st_rate_by_threshold:
+                    st_line_parts = []
+                    for th in (300, 500, 1000, 5000):
+                        info = st_rate_by_threshold.get(th) or {}
+                        sat_n = info.get("sat", 0.0)
+                        total_n = info.get("total", 0.0)
+                        sat_rate = info.get("sat_rate", 0.0)
+                        st_line_parts.append(
+                            f"<= {th}: {sat_n:.0f}/{total_n:.0f} ({sat_rate:.2%})"
+                        )
+                    print("    sat_rate_by_threshold: " + "; ".join(st_line_parts))
+
+                st_sat_summary = (cc.get("sat") or {}).get("assert_num") or {}
+                st_unsat_summary = (cc.get("unsat") or {}).get("assert_num") or {}
+                if st_sat_summary and st_unsat_summary:
+                    print(
+                        "    median_assert_num: sat={sat:.4g} unsat={unsat:.4g}".format(
+                            sat=st_sat_summary.get("median", float("nan")),
+                            unsat=st_unsat_summary.get("median", float("nan")),
+                        )
+                    )
+
+                st_sat_time_summary = (cc.get("sat") or {}).get("total_time") or {}
+                st_unsat_time_summary = (cc.get("unsat") or {}).get("total_time") or {}
+                if st_sat_time_summary and st_unsat_time_summary:
+                    print(
+                        "    median_total_time: sat={sat:.4g}s unsat={unsat:.4g}s".format(
+                            sat=st_sat_time_summary.get("median", float("nan")),
+                            unsat=st_unsat_time_summary.get("median", float("nan")),
+                        )
+                    )
+                    print(
+                        "    total_time_sum: sat={sat:.4g}s unsat={unsat:.4g}s".format(
+                            sat=(cc.get("sat") or {}).get("total_time_sum", 0.0),
+                            unsat=(cc.get("unsat") or {}).get("total_time_sum", 0.0),
+                        )
+                    )
 
     return 0
 

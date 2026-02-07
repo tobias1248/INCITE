@@ -233,7 +233,6 @@ class QueueRunner(BaseRunner):
             if isinstance(result, tuple) and len(result) >= 2:
                 recorder = result[1]
             if recorder is not None:
-                recorder.attack_wall_time = time.monotonic() - start_time  # type: ignore[attr-defined]
                 self._write_ton_sequence(recorder, ton_sequence, plan.get("ton"))
                 should_continue, reason = _derive_ton_outcome(recorder)
                 if reason == "adv_found":
@@ -290,7 +289,6 @@ class ShapRunner(BaseRunner):
             if isinstance(result, tuple) and len(result) >= 2:
                 recorder = result[1]
             if recorder is not None:
-                recorder.attack_wall_time = time.monotonic() - start_time  # type: ignore[attr-defined]
                 self._write_ton_sequence(recorder, ton_sequence, plan.get("ton"))
                 should_continue, reason = _derive_ton_outcome(recorder)
                 if reason == "adv_found":

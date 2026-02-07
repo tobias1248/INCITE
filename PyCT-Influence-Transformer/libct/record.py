@@ -3,6 +3,19 @@ import numpy as np
 import cv2
 import os
 import json
+from pathlib import Path
+
+
+def _json_default(value):
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, (set, tuple)):
+        return list(value)
+    if isinstance(value, Path):
+        return str(value)
+    return str(value)
 
 class ConcolicTestRecorder:
     def __init__(self, save_dir, input_name):
@@ -244,9 +257,6 @@ class ConcolicTestRecorder:
         summary["iter_cpu_time_total"] = (
             sum(self.iter_cpu_time) if self.iter_cpu_time else None
         )
-        attack_wall_time = getattr(self, "attack_wall_time", None)
-        if attack_wall_time is not None:
-            summary["attack_wall_time"] = attack_wall_time
 
         solver = {
             "sat": sum(self.sat),
@@ -306,7 +316,7 @@ class ConcolicTestRecorder:
             stats_dict = self.output_stats_dict(constraint_complexity=constraint_complexity)
             with open(os.path.join(self.save_dir, "stats.json"), 'w') as f:
                 # json.dump(stats_dict, f, indent="\t") # 較容易讀懂但浪費儲存空間
-                json.dump(stats_dict, f) # 最節省儲存空間但不容易讀懂
+                json.dump(stats_dict, f, default=_json_default) # 最節省儲存空間但不容易讀懂
             
             img_name = f"adv_{self.original_label}_to_{self.attack_label}.jpg"
             self.save_adversarial_input_as_image(os.path.join(self.save_dir, img_name))

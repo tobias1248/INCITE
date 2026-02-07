@@ -17,7 +17,12 @@ from keras.layers import (
     Flatten,
     ELU,
     Activation,
+    ReLU,
     MaxPool2D,
+    MaxPooling2D,
+    RandomCrop,
+    RandomFlip,
+    ZeroPadding2D,
     LSTM,
     Embedding,
     BatchNormalization,
@@ -224,6 +229,73 @@ class ActivationLayer:
     def getOutput(self):
         return self._output
 
+class NoOpLayer:
+    def __init__(self, name: str = "NoOp"):
+        self.name = name
+        self._output = None
+
+    def forward(self, tensor_in):
+        # deterministic no-op for inference-only layers (e.g., RandomFlip)
+        self._output = tensor_in
+        return tensor_in
+
+    def getOutput(self):
+        return self._output
+
+class ZeroPadding2DLayer:
+    def __init__(self, padding):
+        # padding: (top, bottom, left, right)
+        self.padding = padding
+        self._output = None
+
+    def forward(self, tensor_in):
+        if isinstance(tensor_in, np.ndarray):
+            tensor_in = tensor_in.tolist()
+        h = len(tensor_in)
+        w = len(tensor_in[0]) if h > 0 else 0
+        c = len(tensor_in[0][0]) if w > 0 else 0
+        top, bottom, left, right = self.padding
+        new_h = h + top + bottom
+        new_w = w + left + right
+        tensor_out = [[[0.0 for _ in range(c)] for _ in range(new_w)] for _ in range(new_h)]
+        for i in range(h):
+            for j in range(w):
+                for k in range(c):
+                    tensor_out[i + top][j + left][k] = tensor_in[i][j][k]
+        self._output = tensor_out
+        return tensor_out
+
+    def getOutput(self):
+        return self._output
+
+class CenterCrop2DLayer:
+    def __init__(self, target_h: int, target_w: int):
+        self.target_h = target_h
+        self.target_w = target_w
+        self._output = None
+
+    def forward(self, tensor_in):
+        if isinstance(tensor_in, np.ndarray):
+            tensor_in = tensor_in.tolist()
+        h = len(tensor_in)
+        w = len(tensor_in[0]) if h > 0 else 0
+        if self.target_h is None or self.target_w is None:
+            raise ValueError("CenterCrop2DLayer requires target_h and target_w.")
+        if h == self.target_h and w == self.target_w:
+            self._output = tensor_in
+            return tensor_in
+        start_h = max((h - self.target_h) // 2, 0)
+        start_w = max((w - self.target_w) // 2, 0)
+        tensor_out = [
+            [list(tensor_in[i][j]) for j in range(start_w, start_w + self.target_w)]
+            for i in range(start_h, start_h + self.target_h)
+        ]
+        self._output = tensor_out
+        return tensor_out
+
+    def getOutput(self):
+        return self._output
+
 class DenseLayer:
     def __init__(self, weights, bias, shape, activation="None"):
         self.weights = weights.astype(float)
@@ -274,7 +346,7 @@ class DenseLayer:
 
 
 class Conv2DLayer:
-    def __init__(self, weights, bias, shape, activation="None", stride=1, padding='valid'):
+    def __init__(self, weights, bias, shape, activation="None", stride=(1, 1), padding='valid'):
         self.weights = weights.astype(float)
         self.shape = shape
         self.bias = bias
@@ -284,14 +356,36 @@ class Conv2DLayer:
         self._output = None
     def addActivation(self, activation):
         self.activation = activation
+    def _pad_input(self, tensor_in, pad_h, pad_w):
+        if pad_h <= 0 and pad_w <= 0:
+            return tensor_in
+        if isinstance(tensor_in, np.ndarray):
+            tensor_in = tensor_in.tolist()
+        h = len(tensor_in)
+        w = len(tensor_in[0]) if h > 0 else 0
+        c = len(tensor_in[0][0]) if w > 0 else 0
+        new_h = h + pad_h * 2
+        new_w = w + pad_w * 2
+        tensor_out = [[[0.0 for _ in range(c)] for _ in range(new_w)] for _ in range(new_h)]
+        for i in range(h):
+            for j in range(w):
+                for k in range(c):
+                    tensor_out[i + pad_h][j + pad_w][k] = tensor_in[i][j][k]
+        return tensor_out
     def forward(self, tensor_in):
+        stride_h, stride_w = self.stride if isinstance(self.stride, tuple) else (self.stride, self.stride)
+        filter_h, filter_w, _ = self.shape[1], self.shape[2], self.shape[3]
+        if self.padding == 'same':
+            pad_h = (filter_h - 1) // 2
+            pad_w = (filter_w - 1) // 2
+            tensor_in = self._pad_input(tensor_in, pad_h, pad_w)
         in_shape = dim(tensor_in)
         assert in_shape[2] == self.shape[3], "Conv2DLayer, channel length mismatching!"
-        ## For now, we assume stride=1 and padding='valid'
-        ## TODO  stride!=1 and padding!='valid'
-        out_shape = [in_shape[0]-self.shape[1]+1,
-                    in_shape[1]-self.shape[2]+1,
-                    self.shape[0]]
+        out_shape = [
+            (in_shape[0] - filter_h) // stride_h + 1,
+            (in_shape[1] - filter_w) // stride_w + 1,
+            self.shape[0],
+        ]
         #tensor_out = np.zeros( out_shape ).tolist()
         tensor_out = []
         for _ in range(out_shape[0]):
@@ -299,16 +393,18 @@ class Conv2DLayer:
 
         for channel in range(0, out_shape[2]):
             filter_weights = self.weights[channel]
-            num_row, num_col, num_depth = self.shape[1], self.shape[2], self.shape[3]
+            num_row, num_col, num_depth = filter_h, filter_w, self.shape[3]
             for row in range(0, out_shape[0]):
                 for col in range(0, out_shape[1]):
                     register_current_indices((row, col, channel))
                     tensor_out[row][col][channel] = float(self.bias[channel])
                     ## inner product of the filter and the input image segments
-                    for i, j, k in product( range(row, row+num_row),
-                                            range(col, col+num_col), 
+                    row_base = row * stride_h
+                    col_base = col * stride_w
+                    for i, j, k in product( range(row_base, row_base+num_row),
+                                            range(col_base, col_base+num_col), 
                                             range(0, num_depth)):
-                        tensor_out[row][col][channel] = tensor_in[i][j][k] * float(filter_weights[i-row][j-col][k]) + tensor_out[row][col][channel] 
+                        tensor_out[row][col][channel] = tensor_in[i][j][k] * float(filter_weights[i-row_base][j-col_base][k]) + tensor_out[row][col][channel] 
                     if self.activation!="None":
                         tensor_out[row][col][channel] = actFunc(tensor_out[row][col][channel], self.activation)
                     #print(type(tensor_out[row][col][channel]))
@@ -423,9 +519,9 @@ class BatchNormLayer:
                 raise ValueError("BatchNorm expects last dimension size == channel count.")
             out = []
             for c, x in enumerate(vec):
-                norm = (float(x) - self.moving_mean[c]) / math.sqrt(
-                    self.moving_var[c] + self.epsilon
-                )
+                denom = math.sqrt(self.moving_var[c] + self.epsilon)
+                # Avoid direct subtraction to preserve ConcolicFloat (no __sub__ support)
+                norm = (x + (-self.moving_mean[c])) / denom
                 out.append(self.gamma[c] * norm + self.beta[c])
             return out
 
@@ -798,26 +894,39 @@ class NNModel:
         if type(layer) == Conv2D:
             #print("Conv2D")
             # shape: (outputs, rows, cols, channel)
-            weights = layer.get_weights()[0].transpose(3, 0, 1, 2)
-            biases = layer.get_weights()[1]
-            activation = layer.get_config()['activation']
+            layer_weights = layer.get_weights()
+            weights = layer_weights[0].transpose(3, 0, 1, 2)
+            if len(layer_weights) > 1:
+                biases = layer_weights[1]
+            else:
+                # Conv2D can be configured with use_bias=False
+                biases = np.zeros(weights.shape[0], dtype=float)
+            config = layer.get_config()
+            activation = config['activation']
+            stride = config.get('strides', (1, 1))
+            padding = config.get('padding', 'valid')
 
-            self.layers.append(Conv2DLayer(weights, biases, weights.shape))
+            self.layers.append(Conv2DLayer(weights, biases, weights.shape, stride=stride, padding=padding))
             # print("Add Activation Layer:", activation)
             self.layers.append(ActivationLayer(activation))
             return 2
         elif type(layer) == Dense:
             #print("Dense")
             # shape: (outputs, inputs)
-            weights = layer.get_weights()[0].transpose()
-            biases = layer.get_weights()[1]
+            layer_weights = layer.get_weights()
+            weights = layer_weights[0].transpose()
+            if len(layer_weights) > 1:
+                biases = layer_weights[1]
+            else:
+                # Dense can be configured with use_bias=False
+                biases = np.zeros(weights.shape[0], dtype=float)
             activation = layer.get_config()['activation']
 
             self.layers.append(DenseLayer(weights, biases, weights.shape))
             log.debug("Add Activation Layer: %s", activation)
             self.layers.append(ActivationLayer(activation))
             return 2
-        elif type(layer) == MaxPool2D:
+        elif type(layer) == MaxPool2D or type(layer) == MaxPooling2D:
             #print("MaxPool2D")
             pool_size = layer.get_config()['pool_size']
             # print(pool_size)
@@ -830,6 +939,28 @@ class NNModel:
         elif type(layer) == Activation:
             activation = layer.get_config()['activation']
             self.layers.append(ActivationLayer(activation))
+            return 1
+        elif type(layer) == ReLU:
+            self.layers.append(ActivationLayer("relu"))
+            return 1
+        elif type(layer) == RandomFlip:
+            # inference-time deterministic: no-op
+            self.layers.append(NoOpLayer("RandomFlip"))
+            return 1
+        elif type(layer) == ZeroPadding2D:
+            padding = layer.get_config().get("padding", 0)
+            if isinstance(padding, int):
+                top = bottom = left = right = padding
+            elif len(padding) == 2 and isinstance(padding[0], int):
+                top = bottom = padding[0]
+                left = right = padding[1]
+            else:
+                (top, bottom), (left, right) = padding
+            self.layers.append(ZeroPadding2DLayer((top, bottom, left, right)))
+            return 1
+        elif type(layer) == RandomCrop:
+            cfg = layer.get_config()
+            self.layers.append(CenterCrop2DLayer(cfg.get("height"), cfg.get("width")))
             return 1
         elif type(layer) == BatchNormalization:
             gamma, beta, moving_mean, moving_var = layer.get_weights()
