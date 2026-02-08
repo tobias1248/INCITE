@@ -16,5 +16,8 @@ exp/
 tmp/
 popped_constraint_position/
 
+# SHAP artifacts
+shap_value_all_layer/
+
 # my test
 dnnct_transformer_multi_approved.py
