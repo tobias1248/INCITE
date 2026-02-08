@@ -1,133 +1,237 @@
-# SHAP-based Concolic Testing for Transformers
+# PyCT Influence Transformer
 
-This project extends **[PyCT](https://github.com/kupl/PyCT)** by implementing SHAP-based influence-guided concolic testing on Transformer models. SHAP values act as a priority-queue influence matrix to improve robustness evaluation and adversarial case discovery.
+An experimental framework for concolic testing on image classifiers, built on top of PyCT, with SHAP-guided constraint prioritization and multi-stage pixel attacks.
 
----
+## What is implemented
+- SHAP-guided and random baselines for pixel-level concolic attacks.
+- Multi-stage attack flow via `--pixel-search` (for example `1,2,4,8,16,32`).
+- Per-case experiment artifacts and statistics under `exp/`.
+- Constraint solving through SMT (`cvc5` is the default solver).
+- Post-run aggregation via `statistic.py` (including split by status).
 
-## Environment Setup  
+## Current defaults and key behavior
+- Entrypoint: `start_test.py`
+- Default solver: `cvc5` (`run_dnnct.py`, `libct/explore.py`)
+- `--solver-run-timeout` default: `60` seconds
+- `--score-alpha` is required
+- `--symbolic-path-threshold` default: `8000`
+- Supported attack modes: `shap`, `random`, `random-assign`, `queue`
+- Supported datasets: `fashion_mnist`, `cifar10`, `mnist`
 
-The project environment consists of three main steps:
+## Repository layout
+- `start_test.py`: main CLI wrapper
+- `start_cli.py`: argument parsing and logging setup
+- `start_launch.py`: task scheduling, stage progression, multiprocessing
+- `run_dnnct.py`: model loading + exploration engine wiring
+- `libct/`: concolic engine, solver, recorder
+- `dnnct/`: pure-Python DNN execution path
+- `utils/experiment_task_specs.py`: task generation + output directory naming
+- `statistic.py`: metrics aggregation over `stats.json`
+- `shap_map_calculator.py`: SHAP map generation pipeline
 
-### 1. CVC4 Setup
-This project currently requires **[CVC4](https://github.com/cvc5/cvc4)** (we have not migrated to CVC5 yet). 
+## Prerequisites
+- Linux environment (or WSL)
+- Python 3.9
+- `cvc5` installed and available on `PATH`
 
-> **Note:** Building CVC4 requires a **Linux system** (e.g., Ubuntu) or **WSL** on Windows.  
-
-Run the following commands in your terminal:
+Verify solver installation:
 ```bash
-git clone https://github.com/cvc5/cvc4.git
-cd cvc4
-contrib/get-antlr-3.4
-contrib/get-sources.sh
-./configure.sh --optimized
+cvc5 --version
+```
+
+### Install CVC5
+Choose one method:
+
+```bash
+# Ubuntu/Debian (if package is available)
+sudo apt update
+sudo apt install -y cvc5
+```
+
+```bash
+# Build from source (official repository)
+git clone https://github.com/cvc5/cvc5.git
+cd cvc5
+./configure.sh --auto-download --production
 cd build
-make -j$(nporc)
-make check
+make -j"$(nproc)"
 sudo make install
 ```
-Verify installation:
-```bash
-cvc4 --version
-```
 
-### 2. Create a Python 3.9 Virtual Environment
-Make sure you are using Python 3.9. You can create a clean virtual environment with either Conda or pipenv (see step 3).
+## Environment setup
 
-### 3. Install Dependencies
-We currently rely on conda, and will provide a requirements.txt file in the future.
-
-**Conda**
-
+### Option A: Conda (recommended)
 ```bash
 conda env create -f environment.yml
 conda activate shap-concolic
 ```
-## Project Layout
-  ```graphql
-.
-├─ dnnct/ 
-├─ libct/  
-├─ model/ 
-├─ popped_constraint_position/ 
-├─ shap_value/ 
-├─ shap_value_all_layer/ 
-├─ utils/
-├─ start_cli.py
-├─ start_config.py
-├─ start_launch.py
-├─ .gitignore
-├─ dnnct_predict_common.py
-├─ shap_map_calculator.py
-├─ start_test.py
-├─ environment.yml
-├─ README.md
-└─ run_dnnct.py
-  ```
 
-### Note
-
-- popped_constraint_position/ should exist (create it if missing).
-
-- exp/ is generated at runtime.
----
-
-## Running the Attack
-The entrypoint is now split: `start_cli.py` parses CLI flags, `start_launch.py` schedules work, and `start_test.py` is the thin wrapper you execute.
-
-Execute a SHAP-guided concolic test on a Transformer model (default pixel search `1,2,4,8,16,32`):
+### Option B: pip/venv (for other package managers)
+A `requirements.txt` is provided and mirrors the `pip:` section in `environment.yml`.
 
 ```bash
-python3 start_test.py \
-  --model-name transformer_fashion_mnist \
-  --attack-mode shap
+python3.9 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
-If the setup is successful, you should see logs similar to:
 
-```markdown
-self.x_test.shape: (10000, 28, 28, 1)
-[DEBUG] built inputs=26, skipped=4
-######################################## number of inputs: 26 #############################################
-{'input_name': 'fashion_mnist_test_4', 'exp_name': 'shap_1'}
-/home/tobias/soslab/incite/PyCT-Influence-Transformer/dnn_predict_common.py
-./dnn_predict_common.py
-Model: "model"
-__________________________________________________________________________________________________
- Layer (type)                Output Shape                 Param #   Connected to
-==================================================================================================
- input_1 (InputLayer)        [(None, 28, 28, 1)]          0         []
-```
----
-
-### CLI flags of interest
-
-| Flag | Description |
-| ---- | ----------- |
-| `--model-name` | Selects which saved model (under `model/`) to attack, e.g. `transformer_fashion_mnist` or `mnist_sep_act_m6_9628`. |
-| `--attack-mode` | `shap`, `random`, or `random-assign`. |
-| `--pixel-search` | Comma-separated ton sequence to try per input (default `1,2,4,8,16,32`). |
-| `--pixel-source` | Only used with `--attack-mode random-assign`; choose `random` for RNG pixels or `shap` to reuse the SHAP ranking. |
-| `--first-n` | Upper bound on dataset indices to enqueue (default 100). Combined with resume logic to skip finished inputs. |
-| `--num-process` | Number of worker processes to spawn (default 1). |
-| `--force-refresh` | Regenerate experiment folders even if `exp/<model>/<queue>/<exp_name>/fashion_mnist_test_*` already exists. |
-| `--timeout`, `--spawn-delay`, `--random-seed`, `--norm-01`/`--no-norm-01`, `--log-level`, `--explore-log-level`, `--solver-log-level`, `--log-file` | Miscellaneous runtime/logging knobs. See `python start_test.py --help` for full details. |
-
-Example random baseline with multi-pixel perturbations:
+### Regenerate `requirements.txt` from `environment.yml`
+If you update the `pip:` section in `environment.yml`, regenerate with:
 
 ```bash
-python3 start_test.py \
-  --model-name transformer_fashion_mnist \
-  --attack-mode random \
-  --pixel-search 8 \
-  --num-process 4 \
-  --first-n 200
+python3 - <<'PY'
+from pathlib import Path
+
+lines = Path('environment.yml').read_text(encoding='utf-8').splitlines()
+packages = []
+in_pip = False
+
+for raw in lines:
+    s = raw.strip()
+    if s == '- pip:':
+        in_pip = True
+        continue
+    if in_pip:
+        if s.startswith('- '):
+            pkg = s[2:].strip()
+            if pkg:
+                packages.append(pkg)
+
+Path('requirements.txt').write_text('\n'.join(packages) + '\n', encoding='utf-8')
+print(f'wrote {len(packages)} packages to requirements.txt')
+PY
 ```
 
-Example SHAP-guided run that resumes from prior progress:
+## Models
+Current model artifacts in `model/`:
+- `cifar10_concolic_transformer.h5`
+- `transformer_fashion_mnist.h5`
+- `transformer_fashion_mnist_two_mha.h5`
+- `simple_mnist_m6_09585.h5`
+- `mnist_sep_act_m6_9628.h5`
+
+## 1) Generate SHAP maps
+Run SHAP preprocessing before SHAP-guided attacks:
 
 ```bash
+python3 shap_map_calculator.py \
+  --dataset cifar10 \
+  --model-name cifar10_concolic_transformer \
+  --first-n 100 \
+  --background-per-class 3 \
+  --background-seed 2233 \
+  --force-refresh
+```
+
+Important SHAP options:
+- `--background-per-class` (default `3`)
+- `--background-seed` (default `2233`)
+- `--explainer-type` (`gradient` or `kernel`)
+
+## 2) Run attacks
+
+### SHAP-guided run
+```bash
 python3 start_test.py \
-  --model-name mnist_sep_act_m6_9628 \
+  --dataset cifar10 \
+  --model-name cifar10_concolic_transformer \
   --attack-mode shap \
-  --pixel-search 2 \
-  --first-n 50
+  --timeout 1800 \
+  --solver-run-timeout 60 \
+  --pixel-search 1 \
+  --num-process 2 \
+  --score-alpha 0.8 \
+  --symbolic-path-threshold 2000
 ```
+
+### Queue mode (FIFO constraint collection)
+```bash
+python3 start_test.py \
+  --dataset cifar10 \
+  --model-name cifar10_concolic_transformer \
+  --attack-mode queue \
+  --timeout 1800 \
+  --solver-run-timeout 60 \
+  --pixel-search 1 \
+  --num-process 1 \
+  --score-alpha 0.8 \
+  --symbolic-path-threshold 2000
+```
+
+### Random baselines
+```bash
+# random
+python3 start_test.py --attack-mode random --dataset cifar10 --model-name cifar10_concolic_transformer --pixel-search 1 --first-n 100 --score-alpha 0.8
+
+# random-assign (pixel source: random or shap)
+python3 start_test.py --attack-mode random-assign --pixel-source random --dataset cifar10 --model-name cifar10_concolic_transformer --pixel-search 1 --first-n 100 --score-alpha 0.8
+```
+
+## CLI reference (core flags)
+| Flag | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `--model-name` | str | `transformer_fashion_mnist` | Target model in `model/` without `.h5` suffix |
+| `--dataset` | choice | `fashion_mnist` | `fashion_mnist`, `cifar10`, `mnist` |
+| `--attack-mode` | choice | `shap` | `shap`, `random`, `random-assign`, `queue` |
+| `--pixel-search` | csv-int | `1,2,4,8,16,32` | Ton/stage sequence |
+| `--num-process` | int | `1` | Worker processes |
+| `--timeout` | int | `3600` | Per-stage timeout (seconds) |
+| `--solver-run-timeout` | int | `60` | Timeout per SMT solve call (`0` disables wrapper timeout) |
+| `--no-constraint-build-timeout` | flag | disabled | Disable the 30s formula-build timeout |
+| `--score-alpha` | float | required | Priority score weight for path length term |
+| `--symbolic-path-threshold` | int | `8000` | Disable symbolic tracking after threshold |
+| `--first-n` | int | `100` | Number of dataset items starting from index 0 |
+| `--random-seed` | int | `2024` | Used by random baselines |
+| `--pixel-source` | choice | `random` | For `random-assign`: `random` or `shap` |
+| `--spawn-delay` | float | `1.0` | Delay between spawning worker processes |
+| `--force-refresh` | flag | disabled | Recompute even if outputs already exist |
+
+## Output layout
+Experiment outputs are stored under:
+
+```text
+exp/<model_name>_<attack_mode>_<timeout>_<alpha_tag>_<threshold>/case_<idx>/
+```
+
+Notes:
+- `alpha_tag` format is `a00`, `a05`, `a08`, `a10`, etc.
+- If `--solver-run-timeout > 0`, attack mode in path includes suffix, for example `shap_solver60s`.
+- Common files per case:
+  - `stats.json`
+  - `stats_history.jsonl` (stage snapshots)
+  - `sat_inputs.npy` (when SAT inputs are recorded)
+
+## Analyze results
+
+### Human-readable summary
+```bash
+python3 statistic.py --path exp/<your_experiment_dir>
+```
+
+### Split by status (`success` / `timeout` / ...)
+```bash
+python3 statistic.py --path exp/<your_experiment_dir> --split-by-status
+```
+
+### JSON output for scripting
+```bash
+python3 statistic.py --path exp/<your_experiment_dir> --json --split-by-status
+```
+
+## Common issues
+- `cvc5: command not found`:
+  - Install `cvc5` and make sure it is on `PATH`.
+- Missing `--score-alpha`:
+  - This flag is required by the current CLI.
+- Long wall time with low solver time:
+  - Usually indicates forward/constraint-generation overhead dominates.
+- Inconsistent SHAP behavior:
+  - Regenerate maps with `--force-refresh` and fixed background settings.
+
+## Quick sanity checklist
+- `cvc5 --version` works
+- Correct Python env is activated
+- SHAP maps generated for the target model/dataset
+- Attack command includes required `--score-alpha`
+- Output directory appears under `exp/` with expected naming
