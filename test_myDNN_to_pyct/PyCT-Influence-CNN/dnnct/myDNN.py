@@ -39,96 +39,261 @@ ACTIVATIONS = (
 
 debug = False
 
+# # 泰勒三階會導致最終constraint變成UNSAT 一律替換成Concolic Activation
+# def safe_exp(x):
+#     """Symbolic-friendly exp approximation (3rd-order Taylor)."""
+#     x2 = x * x
+#     x3 = x2 * x
+#     return 1.0 + x + 0.5 * x2 + (1.0/6.0) * x3
 
-def safe_exp(x):
-    """Symbolic-friendly exp approximation (3rd-order Taylor)."""
-    x2 = x * x
-    x3 = x2 * x
-    return 1.0 + x + 0.5 * x2 + (1.0/6.0) * x3
 
+
+# def act_tanh(x):
+#     exp_x = safe_exp(x)
+#     exp_minus_x = safe_exp(-x)
+#     # add tiny constant to avoid zero-denom when both exps ~= 0
+#     return (exp_x - exp_minus_x) / (exp_x + exp_minus_x + 1e-12)
+
+
+# def act_sigmoid(x):
+#     return 1.0 / (1.0 + safe_exp(-x))
+
+
+# def my_exp(x):
+#     return safe_exp(x)
+
+# # https://stackoverflow.com/questions/17531796/find-the-dimensions-of-a-multidimensional-python-array
+# # return the dimension of a python list
+
+
+# def dim(a):  # 遞迴求list的shape
+#     if not type(a) == list:
+#         return []
+#     return [len(a)] + dim(a[0])
+
+
+# # 將padding參數標準化成(top, bottom, left, right)的形式
+# def _normalize_padding_2d(padding):
+#     # Keras ZeroPadding2D padding can be int, tuple of 2 ints, or tuple of 2 tuples
+#     if isinstance(padding, int):  # padding is an int
+#         return padding, padding, padding, padding
+#     if isinstance(padding, (list, tuple)):
+#         if len(padding) == 2 and all(isinstance(x, int) for x in padding):  # padding is tuple of 2 ints
+#             top = bottom = padding[0]
+#             left = right = padding[1]
+#             return top, bottom, left, right
+#         # padding is tuple of 2 tuples ((top, bottom), (left, right))
+#         if len(padding) == 2 and all(isinstance(x, (list, tuple)) for x in padding):
+#             (top, bottom), (left, right) = padding
+#             return int(top), int(bottom), int(left), int(right)
+#     raise ValueError(f"Unsupported padding format: {padding}")
+
+# # 實現多個tensor相加
+
+
+# def _recursive_elementwise_sum(values):
+#     if not values:
+#         raise ValueError(
+#             "AddLayer.forward() requires at least one input tensor")
+#     first = values[0]
+#     if isinstance(first, list):
+#         length = len(first)
+#         for tensor in values[1:]:
+#             if not isinstance(tensor, list) or len(tensor) != length:
+#                 raise ValueError(
+#                     "AddLayer.forward() input tensors must share the same shape")
+#         return [_recursive_elementwise_sum([tensor[i] for tensor in values]) for i in range(length)]
+#     total = first
+#     for tensor in values[1:]:
+#         total += tensor
+#     return total
+
+
+# # acivation function
+# def actFunc(val, type):
+#     if type == 'linear':
+#         return val
+#     elif type == 'relu':
+
+#         if val < 0.0:
+#             return 0.0
+#         else:
+#             return val
+#     elif type == 'softmax':
+#         pass
+#     elif type == 'sigmoid':
+#         return act_sigmoid(val)
+#     elif type == 'tanh':
+#         return act_tanh(val)
+#     elif type == 'elu':
+#         pass
+#     elif type == 'softplus':
+#         pass
+#     elif type == 'softsign':
+#         pass
+#     else:
+#         raise NotImplementedError()
+#     return 0
+
+
+# class ActivationLayer:
+#     def __init__(self, type):
+#         if type not in ACTIVATIONS:
+#             raise NotImplementedError()
+#         self.type = type
+#         self._output = None
+
+#     def forward(self, tensor_in):
+#         out_shape = dim(tensor_in)
+#         tensor_out = tensor_in
+#         if len(out_shape) == 1:
+#             if self.type == "softmax":
+#                 denom = 0.0
+#                 for idx in range(0, out_shape[0]):
+#                     denom = denom + safe_exp(tensor_in[idx])
+#                 for idx in range(0, out_shape[0]):
+#                     tensor_out[idx] = safe_exp(tensor_in[idx]) / (denom + 1e-12)
+#             else:
+#                 for idx in range(0, out_shape[0]):
+#                     tensor_out[idx] = actFunc(tensor_in[idx], self.type)
+#         elif len(out_shape) == 2:
+#             for i, j in product(range(0, out_shape[0]),
+#                                 range(0, out_shape[1])):
+#                 tensor_out[i][j] = actFunc(tensor_in[i][j], self.type)
+#         elif len(out_shape) == 3:
+#             for i, j, k in product(range(0, out_shape[0]),
+#                                    range(0, out_shape[1]),
+#                                    range(0, out_shape[2])):
+#                 tensor_out[i][j][k] = actFunc(tensor_in[i][j][k], self.type)
+#         else:
+#             raise NotImplementedError()
+
+#         if debug:
+#             print("[DEBUG]Finish Activation Layer forwarding!!")
+
+#         # print("Output #Activations=%i" % len(tensor_out))
+#         # DEBUG
+#         self._output = tensor_out
+#         # print(tensor_in)
+#         # print(tensor_out)
+#         return tensor_out
+
+#     def getOutput(self):
+#         return self._output
+
+## 以下區塊從shap那版搬過來的 第207-222行看起來非常有問題
+
+def concolic_exp(x):
+    if x < 0:
+        return 1.0 / concolic_exp(-x)
+    if x > 1:
+        try:
+            return concolic_exp(x / 2) ** 2
+        except OverflowError:
+            print(x, 'OverflowError')   
+    a0 = 1.0
+    a1 = x        #6737
+    a2 = x**2 / 2 #9891
+    # a3 = x**3 / 6 #9985
+    # a4 = x**4 / 24
+    # a5 = x**5 / 120
+    # a6 = x**6 / 720
+    # a7 = x**7 / 5040
+    # a8 = x**8 / 40320
+    # a9 = x**9 / 362880
+
+    return a0 + a1 + a2
+    # return a0 + a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8 + a9
+
+def my_exp_complex(x):
+    if x < 0:
+        return 1.0 / my_exp(-x)
+    elif x > 1:
+        return my_exp(x/2) * my_exp(x/2)
+    elif (math.exp(x) >= x + 1) and (math.exp(x) <= 2*x + 1):
+        try:
+            return math.exp(x)
+        except mathexpError:
+            print(x, 'math.expError')
+
+## 問題: 使用math.exp應該會導致Symbol遺失            
+def my_exp(x):
+    if x < -15:
+        return 0.0
+    return math.exp(x) 
+
+
+# exp_func = math.exp
+exp_func = my_exp
 
 def act_tanh(x):
-    exp_x = safe_exp(x)
-    exp_minus_x = safe_exp(-x)
-    # add tiny constant to avoid zero-denom when both exps ~= 0
-    return (exp_x - exp_minus_x) / (exp_x + exp_minus_x + 1e-12)
-
+    if x == 0:
+        return 0.0
+    elif x >= 3:
+        return 1.0
+    elif x <= -3:
+        return -1.0
+    elif x < 0:
+        return -act_tanh(-x)
+    else:
+        # exp_x = my_exp(x)
+        # exp_minus_x = my_exp(-x)
+        exp_x = exp_func(x)
+        exp_minus_x = exp_func(-x)
+        return (exp_x - exp_minus_x) / (exp_x + exp_minus_x)
 
 def act_sigmoid(x):
-    return 1.0 / (1.0 + safe_exp(-x))
+    log.debug("act_sigmoid input=%s", x)
+    if x == 0:
+        log.debug("act_sigmoid midpoint -> 0.5")
+        return 0.5
+    if x >= 5:
+        log.debug("act_sigmoid saturating to 1.0")
+        return 1.0
+    if x <= -5:
+        log.debug("act_sigmoid saturating to 0.0")
+        return 0.0
+    return 1.0 / (1.0 + exp_func(-x))
 
-
-def my_exp(x):
-    return safe_exp(x)
+def act_softmax(x):
+    # exp_values = [concolic_exp(val) for val in x]    # 計算指數函數
+    max_val = x[0]
+    for val in x:
+        if val > max_val:
+            max_val = val
+    exp_values = [exp_func(val - max_val) for val in x]    # 計算指數函數
+    softmax_values = [val / sum(exp_values) for val in exp_values]    # 計算softmax值
+    return softmax_values
 
 # https://stackoverflow.com/questions/17531796/find-the-dimensions-of-a-multidimensional-python-array
 # return the dimension of a python list
-
-
-def dim(a):  # 遞迴求list的shape
+def dim(a):
     if not type(a) == list:
         return []
     return [len(a)] + dim(a[0])
 
 
-# 將padding參數標準化成(top, bottom, left, right)的形式
-def _normalize_padding_2d(padding):
-    # Keras ZeroPadding2D padding can be int, tuple of 2 ints, or tuple of 2 tuples
-    if isinstance(padding, int):  # padding is an int
-        return padding, padding, padding, padding
-    if isinstance(padding, (list, tuple)):
-        if len(padding) == 2 and all(isinstance(x, int) for x in padding):  # padding is tuple of 2 ints
-            top = bottom = padding[0]
-            left = right = padding[1]
-            return top, bottom, left, right
-        # padding is tuple of 2 tuples ((top, bottom), (left, right))
-        if len(padding) == 2 and all(isinstance(x, (list, tuple)) for x in padding):
-            (top, bottom), (left, right) = padding
-            return int(top), int(bottom), int(left), int(right)
-    raise ValueError(f"Unsupported padding format: {padding}")
-
-# 實現多個tensor相加
-
-
-def _recursive_elementwise_sum(values):
-    if not values:
-        raise ValueError(
-            "AddLayer.forward() requires at least one input tensor")
-    first = values[0]
-    if isinstance(first, list):
-        length = len(first)
-        for tensor in values[1:]:
-            if not isinstance(tensor, list) or len(tensor) != length:
-                raise ValueError(
-                    "AddLayer.forward() input tensors must share the same shape")
-        return [_recursive_elementwise_sum([tensor[i] for tensor in values]) for i in range(length)]
-    total = first
-    for tensor in values[1:]:
-        total += tensor
-    return total
-
-
 # acivation function
 def actFunc(val, type):
-    if type == 'linear':
+    if type=='linear':
         return val
-    elif type == 'relu':
-
+    elif type=='relu':
         if val < 0.0:
             return 0.0
         else:
             return val
-    elif type == 'softmax':
-        pass
-    elif type == 'sigmoid':
+    elif type=='softmax':
+        return act_softmax(val) 
+    elif type=='sigmoid':
+        log.debug("Applying sigmoid activation to value=%s", val)
         return act_sigmoid(val)
-    elif type == 'tanh':
+    elif type=='tanh':
         return act_tanh(val)
-    elif type == 'elu':
+    elif type=='elu':
         pass
-    elif type == 'softplus':
+    elif type=='softplus':
         pass
-    elif type == 'softsign':
+    elif type=='softsign':
         pass
     else:
         raise NotImplementedError()
@@ -137,49 +302,58 @@ def actFunc(val, type):
 
 class ActivationLayer:
     def __init__(self, type):
-        if type not in ACTIVATIONS:
-            raise NotImplementedError()
+        if type not in ACTIVATIONS: raise NotImplementedError()
         self.type = type
         self._output = None
-
     def forward(self, tensor_in):
         out_shape = dim(tensor_in)
         tensor_out = tensor_in
-        if len(out_shape) == 1:
-            if self.type == "softmax":
-                denom = 0.0
-                for idx in range(0, out_shape[0]):
-                    denom = denom + safe_exp(tensor_in[idx])
-                for idx in range(0, out_shape[0]):
-                    tensor_out[idx] = safe_exp(tensor_in[idx]) / (denom + 1e-12)
+        log.debug("ActivationLayer type=%s input_shape=%s", self.type, out_shape)
+        if len(out_shape)==1:
+            # print('start 1: ', self.type, tensor_in)
+            if self.type=="softmax":
+                # print('start 1-0 softmax')
+                tensor_out = act_softmax(tensor_in)
+                # raise NotImplementedError()
+                # denom = 0
+                # for idx in range(0, out_shape[0]):
+                #     denom = denom + math.exp(tensor_in[idx])
+                # for idx in range(0, out_shape[0]):
+                #     tensor_out[idx] = math.exp(tensor_in[idx]) / denom
             else:
+                # print('start 1-0')
                 for idx in range(0, out_shape[0]):
+                    # print('start 1-', idx, tensor_in[idx])
                     tensor_out[idx] = actFunc(tensor_in[idx], self.type)
-        elif len(out_shape) == 2:
-            for i, j in product(range(0, out_shape[0]),
+                    # print('end 1-', tensor_out[idx])
+            # print('end 1')
+        elif len(out_shape)==2:
+            # print('start 2')
+            for i, j in product( range(0, out_shape[0]),
                                 range(0, out_shape[1])):
                 tensor_out[i][j] = actFunc(tensor_in[i][j], self.type)
-        elif len(out_shape) == 3:
-            for i, j, k in product(range(0, out_shape[0]),
-                                   range(0, out_shape[1]),
-                                   range(0, out_shape[2])):
+            # print('end 2')
+        elif len(out_shape)==3:
+            # print('start 3')
+            for i, j, k in product( range(0, out_shape[0]),
+                                    range(0, out_shape[1]),
+                                    range(0, out_shape[2])):
                 tensor_out[i][j][k] = actFunc(tensor_in[i][j][k], self.type)
+            # print('end 3')
         else:
             raise NotImplementedError()
-
         if debug:
-            print("[DEBUG]Finish Activation Layer forwarding!!")
+            log.debug("[ActivationLayer] Finished forwarding %s", self.type)
 
-        # print("Output #Activations=%i" % len(tensor_out))
-        # DEBUG
+        #print("Output #Activations=%i" % len(tensor_out))
+        ## DEBUG
         self._output = tensor_out
-        # print(tensor_in)
-        # print(tensor_out)
+        #print(tensor_in)
+        #print(tensor_out)
         return tensor_out
-
     def getOutput(self):
         return self._output
-
+    
 
 class AddLayer:
     def __init__(self, input_from):
@@ -258,7 +432,7 @@ class Conv2DLayer:
         self.name = name or "Conv2D"
         self._output = None
 
-    def addActivation(self, activation):
+    def addActivation(self, F):
         self.activation = activation
 
     def forward(self, tensor_in):
@@ -511,7 +685,7 @@ class BatchNormLayer:
             out = []
             for c, x in enumerate(vec):
                 # keep x symbolic; moving_mean/inv_std are concrete constants
-                norm = (x - self.moving_mean[c]) * self.inv_std[c]
+                norm = (x +(- self.moving_mean[c]))* self.inv_std[c]
                 out.append(self.gamma[c] * norm + self.beta[c])
             return out
 

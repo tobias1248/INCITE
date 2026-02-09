@@ -4,11 +4,17 @@ Utility to inspect layer configurations of a Keras model (e.g., resnet18_mnist.h
 Focuses on Conv2D, BatchNormalization, ZeroPadding2D, pooling/GAP layers so that
 we can compare them with the parameters used in build_myResnet.py.
 """
-
+import os
+import sys
 import argparse
 from typing import Iterable, Optional
 
 import keras
+
+# 取得目前檔案的絕對路徑，並將其上一層目錄加入 sys.path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
 
 from dnn_predict_common import load_keras_model
 
