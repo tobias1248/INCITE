@@ -67,8 +67,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--score-alpha",
         type=float,
-        required=True,
-        help="Weight for path_len term in priority score (0..1).",
+        default=None,
+        help="Weight for path_len term in priority score (0..1). Required unless --attack-mode queue.",
     )
     parser.add_argument(
         "--symbolic-path-threshold",
@@ -156,7 +156,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--log-file",
         help="Optional path to append structured logs in addition to stdout.",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.attack_mode != "queue" and args.score_alpha is None:
+        parser.error("--score-alpha is required unless --attack-mode queue")
+    return args
 
 
 def configure_logging(args: argparse.Namespace) -> None:

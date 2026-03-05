@@ -62,6 +62,12 @@ def extract_target_pixels(con_dict: Dict[str, Any]) -> List[PixelCoordinates]:
     return coords
 
 
+def _is_coordinate_in_bounds(shape: Tuple[int, ...], coordinate: PixelCoordinates) -> bool:
+    if len(shape) != len(coordinate):
+        return False
+    return all(0 <= axis < shape[d] for d, axis in enumerate(coordinate))
+
+
 def _forward(array: np.ndarray) -> np.ndarray:
     """Forward the NNModel and return logits as a 1D numpy array."""
     outputs = dnn_predict_common.myModel.forward(array.tolist())
@@ -97,9 +103,12 @@ def run_random_assign_step(
     rng = np.random.default_rng(base_seed + idx + attempt)
     original = np.array(payload["input_for_shap"], dtype=np.float32, copy=True)
     modified = original.copy()
+    input_shape = tuple(int(dim) for dim in modified.shape)
 
     assignments: List[PixelAssignment] = []
     for coordinate in coords:
+        if not _is_coordinate_in_bounds(input_shape, coordinate):
+            continue
         original_value = float(modified[coordinate])
         assigned_value = float(rng.uniform(0.0, 1.0))
         modified[coordinate] = assigned_value
@@ -110,6 +119,9 @@ def run_random_assign_step(
                 assigned_value=assigned_value,
             )
         )
+
+    if not assignments:
+        raise ValueError("No in-bounds attack pixels identified; cannot perform random assign.")
 
     logits_before = _forward(original)
     logits_after = _forward(modified)

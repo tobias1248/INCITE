@@ -94,13 +94,14 @@ class MnistDataset:
     
     
     def get_mnist_test_data_and_set_condict(self, idx, attack_pixels):
-        in_dict, con_dict = self.get_mnist_test_data(idx)
+        in_dict, con_dict, input_for_shap, background_dataset_for_shap = self.get_mnist_test_data(idx)
         
         for i,j,k in attack_pixels:
             key = f"v_{i}_{j}_{k}"
-            con_dict[key] = 1
+            if key in con_dict:
+                con_dict[key] = 1
         
-        return in_dict, con_dict
+        return in_dict, con_dict, input_for_shap, background_dataset_for_shap
         
     
 class RNN_MnistDataset:
@@ -144,7 +145,8 @@ class RNN_MnistDataset:
         
         for i,j in attack_pixels:
             key = f"v_{i}_{j}"
-            con_dict[key] = 1
+            if key in con_dict:
+                con_dict[key] = 1
         
         return in_dict, con_dict
 
@@ -180,7 +182,8 @@ class MSstock_Dataset:
         
         for i,j in attack_pixels:
             key = f"v_{i}_{j}"
-            con_dict[key] = 1
+            if key in con_dict:
+                con_dict[key] = 1
         
         return in_dict, con_dict
 
@@ -216,7 +219,8 @@ class IMDB_Dataset:
         
         for i,j in attack_pixels:
             key = f"v_{i}_{j}"
-            con_dict[key] = 1
+            if key in con_dict:
+                con_dict[key] = 1
         
         return in_dict, con_dict
 
@@ -271,7 +275,8 @@ class FashionMnistDataset:
         
         for i,j,k in attack_pixels:
             key = f"v_{i}_{j}_{k}"
-            con_dict[key] = 1
+            if key in con_dict:
+                con_dict[key] = 1
         
         return in_dict, con_dict, input_for_shap, background_dataset_for_shap
 
@@ -319,6 +324,7 @@ class Cifar10Dataset:
 
         for i, j, k in attack_pixels:
             key = f"v_{i}_{j}_{k}"
-            con_dict[key] = 1
+            if key in con_dict:
+                con_dict[key] = 1
 
         return in_dict, con_dict, input_for_shap, background_dataset_for_shap

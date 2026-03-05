@@ -262,6 +262,17 @@ def _worker(
                     pixel_source=pixel_source,
                     base_seed=base_seed,
                 )
+            elif attack_mode == "queue":
+                from utils.experiment_runner import run_attack_with_queue
+
+                run_attack_with_queue(
+                    [task],
+                    timeout=timeout,
+                    constraint_build_timeout=constraint_build_timeout,
+                    solver_run_timeout=solver_run_timeout,
+                    norm=norm_01,
+                    collect_constraints_with="queue",
+                )
             else:
                 from utils.experiment_runner import run_attack_with_shap
 
@@ -319,7 +330,10 @@ def run_launcher(args: Any) -> None:
         pixel_source=args.pixel_source,
     )
     os.environ["PYCT_TIMEOUT"] = str(args.timeout)
-    os.environ["PYCT_SCORE_ALPHA"] = str(args.score_alpha)
+    if args.score_alpha is not None:
+        os.environ["PYCT_SCORE_ALPHA"] = str(args.score_alpha)
+    else:
+        os.environ.pop("PYCT_SCORE_ALPHA", None)
     os.environ["PYCT_SYMBOLIC_PATH_THRESHOLD"] = str(args.symbolic_path_threshold)
     attack_mode_for_paths = (
         attack_mode
@@ -422,18 +436,6 @@ def run_launcher(args: Any) -> None:
         if not stage_inputs or shutdown_event.is_set():
             return
         running_processes.clear()
-        if args.attack_mode == "queue":
-            from utils.experiment_runner import run_attack_with_queue
-
-            run_attack_with_queue(
-                stage_inputs,
-                timeout=args.timeout,
-                constraint_build_timeout=args.constraint_build_timeout,
-                solver_run_timeout=args.solver_run_timeout if args.solver_run_timeout > 0 else None,
-                norm=args.norm_01,
-                collect_constraints_with="queue",
-            )
-            return
 
         task_queue: Queue = Queue()
         for task in stage_inputs:

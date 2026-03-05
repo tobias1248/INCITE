@@ -28,6 +28,8 @@ from keras.layers import (
     BatchNormalization,
     SimpleRNN,
     MultiHeadAttention,
+    Add,
+    GlobalAveragePooling2D,
     GlobalAveragePooling1D,
     Reshape,
 )
@@ -148,6 +150,22 @@ def dim(a):
     return [len(a)] + dim(a[0])
 
 
+def _recursive_elementwise_sum(values):
+    if not values:
+        raise ValueError("AddLayer.forward() requires at least one input tensor")
+    first = values[0]
+    if isinstance(first, list):
+        length = len(first)
+        for tensor in values[1:]:
+            if not isinstance(tensor, list) or len(tensor) != length:
+                raise ValueError("AddLayer.forward() input tensors must share the same shape")
+        return [_recursive_elementwise_sum([tensor[i] for tensor in values]) for i in range(length)]
+    total = first
+    for tensor in values[1:]:
+        total += tensor
+    return total
+
+
 # acivation function
 def actFunc(val, type):
     if type=='linear':
@@ -228,6 +246,29 @@ class ActivationLayer:
         return tensor_out
     def getOutput(self):
         return self._output
+
+
+class AddLayer:
+    def __init__(self, input_from):
+        if not isinstance(input_from, (list, tuple)) or len(input_from) < 2:
+            raise ValueError("AddLayer requires at least two input sources")
+        self.input_from = list(input_from)
+        self.multi_input = True
+        self._output = None
+
+    def forward(self, tensors):
+        if len(tensors) != len(self.input_from):
+            raise ValueError("AddLayer.forward() received unexpected number of inputs")
+        base_dim = dim(tensors[0])
+        for tensor in tensors[1:]:
+            if dim(tensor) != base_dim:
+                raise ValueError("AddLayer.forward() input tensors must share the same shape")
+        self._output = _recursive_elementwise_sum(tensors)
+        return self._output
+
+    def getOutput(self):
+        return self._output
+
 
 class NoOpLayer:
     def __init__(self, name: str = "NoOp"):
@@ -839,6 +880,29 @@ class ReshapeLayer:
 
 
 
+class GlobalAveragePooling2DLayer:
+    def __init__(self):
+        self._output = None
+
+    def forward(self, tensor_in):
+        in_shape = dim(tensor_in)
+        assert len(in_shape) == 3, "GlobalAveragePooling2D expects 3D input [H][W][C]"
+        h, w, c = in_shape
+        out = [0.0 for _ in range(c)]
+        total = h * w
+        for ch in range(c):
+            acc = 0.0
+            for i in range(h):
+                for j in range(w):
+                    acc += tensor_in[i][j][ch]
+            out[ch] = acc / total
+        self._output = out
+        return out
+
+    def getOutput(self):
+        return self._output
+
+
 class GlobalAveragePooling1DLayer:
     def __init__(self):
         self._output = None
@@ -873,15 +937,58 @@ class NNModel:
     def __init__(self):
         self.layers: List[Any] = []
         self.input_shape: Optional[Tuple[int, ...]] = None
+        self.my_layer_keys: List[str] = []
+        self.keras_to_cache_key: dict[str, str] = {}
+        self.input_layer_names: List[str] = []
+        self.multiple_inputs = False
+        self.layer_type_counter: dict[str, int] = {}
+
+    def register_input_names(self, names: List[str]):
+        self.input_layer_names = list(names or [])
+        if not self.input_layer_names:
+            return
+        if len(self.input_layer_names) > 1:
+            self.multiple_inputs = True
+            raise NotImplementedError("Multiple input tensors are not supported yet.")
+        self.keras_to_cache_key[self.input_layer_names[0]] = "layer_input"
+
+    def _resolve_cache_key(self, keras_name: str) -> str:
+        if keras_name not in self.keras_to_cache_key:
+            raise KeyError(f"Unknown inbound source: {keras_name}")
+        return self.keras_to_cache_key[keras_name]
+
+    def _register_cache_key(self, keras_name: str, cache_key: str) -> None:
+        if keras_name:
+            self.keras_to_cache_key[keras_name] = cache_key
+
+    def _append_layer(self, layer_obj: Any) -> str:
+        type_name = type(layer_obj).__name__
+        count = self.layer_type_counter.get(type_name, 0)
+        cache_key = f"{type_name}_{count}"
+        self.layer_type_counter[type_name] = count + 1
+        self.layers.append(layer_obj)
+        self.my_layer_keys.append(cache_key)
+        return cache_key
 
     def forward(self, tensor_in):
         log.info("DNN start forwarding")
+        cache = {"layer_input": tensor_in}
+        x = tensor_in
         for i, layer in enumerate(self.layers):
             register_current_layer_number(to_Keras_layer_number(i))
             log.debug("Forwarding layer %s (%s)", i, layer.__class__.__name__)
-            tensor_in = layer.forward(tensor_in)
+            layer_key = self.my_layer_keys[i] if i < len(self.my_layer_keys) else f"layer_{i}"
+            if hasattr(layer, "input_from") and layer.input_from:
+                inputs = [cache[name] for name in layer.input_from]
+                if getattr(layer, "multi_input", False):
+                    x = layer.forward(inputs)
+                else:
+                    x = layer.forward(inputs[0])
+            else:
+                x = layer.forward(x)
+            cache[layer_key] = x
         log.info("DNN finish forwarding")
-        return tensor_in
+        return x
 
     def getLayOutput(self, idx):
         if idx >= len(self.layers):
@@ -889,9 +996,13 @@ class NNModel:
         else:
             return self.layers[idx].getOutput()
 
-    def addLayer(self, layer):
+    def addLayer(self, layer, inbound_names: Optional[List[str]] = None):
+        inbound_names = inbound_names or []
+        keras_name = getattr(layer, "name", f"layer_{len(self.layers)}")
+        resolved_inbounds = [self._resolve_cache_key(name) for name in inbound_names] if inbound_names else []
+        created = 0
 
-        if type(layer) == Conv2D:
+        if isinstance(layer, Conv2D):
             #print("Conv2D")
             # shape: (outputs, rows, cols, channel)
             layer_weights = layer.get_weights()
@@ -906,11 +1017,17 @@ class NNModel:
             stride = config.get('strides', (1, 1))
             padding = config.get('padding', 'valid')
 
-            self.layers.append(Conv2DLayer(weights, biases, weights.shape, stride=stride, padding=padding))
-            # print("Add Activation Layer:", activation)
-            self.layers.append(ActivationLayer(activation))
-            return 2
-        elif type(layer) == Dense:
+            conv_layer = Conv2DLayer(weights, biases, weights.shape, stride=stride, padding=padding)
+            if resolved_inbounds:
+                conv_layer.input_from = resolved_inbounds
+            conv_key = self._append_layer(conv_layer)
+            created += 1
+            activation_layer = ActivationLayer(activation)
+            activation_layer.input_from = [conv_key]
+            activation_key = self._append_layer(activation_layer)
+            created += 1
+            self._register_cache_key(keras_name, activation_key)
+        elif isinstance(layer, Dense):
             #print("Dense")
             # shape: (outputs, inputs)
             layer_weights = layer.get_weights()
@@ -922,32 +1039,59 @@ class NNModel:
                 biases = np.zeros(weights.shape[0], dtype=float)
             activation = layer.get_config()['activation']
 
-            self.layers.append(DenseLayer(weights, biases, weights.shape))
+            dense_layer = DenseLayer(weights, biases, weights.shape)
+            if resolved_inbounds:
+                dense_layer.input_from = resolved_inbounds
+            dense_key = self._append_layer(dense_layer)
+            created += 1
             log.debug("Add Activation Layer: %s", activation)
-            self.layers.append(ActivationLayer(activation))
-            return 2
-        elif type(layer) == MaxPool2D or type(layer) == MaxPooling2D:
+            activation_layer = ActivationLayer(activation)
+            activation_layer.input_from = [dense_key]
+            activation_key = self._append_layer(activation_layer)
+            created += 1
+            self._register_cache_key(keras_name, activation_key)
+        elif isinstance(layer, MaxPool2D) or isinstance(layer, MaxPooling2D):
             #print("MaxPool2D")
             pool_size = layer.get_config()['pool_size']
             # print(pool_size)
-            self.layers.append(MaxPool2DLayer(pool_size))
-            return 1
-        elif type(layer) == Flatten:
+            maxpool_layer = MaxPool2DLayer(pool_size)
+            if resolved_inbounds:
+                maxpool_layer.input_from = resolved_inbounds
+            key = self._append_layer(maxpool_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, Flatten):
             #print("Flatten")
-            self.layers.append(FlattenLayer())
-            return 1
-        elif type(layer) == Activation:
+            flatten_layer = FlattenLayer()
+            if resolved_inbounds:
+                flatten_layer.input_from = resolved_inbounds
+            key = self._append_layer(flatten_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, Activation):
             activation = layer.get_config()['activation']
-            self.layers.append(ActivationLayer(activation))
-            return 1
-        elif type(layer) == ReLU:
-            self.layers.append(ActivationLayer("relu"))
-            return 1
-        elif type(layer) == RandomFlip:
+            activation_layer = ActivationLayer(activation)
+            if resolved_inbounds:
+                activation_layer.input_from = resolved_inbounds
+            key = self._append_layer(activation_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, ReLU):
+            relu_layer = ActivationLayer("relu")
+            if resolved_inbounds:
+                relu_layer.input_from = resolved_inbounds
+            key = self._append_layer(relu_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, RandomFlip):
             # inference-time deterministic: no-op
-            self.layers.append(NoOpLayer("RandomFlip"))
-            return 1
-        elif type(layer) == ZeroPadding2D:
+            noop_layer = NoOpLayer("RandomFlip")
+            if resolved_inbounds:
+                noop_layer.input_from = resolved_inbounds
+            key = self._append_layer(noop_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, ZeroPadding2D):
             padding = layer.get_config().get("padding", 0)
             if isinstance(padding, int):
                 top = bottom = left = right = padding
@@ -956,27 +1100,47 @@ class NNModel:
                 left = right = padding[1]
             else:
                 (top, bottom), (left, right) = padding
-            self.layers.append(ZeroPadding2DLayer((top, bottom, left, right)))
-            return 1
-        elif type(layer) == RandomCrop:
+            padding_layer = ZeroPadding2DLayer((top, bottom, left, right))
+            if resolved_inbounds:
+                padding_layer.input_from = resolved_inbounds
+            key = self._append_layer(padding_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, RandomCrop):
             cfg = layer.get_config()
-            self.layers.append(CenterCrop2DLayer(cfg.get("height"), cfg.get("width")))
-            return 1
-        elif type(layer) == BatchNormalization:
+            crop_layer = CenterCrop2DLayer(cfg.get("height"), cfg.get("width"))
+            if resolved_inbounds:
+                crop_layer.input_from = resolved_inbounds
+            key = self._append_layer(crop_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, BatchNormalization):
             gamma, beta, moving_mean, moving_var = layer.get_weights()
             epsilon = layer.get_config().get("epsilon", 1e-3)
-            self.layers.append(BatchNormLayer(gamma, beta, moving_mean, moving_var, epsilon))
-            return 1
-        elif type(layer) == SimpleRNN:
+            bn_layer = BatchNormLayer(gamma, beta, moving_mean, moving_var, epsilon)
+            if resolved_inbounds:
+                bn_layer.input_from = resolved_inbounds
+            key = self._append_layer(bn_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, SimpleRNN):
             input_dim = layer.input_shape[-1]
             activation = layer.get_config()['activation']
-            self.layers.append(SimpleRNNLayer(input_dim, weights=layer.get_weights(), activation=activation))
-            return 1
-        elif type(layer) == LSTM:
+            rnn_layer = SimpleRNNLayer(input_dim, weights=layer.get_weights(), activation=activation)
+            if resolved_inbounds:
+                rnn_layer.input_from = resolved_inbounds
+            key = self._append_layer(rnn_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, LSTM):
             input_dim = layer.input_shape[-1]
-            self.layers.append(LSTMLayer(input_dim, weights=layer.get_weights()))
-            return 1
-        elif type(layer)== MultiHeadAttention:
+            lstm_layer = LSTMLayer(input_dim, weights=layer.get_weights())
+            if resolved_inbounds:
+                lstm_layer.input_from = resolved_inbounds
+            key = self._append_layer(lstm_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, MultiHeadAttention):
             num_heads = layer.get_config()['num_heads']
             # num_heads#20
             #32*20
@@ -990,14 +1154,40 @@ class NNModel:
             output_weights=layer._output_dense.kernel
             output_bias=layer._output_dense.bias
             model_dim = layer._output_dense.full_output_shape[-1]
-            self.layers.append(MultiHeadAttentionLayer(num_heads,key_dim_per_heads,wq,bq,wk,bk,wv,bv,output_weights,output_bias))
-            return 1
-        elif type(layer)==GlobalAveragePooling1D:
+            mha_layer = MultiHeadAttentionLayer(num_heads,key_dim_per_heads,wq,bq,wk,bk,wv,bv,output_weights,output_bias)
+            if resolved_inbounds:
+                mha_layer.input_from = resolved_inbounds
+            key = self._append_layer(mha_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, Add):
+            add_layer = AddLayer(resolved_inbounds)
+            key = self._append_layer(add_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, GlobalAveragePooling2D):
+            gap2d_layer = GlobalAveragePooling2DLayer()
+            if resolved_inbounds:
+                gap2d_layer.input_from = resolved_inbounds
+            key = self._append_layer(gap2d_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, GlobalAveragePooling1D):
             log.debug("GlobalAveragePooling1D layer added")
-            self.layers.append(GlobalAveragePooling1DLayer())
-            return 1
-        elif type(layer)==Reshape:
-            self.layers.append(ReshapeLayer(layer.target_shape))
-            return 1
+            gap1d_layer = GlobalAveragePooling1DLayer()
+            if resolved_inbounds:
+                gap1d_layer.input_from = resolved_inbounds
+            key = self._append_layer(gap1d_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, Reshape):
+            reshape_layer = ReshapeLayer(layer.target_shape)
+            if resolved_inbounds:
+                reshape_layer.input_from = resolved_inbounds
+            key = self._append_layer(reshape_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
         else:
             raise NotImplementedError()
+
+        return created

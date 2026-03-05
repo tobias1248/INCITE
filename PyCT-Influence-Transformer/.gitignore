@@ -17,7 +17,18 @@ tmp/
 popped_constraint_position/
 
 # SHAP artifacts
+shap_value/
 shap_value_all_layer/
 
-# my test
+# my scripts
 dnnct_transformer_multi_approved.py
+build_insight.py
+
+# exp documentation
+insight.md
+
+# ref
+*_new.py
+
+# models
+*.h5

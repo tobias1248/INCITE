@@ -302,16 +302,18 @@ def fashion_mnist_transformer_shap(
     from utils.dataset import FashionMnistDataset
 
     ton_sequence = _normalize_ton_sequence(ton_values, fallback=ton or 1)
+    dataset = FashionMnistDataset()
+    sample_shape = tuple(int(dim) for dim in dataset.x_test.shape[1:])
 
     pixel_provider = JsonShapPixelProvider(
         model_name=model_name,
         shap_root="shap_value_all_layer",
         coordinate_dims=3,
+        coordinate_bounds=sample_shape,
     )
     queue_mode = QueueMode("priority_queue", "priority_queue")
 
     prefix = f"{exp_prefix.strip('/')}/" if exp_prefix else ""
-    dataset = FashionMnistDataset()
     indices = _normalize_indices(first_n_img)
 
     inputs: List[Dict[str, Any]] = []
@@ -391,16 +393,18 @@ def mnist_transformer_shap(
     from utils.dataset import MnistDataset
 
     ton_sequence = _normalize_ton_sequence(ton_values, fallback=ton or 1)
+    dataset = MnistDataset()
+    sample_shape = tuple(int(dim) for dim in dataset.x_test.shape[1:])
 
     pixel_provider = JsonShapPixelProvider(
         model_name=model_name,
         shap_root="shap_value_all_layer",
         coordinate_dims=3,
+        coordinate_bounds=sample_shape,
     )
     queue_mode = QueueMode("priority_queue", "priority_queue")
 
     prefix = f"{exp_prefix.strip('/')}/" if exp_prefix else ""
-    dataset = MnistDataset()
     indices = _normalize_indices(first_n_img)
 
     inputs: List[Dict[str, Any]] = []
@@ -439,7 +443,8 @@ def mnist_transformer_shap(
             ) = dataset.get_mnist_test_data(idx)
             for i, j, k in attack_pixels:
                 key = f"v_{i}_{j}_{k}"
-                con_dict[key] = 1
+                if key in con_dict:
+                    con_dict[key] = 1
             if base_in_dict is None:
                 base_in_dict = in_dict
             ton_plans.append(
@@ -483,16 +488,18 @@ def cifar10_transformer_shap(
     from utils.dataset import Cifar10Dataset
 
     ton_sequence = _normalize_ton_sequence(ton_values, fallback=ton or 1)
+    dataset = Cifar10Dataset()
+    sample_shape = tuple(int(dim) for dim in dataset.x_test.shape[1:])
 
     pixel_provider = JsonShapPixelProvider(
         model_name=model_name,
         shap_root="shap_value_all_layer",
         coordinate_dims=3,
+        coordinate_bounds=sample_shape,
     )
     queue_mode = QueueMode("priority_queue", "priority_queue")
 
     prefix = f"{exp_prefix.strip('/')}/" if exp_prefix else ""
-    dataset = Cifar10Dataset()
     indices = _normalize_indices(first_n_img)
 
     inputs: List[Dict[str, Any]] = []
@@ -706,7 +713,8 @@ def mnist_transformer_random(
             ) = dataset.get_mnist_test_data(idx)
             for i, j, k in attack_pixels:
                 key = f"v_{i}_{j}_{k}"
-                con_dict[key] = 1
+                if key in con_dict:
+                    con_dict[key] = 1
             if base_in_dict is None:
                 base_in_dict = in_dict
             ton_plans.append(

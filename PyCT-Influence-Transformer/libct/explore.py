@@ -98,9 +98,9 @@ class ExplorationEngine:
         self.save_dir = save_dir
         self.input_name = input_name
         self.only_first_forward = only_first_forward
-        if shap_score_alpha is None:
-            raise ValueError("shap_score_alpha is required; pass via --score-alpha")
-        self.shap_score_alpha = float(shap_score_alpha)
+        self.shap_score_alpha = (
+            None if shap_score_alpha is None else float(shap_score_alpha)
+        )
         self.symbolic_path_threshold = None if symbolic_path_threshold is None else int(symbolic_path_threshold)
         self.symbolic_enabled = True
         self.symbolic_disabled_at_path_len = None
@@ -886,6 +886,10 @@ class ExplorationEngine:
             )
 
     def _compute_priority_score(self, shap_value: float, constraint: Constraint) -> tuple[float, int]:
+        if self.shap_score_alpha is None:
+            raise ValueError(
+                "shap_score_alpha is required when collect_constraints_with='priority_queue'; pass via --score-alpha"
+            )
         path_len = int(getattr(constraint, "height", 0) or 0)
         alpha = self.shap_score_alpha
         score = (1 - alpha) * math.log10(abs(shap_value) + self.SHAP_SCORE_EPS)

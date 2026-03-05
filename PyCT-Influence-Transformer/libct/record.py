@@ -159,17 +159,20 @@ class ConcolicTestRecorder:
         if self.input_shape is None:
             return None
         built = np.zeros(self.input_shape, dtype=np.float32)
-        for k, v in input_dict.items():
-            idx = k.split('_')[1:]
-            if len(self.input_shape) == 2:
-                i, j = (int(i) for i in idx)
-                built[i, j] = v
-            elif len(self.input_shape) == 3:
-                i, j, k = (int(i) for i in idx)
-                built[i, j, k] = v
-            elif len(self.input_shape) == 4:
-                i, j, k, l = (int(i) for i in idx)
-                built[i, j, k, l] = v
+        dims = len(self.input_shape)
+        for key, value in input_dict.items():
+            if not isinstance(key, str) or not key.startswith("v_"):
+                continue
+            try:
+                idx = tuple(int(i) for i in key.split("_")[1:])
+            except ValueError:
+                continue
+            if len(idx) != dims:
+                continue
+            out_of_bounds = any(axis < 0 or axis >= self.input_shape[d] for d, axis in enumerate(idx))
+            if out_of_bounds:
+                continue
+            built[idx] = value
         return built
         
     

@@ -107,13 +107,26 @@ def get_function_from_module_and_funcname(module, funcname, enforce=True):
 
 
 def get_in_dict_shape(in_dict):
-    max_idx = None
-    max_sum_idx = 0
-    for k in in_dict.keys():
-        idx = [int(i) for i in k.split('_')[1:]]
-        if sum(idx) > max_sum_idx:
-            max_idx = idx
-            max_sum_idx = sum(idx)
-    
-    max_idx = [i+1 for i in max_idx]
-    return tuple(max_idx)
+    max_indices: dict[int, int] = {}
+    for key in in_dict.keys():
+        if not isinstance(key, str) or not key.startswith("v_"):
+            continue
+        try:
+            indices = [int(i) for i in key.split("_")[1:]]
+        except ValueError:
+            continue
+        for axis, value in enumerate(indices):
+            prev = max_indices.get(axis, -1)
+            if value > prev:
+                max_indices[axis] = value
+
+    if not max_indices:
+        return tuple()
+
+    axis_count = max(max_indices.keys()) + 1
+    shape = []
+    for axis in range(axis_count):
+        if axis not in max_indices:
+            return tuple()
+        shape.append(max_indices[axis] + 1)
+    return tuple(shape)

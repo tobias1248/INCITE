@@ -17,17 +17,21 @@ class JsonShapPixelProvider:
         shap_root: str = "shap_value_all_layer",
         pixel_prefix: str = "-1",
         coordinate_dims: int | None = 3,
+        coordinate_bounds: Tuple[int, ...] | None = None,
         fill_value: int = 0,
     ) -> None:
         self.model_name = model_name
         self.shap_root = Path(shap_root)
         self.pixel_prefix = pixel_prefix
         self.coordinate_dims = coordinate_dims
+        self.coordinate_bounds = tuple(int(v) for v in coordinate_bounds) if coordinate_bounds else None
         self.fill_value = fill_value
         self._cache: Dict[int, List[Tuple[int, ...]]] = {}
 
         if coordinate_dims is not None and coordinate_dims <= 0:
             raise ValueError("coordinate_dims must be positive when provided.")
+        if self.coordinate_bounds is not None and any(v <= 0 for v in self.coordinate_bounds):
+            raise ValueError("coordinate_bounds must contain positive integers.")
 
     def top_pixels(self, idx: int, ton: int | None = None) -> List[Tuple[int, ...]]:
         """Return the top-k pixel coordinates for a given input index."""
@@ -105,6 +109,8 @@ class JsonShapPixelProvider:
             if not key.startswith(prefix):
                 continue
             coords = self._normalize_coords(tuple(int(part) for part in key.split("_")[1:]))
+            if coords is None:
+                continue
             items.append((coords, abs(float(value))))
 
         if not items:
@@ -113,17 +119,25 @@ class JsonShapPixelProvider:
         items.sort(key=lambda entry: entry[1], reverse=True)
         return [coords for coords, _ in items]
 
-    def _normalize_coords(self, coords: Tuple[int, ...]) -> Tuple[int, ...]:
+    def _normalize_coords(self, coords: Tuple[int, ...]) -> Tuple[int, ...] | None:
         if self.coordinate_dims is None:
-            return coords
-        if len(coords) > self.coordinate_dims:
-            raise ValueError(
-                f"Coordinate {coords} exceeds configured dimensionality {self.coordinate_dims}"
-            )
-        if len(coords) == self.coordinate_dims:
-            return coords
-        padding = (self.fill_value,) * (self.coordinate_dims - len(coords))
-        return coords + padding
+            normalized = coords
+        else:
+            if len(coords) > self.coordinate_dims:
+                return None
+            if len(coords) == self.coordinate_dims:
+                normalized = coords
+            else:
+                padding = (self.fill_value,) * (self.coordinate_dims - len(coords))
+                normalized = coords + padding
+
+        if self.coordinate_bounds is None:
+            return normalized
+        if len(normalized) != len(self.coordinate_bounds):
+            return None
+        if any(axis < 0 or axis >= bound for axis, bound in zip(normalized, self.coordinate_bounds)):
+            return None
+        return normalized
 
 
 def build_shap_tensor_from_json(
@@ -133,6 +147,7 @@ def build_shap_tensor_from_json(
     shap_root: str = "shap_value_all_layer",
     pixel_prefix: str = "-1",
     coordinate_dims: int = 3,
+    coordinate_bounds: Tuple[int, ...] | None = None,
 ) -> np.ndarray:
     """Helper for scripts/tests to rebuild the legacy *_sort_pixel_3d.npy tensor."""
     provider = JsonShapPixelProvider(
@@ -140,5 +155,6 @@ def build_shap_tensor_from_json(
         shap_root=shap_root,
         pixel_prefix=pixel_prefix,
         coordinate_dims=coordinate_dims,
+        coordinate_bounds=coordinate_bounds,
     )
     return provider.build_tensor(list(indices))
