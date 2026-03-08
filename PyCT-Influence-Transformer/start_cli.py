@@ -77,6 +77,18 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Disable symbolic tracking when path_len reaches this threshold (default: 8000).",
     )
     parser.add_argument(
+        "--attn-position-mode",
+        choices=("coarse", "qk"),
+        default="coarse",
+        help="How MultiHeadAttention registers branch positions for SHAP ranking (default: coarse).",
+    )
+    parser.add_argument(
+        "--symbolic-exp-mode",
+        choices=("off", "pwl"),
+        default="off",
+        help="Exponent mode used by concolic DNN forward pass (default: off).",
+    )
+    parser.add_argument(
         "--pixel-search",
         type=_parse_pixel_search,
         default=_parse_pixel_search(",".join(str(v) for v in _DEFAULT_PIXEL_SEARCH)),

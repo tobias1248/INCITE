@@ -335,11 +335,17 @@ def run_launcher(args: Any) -> None:
     else:
         os.environ.pop("PYCT_SCORE_ALPHA", None)
     os.environ["PYCT_SYMBOLIC_PATH_THRESHOLD"] = str(args.symbolic_path_threshold)
-    attack_mode_for_paths = (
-        attack_mode
-        if not args.solver_run_timeout or args.solver_run_timeout <= 0
-        else f"{attack_mode}_solver{args.solver_run_timeout}s"
-    )
+    os.environ["PYCT_ATTN_POSITION_MODE"] = args.attn_position_mode
+    os.environ["PYCT_SYMBOLIC_EXP_MODE"] = args.symbolic_exp_mode
+
+    attack_mode_parts = [attack_mode]
+    if args.solver_run_timeout and args.solver_run_timeout > 0:
+        attack_mode_parts.append(f"solver{args.solver_run_timeout}s")
+    if args.attn_position_mode != "coarse":
+        attack_mode_parts.append(f"attn{args.attn_position_mode}")
+    if args.symbolic_exp_mode != "off":
+        attack_mode_parts.append(f"exp{args.symbolic_exp_mode}")
+    attack_mode_for_paths = "_".join(attack_mode_parts)
     force_refresh = args.force_refresh
     force_generate = True
     first_n_range = range(0, args.first_n)

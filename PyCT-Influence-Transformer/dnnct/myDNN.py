@@ -1,14 +1,16 @@
 
 
+import os
 import sys
 import numpy as np
 import math
 from itertools import product
 import collections.abc
-from functools import reduce  
+from functools import reduce
 import logging
 from typing import Tuple, Optional, List, Any
 from libct.position import register_current_indices, register_current_layer_number, to_Keras_layer_number
+from libct.utils import unwrap
 
 from keras.layers import (
     Dense,
@@ -62,6 +64,62 @@ ACTIVATIONS = (
 log = logging.getLogger("ct.model")
 debug = False
 
+
+def _get_attn_position_mode() -> str:
+    mode = os.environ.get("PYCT_ATTN_POSITION_MODE", "coarse").strip().lower()
+    if mode in ("coarse", "qk"):
+        return mode
+    log.warning(
+        "Unknown PYCT_ATTN_POSITION_MODE='%s'; fallback to 'coarse'",
+        mode,
+    )
+    return "coarse"
+
+
+def _get_symbolic_exp_mode() -> str:
+    mode = os.environ.get("PYCT_SYMBOLIC_EXP_MODE", "off").strip().lower()
+    if mode in ("off", "pwl"):
+        return mode
+    log.warning(
+        "Unknown PYCT_SYMBOLIC_EXP_MODE='%s'; fallback to 'off'",
+        mode,
+    )
+    return "off"
+
+
+def _piecewise_linear_exp(x):
+    # Segment is chosen by concrete value to avoid introducing symbolic branches.
+    concrete = float(unwrap(x))
+    exp_neg10 = 4.5399929762484854e-05
+    exp_neg6 = 0.0024787521766663585
+    exp_neg3 = 0.049787068367863944
+    exp_neg1 = 0.36787944117144233
+    exp_0 = 1.0
+    exp_2 = 7.38905609893065
+    exp_5 = 148.4131591025766
+
+    def interp(x0, y0, x1, y1):
+        slope = (y1 - y0) / (x1 - x0)
+        intercept = y0 - slope * x0
+        return slope * x + intercept
+
+    if concrete <= -10.0:
+        return exp_neg10
+    if concrete <= -6.0:
+        return interp(-10.0, exp_neg10, -6.0, exp_neg6)
+    if concrete <= -3.0:
+        return interp(-6.0, exp_neg6, -3.0, exp_neg3)
+    if concrete <= -1.0:
+        return interp(-3.0, exp_neg3, -1.0, exp_neg1)
+    if concrete <= 0.0:
+        return interp(-1.0, exp_neg1, 0.0, exp_0)
+    if concrete <= 2.0:
+        return interp(0.0, exp_0, 2.0, exp_2)
+    if concrete <= 5.0:
+        return interp(2.0, exp_2, 5.0, exp_5)
+    return exp_5
+
+
 def concolic_exp(x):
     if x < 0:
         return 1.0 / concolic_exp(-x)
@@ -95,6 +153,8 @@ def my_exp_complex(x):
         except mathexpError:
             print(x, 'math.expError')
 def my_exp(x):
+    if _get_symbolic_exp_mode() == "pwl":
+        return _piecewise_linear_exp(x)
     if x < -15:
         return 0.0
     return math.exp(x)
@@ -721,6 +781,7 @@ class MultiHeadAttentionLayer:
     def __init__(self, num_heads, key_dim_per_heads, wq, bq, wk, bk, wv, bv, output_weights, output_bias):
         self.num_heads = num_heads#20
         self.key_dim_per_heads = key_dim_per_heads#32
+        self.attn_position_mode = _get_attn_position_mode()
         self.WQ = wq.numpy().tolist()
         self.BQ = bq.numpy().tolist()
         self.WK = wk.numpy().tolist()
@@ -798,11 +859,19 @@ class MultiHeadAttentionLayer:
         # print("783")
         return context_vector
 
+    def _register_attention_position(self, query_idx, key_idx):
+        if self.attn_position_mode == "qk":
+            query_coords = [(query_idx, j) for j in range(self.model_dim)]
+            key_coords = [(key_idx, j) for j in range(self.model_dim)]
+            register_current_indices(query_coords + key_coords)
+            return
+        register_current_indices([(query_idx, j) for j in range(self.model_dim)])
+
     def myMax(self,x,i):
-        
+
         max = x[i][0]
-        register_current_indices([(i, j) for j in range(self.model_dim)])
         for j in range(len(x[i])):
+            self._register_attention_position(i, j)
             if x[i][j] > max:
                 max = x[i][j]
         return max
