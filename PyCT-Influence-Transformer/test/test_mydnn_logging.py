@@ -24,12 +24,21 @@ if "keras" not in sys.modules:
         "Flatten",
         "ELU",
         "Activation",
+        "ReLU",
         "MaxPool2D",
+        "MaxPooling2D",
+        "RandomCrop",
+        "RandomFlip",
+        "Dropout",
+        "ZeroPadding2D",
         "LSTM",
         "Embedding",
         "BatchNormalization",
+        "LayerNormalization",
         "SimpleRNN",
         "MultiHeadAttention",
+        "Add",
+        "GlobalAveragePooling2D",
         "GlobalAveragePooling1D",
         "Reshape",
     ]:
@@ -83,8 +92,8 @@ class MyDNNLoggingTests(unittest.TestCase):
         layer = mydnn.ActivationLayer("tanh")
         output = layer.forward([[0, 1], [-1, 2]])
         expected = [
-            [0.0, np.tanh(1)],
-            [np.tanh(-1), np.tanh(2)],
+            [mydnn.act_tanh(0), mydnn.act_tanh(1)],
+            [mydnn.act_tanh(-1), mydnn.act_tanh(2)],
         ]
         for row_out, row_exp in zip(output, expected):
             self.assertTrue(

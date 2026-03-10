@@ -41,6 +41,57 @@ log = logging.getLogger("ct.shap")
 _KERAS_RESNET_IMPORT_ERROR: Exception | None = None
 
 
+class AddPositionEmbedding(tf.keras.layers.Layer):
+    """Inference-compatible positional embedding layer."""
+
+    def build(self, input_shape):
+        if len(input_shape) < 3:
+            raise ValueError("AddPositionEmbedding expects rank-3 inputs [B, L, D].")
+        seq_len = int(input_shape[1])
+        dim = int(input_shape[2])
+        self.pos_embedding = self.add_weight(
+            name="pos_embedding",
+            shape=(1, seq_len, dim),
+            initializer="zeros",
+            trainable=True,
+        )
+        super().build(input_shape)
+
+    def call(self, inputs):
+        return inputs + self.pos_embedding
+
+
+class DropPath(tf.keras.layers.Layer):
+    """DropPath as identity during inference."""
+
+    def __init__(self, drop_prob=0.0, **kwargs):
+        super().__init__(**kwargs)
+        self.drop_prob = float(drop_prob)
+
+    def call(self, inputs, training=None):
+        del training
+        return inputs
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"drop_prob": self.drop_prob})
+        return config
+
+
+class SequencePooling(tf.keras.layers.Layer):
+    """Sequence pooling with learnable token attention."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Keep sublayer naming stable with saved checkpoints.
+        self.score = tf.keras.layers.Dense(1, name="dense_16")
+
+    def call(self, inputs):
+        scores = self.score(inputs)
+        weights = tf.nn.softmax(scores, axis=1)
+        return tf.reduce_sum(weights * inputs, axis=1)
+
+
 def _inject_keras_resnet_libct() -> None:
     # keras_resnet BatchNormalization may reference module-level `libct` during graph execution.
     try:
@@ -85,6 +136,17 @@ def _get_resnet_custom_objects() -> Dict[str, object]:
         log.debug("Unable to build keras_resnet custom_objects: %r", exc)
         return custom_objects
     return custom_objects
+
+
+def _get_transformer_custom_objects() -> Dict[str, object]:
+    return {
+        "AddPositionEmbedding": AddPositionEmbedding,
+        "DropPath": DropPath,
+        "SequencePooling": SequencePooling,
+        "Custom>AddPositionEmbedding": AddPositionEmbedding,
+        "Custom>DropPath": DropPath,
+        "Custom>SequencePooling": SequencePooling,
+    }
 
 
 def _needs_resnet_fallback(exc: Exception) -> bool:
@@ -262,6 +324,7 @@ def _load_model_with_compat(
     num_classes_override: Optional[int] = None,
 ) -> Sequential | Model:
     custom_objects = _get_resnet_custom_objects()
+    custom_objects.update(_get_transformer_custom_objects())
     try:
         if custom_objects:
             return load_model(model_path, custom_objects=custom_objects, compile=False)

@@ -23,6 +23,62 @@ myModel: Optional[NNModel] = None
 loaded_model_path: Optional[str] = None
 
 
+class AddPositionEmbedding(keras.layers.Layer):
+    """Inference-compatible positional embedding layer."""
+
+    def build(self, input_shape):
+        if len(input_shape) < 3:
+            raise ValueError("AddPositionEmbedding expects rank-3 inputs [B, L, D].")
+        seq_len = int(input_shape[1])
+        dim = int(input_shape[2])
+        self.pos_embedding = self.add_weight(
+            name="pos_embedding",
+            shape=(1, seq_len, dim),
+            initializer="zeros",
+            trainable=True,
+        )
+        super().build(input_shape)
+
+    def call(self, inputs):
+        return inputs + self.pos_embedding
+
+
+class DropPath(keras.layers.Layer):
+    """DropPath as identity during inference."""
+
+    def __init__(self, drop_prob=0.0, **kwargs):
+        super().__init__(**kwargs)
+        self.drop_prob = float(drop_prob)
+
+    def call(self, inputs, training=None):
+        del training
+        return inputs
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"drop_prob": self.drop_prob})
+        return config
+
+
+class SequencePooling(keras.layers.Layer):
+    """Sequence pooling with learnable token attention."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Keep sublayer naming stable with saved checkpoints.
+        self.score = keras.layers.Dense(1, name="dense_16")
+
+    def call(self, inputs):
+        scores = self.score(inputs)
+        if hasattr(keras, "ops"):
+            weights = keras.ops.softmax(scores, axis=1)
+            return keras.ops.sum(weights * inputs, axis=1)
+        import tensorflow as tf
+
+        weights = tf.nn.softmax(scores, axis=1)
+        return tf.reduce_sum(weights * inputs, axis=1)
+
+
 def _inject_keras_resnet_libct() -> None:
     # keras_resnet BatchNormalization may reference module-level `libct` during graph execution.
     try:
@@ -49,10 +105,33 @@ def _get_inbound_layers(layer):
 
 
 def _collect_layers_and_inbound(model):
-    layers = [l for l in model.layers if type(l).__name__ not in ["Dropout", "InputLayer", "Embedding"]]
+    excluded = {"Dropout", "InputLayer", "Embedding"}
+    layers = [l for l in model.layers if type(l).__name__ not in excluded]
+    kept_names = {layer.name for layer in layers}
     inbound_map = {}
+
+    def _resolve_parent_names(parent):
+        if parent is None:
+            return []
+        parent_type = type(parent).__name__
+        if parent.name in kept_names or parent_type == "InputLayer":
+            return [parent.name]
+
+        names = []
+        for grand_parent in _get_inbound_layers(parent):
+            names.extend(_resolve_parent_names(grand_parent))
+        return names
+
     for layer in layers:
-        inbound_map[layer.name] = [parent.name for parent in _get_inbound_layers(layer)]
+        resolved = []
+        seen = set()
+        for parent in _get_inbound_layers(layer):
+            for name in _resolve_parent_names(parent):
+                if name in seen:
+                    continue
+                seen.add(name)
+                resolved.append(name)
+        inbound_map[layer.name] = resolved
     return layers, inbound_map
 
 
@@ -82,6 +161,18 @@ def _get_resnet_custom_objects():
     except Exception as exc:
         log.debug("Unable to build keras_resnet custom_objects: %r", exc)
     return custom_objects
+
+
+def _get_transformer_custom_objects():
+    layer_map = {
+        "AddPositionEmbedding": AddPositionEmbedding,
+        "DropPath": DropPath,
+        "SequencePooling": SequencePooling,
+        "Custom>AddPositionEmbedding": AddPositionEmbedding,
+        "Custom>DropPath": DropPath,
+        "Custom>SequencePooling": SequencePooling,
+    }
+    return layer_map
 
 
 def _needs_resnet_fallback(exc: Exception) -> bool:
@@ -233,6 +324,7 @@ def _build_resnet_model(depth: int, input_shape: Tuple[int, ...], num_classes: i
 
 def _load_keras_model(model_path):
     custom_objects = _get_resnet_custom_objects()
+    custom_objects.update(_get_transformer_custom_objects())
     try:
         if custom_objects:
             return keras.models.load_model(model_path, custom_objects=custom_objects, compile=False)

@@ -22,10 +22,12 @@ from keras.layers import (
     MaxPooling2D,
     RandomCrop,
     RandomFlip,
+    Dropout,
     ZeroPadding2D,
     LSTM,
     Embedding,
     BatchNormalization,
+    LayerNormalization,
     SimpleRNN,
     MultiHeadAttention,
     Add,
@@ -57,6 +59,7 @@ ACTIVATIONS = (
     'tanh',
     'hard_sigmoid',
     'softmax',
+    'gelu',
 )
 
 log = logging.getLogger("ct.model")
@@ -165,6 +168,17 @@ def act_sigmoid(x):
         return 0.0
     return 1.0 / (1.0 + exp_func(-x))
 
+def act_gelu(x):
+    # Concrete-guided piecewise-linear GELU approximation for symbolic stability.
+    concrete = float(unwrap(x))
+    if concrete <= -3.0:
+        factor = 0.0
+    elif concrete >= 3.0:
+        factor = 1.0
+    else:
+        factor = (concrete + 3.0) / 6.0
+    return factor * x
+
 def act_softmax(x):
     # exp_values = [concolic_exp(val) for val in x]    # 計算指數函數
     max_val = x[0]
@@ -215,6 +229,8 @@ def actFunc(val, type):
         return act_sigmoid(val)
     elif type=='tanh':
         return act_tanh(val)
+    elif type=='gelu':
+        return act_gelu(val)
     elif type=='elu':
         pass
     elif type=='softplus':
@@ -222,13 +238,14 @@ def actFunc(val, type):
     elif type=='softsign':
         pass
     else:
-        raise NotImplementedError()
+        raise NotImplementedError(f"Unsupported activation function: {type}")
     return 0
 
 
 class ActivationLayer:
     def __init__(self, type):
-        if type not in ACTIVATIONS: raise NotImplementedError()
+        if type not in ACTIVATIONS:
+            raise NotImplementedError(f"Unsupported activation: {type}")
         self.type = type
         self._output = None
     def forward(self, tensor_in):
@@ -614,6 +631,146 @@ class BatchNormLayer:
         return self._output
 
 
+class LayerNormLayer:
+    """LayerNorm with concrete-stat approximation for symbolic stability."""
+
+    def __init__(self, gamma, beta, epsilon=1e-6):
+        self.gamma = [float(v) for v in gamma]
+        self.beta = [float(v) for v in beta]
+        self.epsilon = float(epsilon)
+        self._output = None
+
+    def forward(self, tensor_in):
+        channels = len(self.gamma)
+        if channels != len(self.beta):
+            raise ValueError("LayerNorm gamma/beta size mismatch.")
+
+        def _norm_leaf(vec):
+            if len(vec) != channels:
+                raise ValueError(
+                    f"LayerNorm channel mismatch: expected {channels}, got {len(vec)}"
+                )
+            concrete_vals = [float(unwrap(v)) for v in vec]
+            mean = sum(concrete_vals) / channels
+            var = sum((v - mean) * (v - mean) for v in concrete_vals) / channels
+            inv_std = 1.0 / math.sqrt(var + self.epsilon)
+
+            out = []
+            for i, x in enumerate(vec):
+                centered = x + (-mean)
+                out.append(self.gamma[i] * (centered * inv_std) + self.beta[i])
+            return out
+
+        def _recurse(t):
+            if not isinstance(t, collections.abc.Iterable) or isinstance(t, (str, bytes)):
+                raise ValueError("LayerNorm expects iterable tensor.")
+            if not t or not isinstance(t[0], collections.abc.Iterable):
+                return _norm_leaf(list(t))
+            return [_recurse(sub) for sub in t]
+
+        self._output = _recurse(tensor_in)
+        return self._output
+
+    def getOutput(self):
+        return self._output
+
+
+class AddPositionEmbeddingLayer:
+    def __init__(self, pos_embedding):
+        pos = np.asarray(pos_embedding).tolist()
+        if len(pos) == 1 and isinstance(pos[0], list):
+            pos = pos[0]
+        self.pos_embedding = pos
+        self._output = None
+
+    def _add_to_sequence(self, seq):
+        if len(seq) != len(self.pos_embedding):
+            raise ValueError(
+                f"PositionEmbedding length mismatch: input={len(seq)} pos={len(self.pos_embedding)}"
+            )
+        out = []
+        for token_idx, token in enumerate(seq):
+            pos_token = self.pos_embedding[token_idx]
+            if len(token) != len(pos_token):
+                raise ValueError("PositionEmbedding dim mismatch.")
+            out.append([token[d] + pos_token[d] for d in range(len(token))])
+        return out
+
+    def forward(self, tensor_in):
+        shape = dim(tensor_in)
+        if len(shape) == 2:
+            self._output = self._add_to_sequence(tensor_in)
+        elif len(shape) == 3:
+            self._output = [self._add_to_sequence(sample) for sample in tensor_in]
+        else:
+            raise ValueError("AddPositionEmbedding expects rank-2 or rank-3 tensor.")
+        return self._output
+
+    def getOutput(self):
+        return self._output
+
+
+def _softmax_from_concrete(scores):
+    if not scores:
+        return []
+    max_score = max(scores)
+    exp_values = [float(unwrap(exp_func(v - max_score))) for v in scores]
+    denom = sum(exp_values)
+    if denom <= 0.0:
+        return [1.0 / len(scores) for _ in scores]
+    return [v / denom for v in exp_values]
+
+
+class SequencePoolingLayer:
+    """Token attention pooling; attention weights are concrete for solver safety."""
+
+    def __init__(self, kernel, bias):
+        kernel_arr = np.asarray(kernel, dtype=float)
+        if kernel_arr.ndim != 2 or kernel_arr.shape[1] != 1:
+            raise ValueError(f"SequencePooling kernel shape must be [D,1], got {kernel_arr.shape}.")
+        self.kernel = [float(v[0]) for v in kernel_arr.tolist()]
+        self.bias = float(np.asarray(bias, dtype=float).reshape(-1)[0])
+        self._output = None
+
+    def _pool_one(self, seq):
+        token_count = len(seq)
+        if token_count == 0:
+            raise ValueError("SequencePooling expects non-empty sequence.")
+        dim_size = len(self.kernel)
+        for token in seq:
+            if len(token) != dim_size:
+                raise ValueError("SequencePooling token dim mismatch.")
+
+        scores = []
+        for token in seq:
+            score = self.bias
+            for d, x in enumerate(token):
+                score += float(unwrap(x)) * self.kernel[d]
+            scores.append(score)
+
+        weights = _softmax_from_concrete(scores)
+        pooled = []
+        for d in range(dim_size):
+            value = 0.0
+            for t in range(token_count):
+                value += weights[t] * seq[t][d]
+            pooled.append(value)
+        return pooled
+
+    def forward(self, tensor_in):
+        shape = dim(tensor_in)
+        if len(shape) == 2:
+            self._output = self._pool_one(tensor_in)
+        elif len(shape) == 3:
+            self._output = [self._pool_one(sample) for sample in tensor_in]
+        else:
+            raise ValueError("SequencePooling expects rank-2 or rank-3 tensor.")
+        return self._output
+
+    def getOutput(self):
+        return self._output
+
+
 # Define SimpleRNN class
 class SimpleRNNLayer:
     def __init__(self, input_dim, weights, activation='tanh'):        
@@ -992,7 +1149,8 @@ class NNModel:
 
     def _resolve_cache_key(self, keras_name: str) -> str:
         if keras_name not in self.keras_to_cache_key:
-            raise KeyError(f"Unknown inbound source: {keras_name}")
+            known = ", ".join(sorted(self.keras_to_cache_key.keys()))
+            raise KeyError(f"Unknown inbound source '{keras_name}'. Known sources: {known}")
         return self.keras_to_cache_key[keras_name]
 
     def _register_cache_key(self, keras_name: str, cache_key: str) -> None:
@@ -1017,7 +1175,14 @@ class NNModel:
             log.debug("Forwarding layer %s (%s)", i, layer.__class__.__name__)
             layer_key = self.my_layer_keys[i] if i < len(self.my_layer_keys) else f"layer_{i}"
             if hasattr(layer, "input_from") and layer.input_from:
-                inputs = [cache[name] for name in layer.input_from]
+                inputs = []
+                for name in layer.input_from:
+                    if name not in cache:
+                        raise KeyError(
+                            f"Missing cached input '{name}' while forwarding layer "
+                            f"index={i} type={layer.__class__.__name__}"
+                        )
+                    inputs.append(cache[name])
                 if getattr(layer, "multi_input", False):
                     x = layer.forward(inputs)
                 else:
@@ -1037,7 +1202,16 @@ class NNModel:
     def addLayer(self, layer, inbound_names: Optional[List[str]] = None):
         inbound_names = inbound_names or []
         keras_name = getattr(layer, "name", f"layer_{len(self.layers)}")
-        resolved_inbounds = [self._resolve_cache_key(name) for name in inbound_names] if inbound_names else []
+        layer_type_name = layer.__class__.__name__
+        resolved_inbounds = []
+        for inbound_name in inbound_names:
+            try:
+                resolved_inbounds.append(self._resolve_cache_key(inbound_name))
+            except KeyError as exc:
+                raise KeyError(
+                    f"Missing inbound '{inbound_name}' for layer '{keras_name}' "
+                    f"({layer_type_name})"
+                ) from exc
         created = 0
 
         if isinstance(layer, Conv2D):
@@ -1121,6 +1295,14 @@ class NNModel:
             key = self._append_layer(relu_layer)
             created += 1
             self._register_cache_key(keras_name, key)
+        elif isinstance(layer, Dropout):
+            # inference-time deterministic: no-op
+            noop_layer = NoOpLayer("Dropout")
+            if resolved_inbounds:
+                noop_layer.input_from = resolved_inbounds
+            key = self._append_layer(noop_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
         elif isinstance(layer, RandomFlip):
             # inference-time deterministic: no-op
             noop_layer = NoOpLayer("RandomFlip")
@@ -1161,6 +1343,15 @@ class NNModel:
             key = self._append_layer(bn_layer)
             created += 1
             self._register_cache_key(keras_name, key)
+        elif isinstance(layer, LayerNormalization):
+            gamma, beta = layer.get_weights()
+            epsilon = layer.get_config().get("epsilon", 1e-6)
+            ln_layer = LayerNormLayer(gamma, beta, epsilon)
+            if resolved_inbounds:
+                ln_layer.input_from = resolved_inbounds
+            key = self._append_layer(ln_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
         elif isinstance(layer, SimpleRNN):
             input_dim = layer.input_shape[-1]
             activation = layer.get_config()['activation']
@@ -1191,7 +1382,6 @@ class NNModel:
             bv=layer._value_dense.bias
             output_weights=layer._output_dense.kernel
             output_bias=layer._output_dense.bias
-            model_dim = layer._output_dense.full_output_shape[-1]
             mha_layer = MultiHeadAttentionLayer(num_heads,key_dim_per_heads,wq,bq,wk,bk,wv,bv,output_weights,output_bias)
             if resolved_inbounds:
                 mha_layer.input_from = resolved_inbounds
@@ -1225,7 +1415,36 @@ class NNModel:
             key = self._append_layer(reshape_layer)
             created += 1
             self._register_cache_key(keras_name, key)
+        elif layer_type_name == "AddPositionEmbedding":
+            layer_weights = layer.get_weights()
+            if not layer_weights:
+                raise ValueError("AddPositionEmbedding layer has no position embedding weights.")
+            pos_layer = AddPositionEmbeddingLayer(layer_weights[0])
+            if resolved_inbounds:
+                pos_layer.input_from = resolved_inbounds
+            key = self._append_layer(pos_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif layer_type_name == "DropPath":
+            drop_path_layer = NoOpLayer("DropPath")
+            if resolved_inbounds:
+                drop_path_layer.input_from = resolved_inbounds
+            key = self._append_layer(drop_path_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif layer_type_name == "SequencePooling":
+            layer_weights = layer.get_weights()
+            if len(layer_weights) < 2:
+                raise ValueError(
+                    "SequencePooling layer requires [kernel, bias] weights, but none were found."
+                )
+            seq_pool_layer = SequencePoolingLayer(layer_weights[0], layer_weights[1])
+            if resolved_inbounds:
+                seq_pool_layer.input_from = resolved_inbounds
+            key = self._append_layer(seq_pool_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
         else:
-            raise NotImplementedError()
+            raise NotImplementedError(f"Unsupported layer: {layer_type_name} (name={keras_name})")
 
         return created
