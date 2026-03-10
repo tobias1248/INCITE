@@ -688,6 +688,27 @@ class ShapValuesCalculator:
         return tuple(reversed(indices))
 
 
+def _infer_layer_count_from_cached_values(shap_values: Dict[str, float]) -> int:
+    max_layer = -1
+    for key in shap_values.keys():
+        token = key.split("_", 1)[0]
+        if token.lstrip("-").isdigit():
+            max_layer = max(max_layer, int(token))
+    return max_layer + 1 if max_layer >= 0 else 1
+
+
+def _load_cached_shap_values(cache_path: Path) -> Dict[str, float]:
+    with cache_path.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    if isinstance(data, dict) and "values" in data:
+        values = data.get("values", {})
+    else:
+        values = data
+    if not isinstance(values, dict):
+        raise TypeError(f"Expected SHAP cache {cache_path} to be a JSON dict.")
+    return {str(k): float(v) for k, v in values.items()}
+
+
 class ShapValuesComparator:
     """Comparator for prioritising constraints based on SHAP influence."""
 
@@ -702,6 +723,22 @@ class ShapValuesComparator:
         explainer_type: Literal["gradient", "kernel"] = "gradient",
         output_root: str = "shap_value_all_layer",
     ) -> None:
+        cache_path = Path(output_root) / Path(model_path).stem / f"shap_value_{idx}.json"
+        if shap_value_pre_calculated and cache_path.is_file():
+            try:
+                self.shap_values = _load_cached_shap_values(cache_path)
+                self.layer_count = _infer_layer_count_from_cached_values(self.shap_values)
+                self.model = None
+                self.calculator = None
+                log.debug("Loaded SHAP cache without model load: %s", cache_path)
+                return
+            except Exception as exc:
+                log.warning(
+                    "Failed to load SHAP cache '%s' in fast path (%r); falling back to model-backed path.",
+                    cache_path,
+                    exc,
+                )
+
         self.calculator = ShapValuesCalculator(
             model_path=model_path,
             background_dataset=background_dataset,

@@ -162,6 +162,15 @@ def _normalize_ton_sequence(
     return tuple(sequence)
 
 
+def _sparsify_con_dict(con_dict: Dict[str, Any]) -> Dict[str, int]:
+    """Keep only enabled coordinates to reduce payload size in transformer ton plans."""
+    sparse: Dict[str, int] = {}
+    for key, value in con_dict.items():
+        if value:
+            sparse[key] = 1
+    return sparse
+
+
 def _make_shap_provider(shap_array: np.ndarray) -> Callable[[int, int], List[Any]]:
     def provider(idx: int, ton: int) -> List[Any]:
         return shap_array[idx, :ton].tolist()
@@ -355,7 +364,7 @@ def fashion_mnist_transformer_shap(
             ton_plans.append(
                 {
                     "ton": ton_value,
-                    "con_dict": con_dict,
+                    "con_dict": _sparsify_con_dict(con_dict),
                     "save_exp": save_exp,
                 }
             )
@@ -450,7 +459,7 @@ def mnist_transformer_shap(
             ton_plans.append(
                 {
                     "ton": ton_value,
-                    "con_dict": con_dict,
+                    "con_dict": _sparsify_con_dict(con_dict),
                     "save_exp": save_exp,
                 }
             )
@@ -541,7 +550,7 @@ def cifar10_transformer_shap(
             ton_plans.append(
                 {
                     "ton": ton_value,
-                    "con_dict": con_dict,
+                    "con_dict": _sparsify_con_dict(con_dict),
                     "save_exp": save_exp,
                 }
             )
@@ -630,7 +639,7 @@ def fashion_mnist_transformer_random(
             ton_plans.append(
                 {
                     "ton": ton_value,
-                    "con_dict": con_dict,
+                    "con_dict": _sparsify_con_dict(con_dict),
                     "save_exp": save_exp,
                 }
             )
@@ -720,7 +729,7 @@ def mnist_transformer_random(
             ton_plans.append(
                 {
                     "ton": ton_value,
-                    "con_dict": con_dict,
+                    "con_dict": _sparsify_con_dict(con_dict),
                     "save_exp": save_exp,
                 }
             )
@@ -809,7 +818,7 @@ def cifar10_transformer_random(
             ton_plans.append(
                 {
                     "ton": ton_value,
-                    "con_dict": con_dict,
+                    "con_dict": _sparsify_con_dict(con_dict),
                     "save_exp": save_exp,
                 }
             )

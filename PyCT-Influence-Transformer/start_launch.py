@@ -5,7 +5,7 @@ import logging
 import os
 import signal
 import time
-from multiprocessing import Event, Process, Queue
+from multiprocessing import Event, JoinableQueue, Process
 import queue as py_queue
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -225,7 +225,7 @@ def _collect_stage_cases(inputs: Sequence[Dict[str, Any]]) -> List[Dict[str, Any
 
 
 def _worker(
-    task_queue: Queue,
+    task_queue: JoinableQueue,
     timeout: int,
     constraint_build_timeout: bool,
     solver_run_timeout: Optional[int],
@@ -235,54 +235,64 @@ def _worker(
     base_seed: int,
     shutdown_event: Event,
 ) -> None:
-    """Entry point for each subprocess that forwards to the util helper."""
+    """Persistent worker that reuses one runner across multiple tasks/stages."""
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     worker_pid = os.getpid()
+    runner = None
     try:
         if shutdown_event.is_set():
             logger.info("[WORKER-SHUTDOWN] pid=%s aborting before start", worker_pid)
             return
+        if attack_mode == "random-assign":
+            from utils.experiment_runner import RandomAssignRunner
+
+            runner = RandomAssignRunner(
+                timeout=timeout,
+                constraint_build_timeout=constraint_build_timeout,
+                solver_run_timeout=solver_run_timeout,
+                norm=norm_01,
+                pixel_source=pixel_source,
+                base_seed=base_seed,
+            )
+        elif attack_mode == "queue":
+            from utils.experiment_runner import QueueRunner
+
+            runner = QueueRunner(
+                timeout=timeout,
+                constraint_build_timeout=constraint_build_timeout,
+                solver_run_timeout=solver_run_timeout,
+                norm=norm_01,
+                collect_constraints_with="queue",
+            )
+        else:
+            from utils.experiment_runner import ShapRunner
+
+            runner = ShapRunner(
+                timeout=timeout,
+                constraint_build_timeout=constraint_build_timeout,
+                solver_run_timeout=solver_run_timeout,
+                norm=norm_01,
+            )
+
         while not shutdown_event.is_set():
             try:
                 task = task_queue.get(timeout=1)
             except py_queue.Empty:
-                break
+                continue
             if task is None:
+                task_queue.task_done()
                 break
-
-            if attack_mode == "random-assign":
-                from utils.experiment_runner import run_attack_with_random_assign
-
-                run_attack_with_random_assign(
-                    [task],
-                    timeout=timeout,
-                    constraint_build_timeout=constraint_build_timeout,
-                    solver_run_timeout=solver_run_timeout,
-                    norm=norm_01,
-                    pixel_source=pixel_source,
-                    base_seed=base_seed,
+            try:
+                runner.run_tasks([task])
+            except Exception:
+                logger.exception(
+                    "[WORKER-TASK-ERROR] pid=%s idx=%s attack=%s",
+                    worker_pid,
+                    task.get("idx") if isinstance(task, dict) else "unknown",
+                    attack_mode,
                 )
-            elif attack_mode == "queue":
-                from utils.experiment_runner import run_attack_with_queue
-
-                run_attack_with_queue(
-                    [task],
-                    timeout=timeout,
-                    constraint_build_timeout=constraint_build_timeout,
-                    solver_run_timeout=solver_run_timeout,
-                    norm=norm_01,
-                    collect_constraints_with="queue",
-                )
-            else:
-                from utils.experiment_runner import run_attack_with_shap
-
-                run_attack_with_shap(
-                    [task],
-                    timeout=timeout,
-                    constraint_build_timeout=constraint_build_timeout,
-                    solver_run_timeout=solver_run_timeout,
-                    norm=norm_01,
-                )
+            finally:
+                task_queue.task_done()
     except KeyboardInterrupt:
         logger.info("[WORKER-INTERRUPT] pid=%s received interrupt", worker_pid)
     finally:
@@ -335,16 +345,11 @@ def run_launcher(args: Any) -> None:
     else:
         os.environ.pop("PYCT_SCORE_ALPHA", None)
     os.environ["PYCT_SYMBOLIC_PATH_THRESHOLD"] = str(args.symbolic_path_threshold)
-    os.environ["PYCT_ATTN_POSITION_MODE"] = args.attn_position_mode
-    os.environ["PYCT_SYMBOLIC_EXP_MODE"] = args.symbolic_exp_mode
+    os.environ["PYCT_ENABLE_CONSTRAINT_LOG"] = "1" if args.enable_constraint_log else "0"
 
     attack_mode_parts = [attack_mode]
     if args.solver_run_timeout and args.solver_run_timeout > 0:
         attack_mode_parts.append(f"solver{args.solver_run_timeout}s")
-    if args.attn_position_mode != "coarse":
-        attack_mode_parts.append(f"attn{args.attn_position_mode}")
-    if args.symbolic_exp_mode != "off":
-        attack_mode_parts.append(f"exp{args.symbolic_exp_mode}")
     attack_mode_for_paths = "_".join(attack_mode_parts)
     force_refresh = args.force_refresh
     force_generate = True
@@ -438,60 +443,62 @@ def run_launcher(args: Any) -> None:
     )
     time.sleep(3)
 
-    def _run_stage_tasks(stage_inputs: List[Dict[str, Any]]) -> None:
-        if not stage_inputs or shutdown_event.is_set():
+    worker_count = max(1, args.num_process)
+    task_queue: JoinableQueue = JoinableQueue()
+
+    def _start_workers() -> None:
+        if running_processes:
             return
-        running_processes.clear()
-
-        task_queue: Queue = Queue()
-        for task in stage_inputs:
-            task_queue.put(task)
-        for _ in range(args.num_process):
-            task_queue.put(None)
-
-        try:
-            worker_count = min(args.num_process, max(len(stage_inputs), 1))
-            for _ in range(worker_count):
-                if shutdown_event.is_set():
-                    logger.info("Shutdown requested; skipping remaining tasks")
-                    break
-                process = Process(
-                    target=_worker,
-                    args=(
-                        task_queue,
-                        args.timeout,
-                        args.constraint_build_timeout,
-                        args.solver_run_timeout if args.solver_run_timeout > 0 else None,
-                        args.norm_01,
-                        args.attack_mode,
-                        args.pixel_source,
-                        args.random_seed,
-                        shutdown_event,
-                    ),
-                )
-                logger.info(
-                    "[WORKER-START] timeout=%s norm=%s attack=%s pixel_src=%s pid_pending",
+        for _ in range(worker_count):
+            if shutdown_event.is_set():
+                logger.info("Shutdown requested; stop worker bootstrap")
+                break
+            process = Process(
+                target=_worker,
+                args=(
+                    task_queue,
                     args.timeout,
+                    args.constraint_build_timeout,
+                    args.solver_run_timeout if args.solver_run_timeout > 0 else None,
                     args.norm_01,
                     args.attack_mode,
                     args.pixel_source,
-                )
-                process.start()
-                running_processes.append(process)
-                time.sleep(args.spawn_delay)
+                    args.random_seed,
+                    shutdown_event,
+                ),
+            )
+            logger.info(
+                "[WORKER-START] timeout=%s norm=%s attack=%s pixel_src=%s pid_pending",
+                args.timeout,
+                args.norm_01,
+                args.attack_mode,
+                args.pixel_source,
+            )
+            process.start()
+            running_processes.append(process)
+            time.sleep(args.spawn_delay)
 
-            for process in running_processes:
-                while process.is_alive():
-                    process.join(timeout=0.5)
-                    if shutdown_event.is_set():
-                        break
-                logger.info("[WORKER-DONE] pid=%s exitcode=%s", process.pid, process.exitcode)
-        finally:
-            for process in running_processes:
-                if process.is_alive():
-                    process.terminate()
-                process.join()
-            running_processes.clear()
+    def _stop_workers() -> None:
+        if not running_processes:
+            return
+        for _ in running_processes:
+            task_queue.put(None)
+        task_queue.join()
+        for process in running_processes:
+            process.join(timeout=3)
+            if process.is_alive():
+                process.terminate()
+            process.join()
+            logger.info("[WORKER-DONE] pid=%s exitcode=%s", process.pid, process.exitcode)
+        running_processes.clear()
+
+    def _run_stage_tasks(stage_inputs: List[Dict[str, Any]]) -> None:
+        if not stage_inputs or shutdown_event.is_set():
+            return
+        _start_workers()
+        for task in stage_inputs:
+            task_queue.put(task)
+        task_queue.join()
 
     cases = _collect_stage_cases(inputs)
     if not cases:
@@ -600,6 +607,8 @@ def run_launcher(args: Any) -> None:
             logger.warning("Main loop interrupted; shutting down workers")
             interrupted = True
             shutdown_event.set()
+
+    _stop_workers()
 
     if interrupted or shutdown_event.is_set():
         logger.info("Tasks interrupted; shutdown requested")

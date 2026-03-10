@@ -1,6 +1,4 @@
 
-
-import os
 import sys
 import numpy as np
 import math
@@ -63,28 +61,6 @@ ACTIVATIONS = (
 
 log = logging.getLogger("ct.model")
 debug = False
-
-
-def _get_attn_position_mode() -> str:
-    mode = os.environ.get("PYCT_ATTN_POSITION_MODE", "coarse").strip().lower()
-    if mode in ("coarse", "qk"):
-        return mode
-    log.warning(
-        "Unknown PYCT_ATTN_POSITION_MODE='%s'; fallback to 'coarse'",
-        mode,
-    )
-    return "coarse"
-
-
-def _get_symbolic_exp_mode() -> str:
-    mode = os.environ.get("PYCT_SYMBOLIC_EXP_MODE", "off").strip().lower()
-    if mode in ("off", "pwl"):
-        return mode
-    log.warning(
-        "Unknown PYCT_SYMBOLIC_EXP_MODE='%s'; fallback to 'off'",
-        mode,
-    )
-    return "off"
 
 
 def _piecewise_linear_exp(x):
@@ -153,11 +129,8 @@ def my_exp_complex(x):
         except mathexpError:
             print(x, 'math.expError')
 def my_exp(x):
-    if _get_symbolic_exp_mode() == "pwl":
-        return _piecewise_linear_exp(x)
-    if x < -15:
-        return 0.0
-    return math.exp(x)
+    # Core default for transformer path: symbolic-safe exp approximation.
+    return _piecewise_linear_exp(x)
 
 
 # exp_func = math.exp
@@ -781,7 +754,6 @@ class MultiHeadAttentionLayer:
     def __init__(self, num_heads, key_dim_per_heads, wq, bq, wk, bk, wv, bv, output_weights, output_bias):
         self.num_heads = num_heads#20
         self.key_dim_per_heads = key_dim_per_heads#32
-        self.attn_position_mode = _get_attn_position_mode()
         self.WQ = wq.numpy().tolist()
         self.BQ = bq.numpy().tolist()
         self.WK = wk.numpy().tolist()
@@ -860,12 +832,9 @@ class MultiHeadAttentionLayer:
         return context_vector
 
     def _register_attention_position(self, query_idx, key_idx):
-        if self.attn_position_mode == "qk":
-            query_coords = [(query_idx, j) for j in range(self.model_dim)]
-            key_coords = [(key_idx, j) for j in range(self.model_dim)]
-            register_current_indices(query_coords + key_coords)
-            return
-        register_current_indices([(query_idx, j) for j in range(self.model_dim)])
+        query_coords = [(query_idx, j) for j in range(self.model_dim)]
+        key_coords = [(key_idx, j) for j in range(self.model_dim)]
+        register_current_indices(query_coords + key_coords)
 
     def myMax(self,x,i):
 

@@ -36,6 +36,13 @@ execute = None
 recorder = None
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def prepare():
     #################################################################
     # Since the source code in https://github.com/python/cpython/blob/e822e37946f27c09953bb5733acf3b07c2db690f/Modules/socketmodule.c#L6485
@@ -104,6 +111,7 @@ class ExplorationEngine:
         self.symbolic_path_threshold = None if symbolic_path_threshold is None else int(symbolic_path_threshold)
         self.symbolic_enabled = True
         self.symbolic_disabled_at_path_len = None
+        self.constraint_log_enabled = _env_flag("PYCT_ENABLE_CONSTRAINT_LOG", False)
         self.verbose = verbose
         self.logfile = logfile
 
@@ -724,7 +732,7 @@ class ExplorationEngine:
                 for name, value in prim_args.items():
                     ccc_obj_name: str = name + '_VAR'  # '_VAR' is used to avoid name collision
                     self.concolic_flag_dict[ccc_obj_name] = 0
-                    if type(value) in (bool, float, int, str) and concolic_dict[name]:
+                    if type(value) in (bool, float, int, str) and concolic_dict.get(name, 0):
                         value = ConcolicObject(value, ccc_obj_name, self)
                         self.concolic_name_list.append(ccc_obj_name)
                         self.concolic_flag_dict[ccc_obj_name] = 1
@@ -859,15 +867,16 @@ class ExplorationEngine:
                 recorder.queue_last = current_size
                 if current_size > recorder.queue_max:
                     recorder.queue_max = current_size
-            log.info(
-                "[PUSH] idx=%s layer=%s position=%s shap=%.3e path_len=%s queue_size=%s",
-                self.idx,
-                position[0],
-                position[1],
-                abs(shap_value),
-                path_len,
-                len(self.constraints_to_solve),
-            )
+            if self.constraint_log_enabled:
+                log.info(
+                    "[PUSH] idx=%s layer=%s position=%s shap=%.3e path_len=%s queue_size=%s",
+                    self.idx,
+                    position[0],
+                    position[1],
+                    abs(shap_value),
+                    path_len,
+                    len(self.constraints_to_solve),
+                )
         else:
             self.constraints_to_solve.append(constraint)
             if recorder is not None:
@@ -875,15 +884,16 @@ class ExplorationEngine:
                 recorder.queue_last = current_size
                 if current_size > recorder.queue_max:
                     recorder.queue_max = current_size
-            log.info(
-                "[PUSH] idx=%s queue=%s position=%s shap=%.3e path_len=%s total=%s",
-                self.idx,
-                self.constraints_collection_type,
-                position,
-                abs(shap_value),
-                path_len,
-                len(self.constraints_to_solve),
-            )
+            if self.constraint_log_enabled:
+                log.info(
+                    "[PUSH] idx=%s queue=%s position=%s shap=%.3e path_len=%s total=%s",
+                    self.idx,
+                    self.constraints_collection_type,
+                    position,
+                    abs(shap_value),
+                    path_len,
+                    len(self.constraints_to_solve),
+                )
 
     def _compute_priority_score(self, shap_value: float, constraint: Constraint) -> tuple[float, int]:
         if self.shap_score_alpha is None:
@@ -906,6 +916,8 @@ class ExplorationEngine:
         shap_value: float | None = None,
         path_len: int | None = None,
     ) -> None:
+        if not self.constraint_log_enabled:
+            return
         attack_mode = getattr(self, "popped_log_attack_mode", "unknown")
         sample_idx = getattr(self, "idx", "unknown")
         if queue_mode == "priority":

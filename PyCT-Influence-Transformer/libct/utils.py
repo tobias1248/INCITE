@@ -1,5 +1,7 @@
 import functools, importlib, inspect, os
 
+_MODULE_CACHE = {}
+
 def _int(obj):
     from libct.concolic import Concolic
     if isinstance(obj, Concolic) and hasattr(obj, '__int2__'): return obj.__int2__()
@@ -70,14 +72,23 @@ def py2smt(x): # convert the Python object into the smtlib2 string constant
 
 def get_module_from_rootdir_and_modpath(rootdir, modpath):
     # filepath = os.path.join(rootdir, modpath.replace('.', '/') + '.py')
-    filepath = os.path.join(rootdir, modpath.replace('./', ''))
+    filepath = os.path.abspath(os.path.join(rootdir, modpath.replace('./', '')))
+    mtime = os.path.getmtime(filepath) if os.path.exists(filepath) else None
+    cache_key = (filepath, mtime)
+    if cache_key in _MODULE_CACHE:
+        return _MODULE_CACHE[cache_key]
+    # drop stale entries for same filepath but older mtime
+    for key in list(_MODULE_CACHE.keys()):
+        if key[0] == filepath and key != cache_key:
+            _MODULE_CACHE.pop(key, None)
     # print(filepath)
     # print(modpath)
-    spec = importlib.util.spec_from_file_location(modpath, os.path.abspath(filepath))
+    spec = importlib.util.spec_from_file_location(modpath, filepath)
     module = importlib.util.module_from_spec(spec)
     now_dir = os.getcwd(); os.chdir(os.path.dirname(filepath))
     spec.loader.exec_module(module)
     os.chdir(now_dir)
+    _MODULE_CACHE[cache_key] = module
     return module
 
 def get_function_from_module_and_funcname(module, funcname, enforce=True):

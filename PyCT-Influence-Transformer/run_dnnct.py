@@ -5,7 +5,7 @@ import os
 import gc
 import libct.explore
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Literal
+from typing import Any, Callable, Optional, Literal, Dict, Set, Tuple
 from types import ModuleType
 
 from utils.experiment_task_specs import get_save_dir_from_save_exp
@@ -18,6 +18,8 @@ PYCT_ROOT = './'
 MODEL_ROOT = os.path.join(PYCT_ROOT, 'model')
 VALID_COLLECT_MODES = {"priority_queue", "queue", "stack"}
 DEFAULT_SOLVER = "cvc5"
+PredictorCacheEntry = Tuple[ModuleType, Callable[..., Any], Callable[..., Any], Set[str]]
+_PREDICTOR_CACHE: Dict[Tuple[str, str], PredictorCacheEntry] = {}
 
 
 @dataclass
@@ -50,11 +52,20 @@ def _resolve_model_artifacts(model_name: str) -> tuple[str, str, str]:
     return model_path, module_path, root
 
 
-def _load_predictor(module_path: str, root: str) -> tuple[ModuleType, Callable[..., Any], Callable[..., Any]]:
+def _load_predictor(
+    module_path: str,
+    root: str,
+) -> PredictorCacheEntry:
+    cache_key = (os.path.abspath(root), os.path.abspath(module_path))
+    cached = _PREDICTOR_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     module = get_module_from_rootdir_and_modpath(root, module_path)
     func_init_model = get_function_from_module_and_funcname(module, "init_model")
     execute = get_function_from_module_and_funcname(module, "predict")
-    return module, func_init_model, execute
+    entry: PredictorCacheEntry = (module, func_init_model, execute, set())
+    _PREDICTOR_CACHE[cache_key] = entry
+    return entry
 
 
 def _prepare_experiment_paths(
@@ -135,8 +146,10 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
     collect_mode: Literal["priority_queue", "queue", "stack"] = _validate_collect_mode(collect_constraints_with)
     model_path, module_path, root = _resolve_model_artifacts(model_name)
 
-    module, func_init_model, execute = _load_predictor(module_path, root)
-    func_init_model(model_path)
+    module, func_init_model, execute, initialized_models = _load_predictor(module_path, root)
+    if model_path not in initialized_models:
+        func_init_model(model_path)
+        initialized_models.add(model_path)
 
     attack_mode = popped_log_attack_mode or (save_exp.get("attack_mode") if save_exp else "unknown")
     save_dir, smtdir, input_name = _prepare_experiment_paths(
