@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 from libct.concolic import Concolic
+from libct.position import summarize_position
 from libct.predicate import Predicate
 from libct.utils import py2smt
 
@@ -42,14 +43,34 @@ class Solver:
     iter = None # for the filename of saved smt constraint
     iter_count = 1 # for the filename of saved smt constraint
     build_timeout_enabled = True
+    build_timeout_seconds: Optional[int] = 30
     run_timeout: Optional[int] = None
     
 
     @classmethod # similar to our constructor
-    def set_basic_configurations(cls, solver, timeout, safety, store, smtdir, constraint_build_timeout=True, solver_run_timeout: Optional[int] = None):
+    def set_basic_configurations(
+        cls,
+        solver,
+        timeout,
+        safety,
+        store,
+        smtdir,
+        constraint_build_timeout=True,
+        constraint_build_timeout_seconds: Optional[int] = 30,
+        solver_run_timeout: Optional[int] = None,
+    ):
         cls.safety = safety; cls.smtdir = smtdir
         cls.stats = {'sat_number': 0, 'sat_time': 0, 'unsat_number': 0, 'unsat_time': 0, 'otherwise_number': 0, 'otherwise_time': 0}
         cls.build_timeout_enabled = bool(constraint_build_timeout)
+        if cls.build_timeout_enabled:
+            timeout_seconds = 30 if constraint_build_timeout_seconds is None else int(constraint_build_timeout_seconds)
+            if timeout_seconds < 1:
+                raise ValueError(
+                    f"constraint_build_timeout_seconds must be >= 1 when enabled, got {timeout_seconds}"
+                )
+            cls.build_timeout_seconds = timeout_seconds
+        else:
+            cls.build_timeout_seconds = None
         cls.run_timeout = solver_run_timeout
         
         # assert_len 是一個二維的list，第一個維度是每個iteration，第二個維度是該iteration的每個assert的長度
@@ -136,7 +157,7 @@ class Solver:
         """Append a constraint entry to the resolved log file."""
         with log_path.open("a", encoding="utf-8") as file:
             file.write("\n")
-            file.write(f"popped constraint with position: {position}\n")
+            file.write(f"popped constraint with position: {summarize_position(position)}\n")
             file.write(f"popped constraint with shap value: {shap_value}\n")
             file.write(f"{message}")
 
@@ -145,7 +166,7 @@ class Solver:
         log.debug(
             "Finding model (idx=%s, position=%s, shap_value=%s)",
             idx,
-            position,
+            summarize_position(position),
             shap_value,
         )
         log_path = cls._resolve_constraint_log_path(engine, idx)
@@ -205,7 +226,12 @@ class Solver:
         try:
             build_formula_start = time.time()
             if cls.build_timeout_enabled:
-                formulas = func_timeout.func_timeout(30, Solver._build_formulas_from_constraint, args=(engine, constraint, ori_args))
+                timeout_seconds = cls.build_timeout_seconds or 30
+                formulas = func_timeout.func_timeout(
+                    timeout_seconds,
+                    Solver._build_formulas_from_constraint,
+                    args=(engine, constraint, ori_args),
+                )
             else:
                 formulas = Solver._build_formulas_from_constraint(engine, constraint, ori_args)
             build_formula_end = time.time()
@@ -228,14 +254,14 @@ class Solver:
             log.warning(
                 "SMT formula construction timed out (idx=%s, position=%s)",
                 idx,
-                position,
+                summarize_position(position),
             )
             log.info(
                 "[SOLVER] idx=%s attack=%s ton=%s position=%s status=timeout sat=%d unsat=%d unknown=%d",
                 idx,
                 cls._derive_attack_mode(engine),
                 cls._derive_attack_ton(engine),
-                position,
+                summarize_position(position),
                 cls.stats["sat_number"],
                 cls.stats["unsat_number"],
                 cls.stats["otherwise_number"],
@@ -328,7 +354,7 @@ class Solver:
             idx,
             cls._derive_attack_mode(engine),
             cls._derive_attack_ton(engine),
-            position,
+            summarize_position(position),
             status,
             cls.stats["sat_number"],
             cls.stats["unsat_number"],

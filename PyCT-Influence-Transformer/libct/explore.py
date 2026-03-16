@@ -13,6 +13,7 @@ import sys
 import time
 from libct.path import PathToConstraint
 from libct.solver import Solver, _ensure_smtlib2_logger
+from libct.position import summarize_indices, summarize_position
 from libct.utils import ConcolicObject, unwrap, get_in_dict_shape
 from libct.record import ConcolicTestRecorder
 import cProfile
@@ -83,6 +84,7 @@ class ExplorationEngine:
                 solver="cvc5",
                 timeout=20,
                 constraint_build_timeout=True,
+                constraint_build_timeout_seconds: int = 30,
                 solver_run_timeout: Optional[int] = None,
                 safety=0,
                 store=None,
@@ -121,7 +123,16 @@ class ExplorationEngine:
         if self.statsdir:
             os.system(f"rm -rf '{statsdir}'")
             os.system(f"mkdir -p '{statsdir}'")
-        Solver.set_basic_configurations(solver, timeout, safety, store, smtdir, constraint_build_timeout, solver_run_timeout)
+        Solver.set_basic_configurations(
+            solver,
+            timeout,
+            safety,
+            store,
+            smtdir,
+            constraint_build_timeout,
+            constraint_build_timeout_seconds,
+            solver_run_timeout,
+        )
         _ensure_smtlib2_logger()
 
     def __init2__(self):
@@ -855,6 +866,11 @@ class ExplorationEngine:
         if position is not None and hasattr(self, "comparator") and self.comparator is not None:
             layer_number, indices = position
             shap_value = self.comparator.get_shap_influence(layer_number, indices)
+        layer_number = None
+        index_summary = "None"
+        if isinstance(position, tuple) and len(position) == 2:
+            layer_number = position[0]
+            index_summary = summarize_indices(position[1])
         path_len = getattr(constraint, "height", None)
         if self.constraints_collection_type == 'priority_queue':
             score, _assert_num = self._compute_priority_score(shap_value, constraint)
@@ -871,8 +887,8 @@ class ExplorationEngine:
                 log.info(
                     "[PUSH] idx=%s layer=%s position=%s shap=%.3e path_len=%s queue_size=%s",
                     self.idx,
-                    position[0],
-                    position[1],
+                    layer_number,
+                    index_summary,
                     abs(shap_value),
                     path_len,
                     len(self.constraints_to_solve),
@@ -889,7 +905,7 @@ class ExplorationEngine:
                     "[PUSH] idx=%s queue=%s position=%s shap=%.3e path_len=%s total=%s",
                     self.idx,
                     self.constraints_collection_type,
-                    position,
+                    summarize_position(position),
                     abs(shap_value),
                     path_len,
                     len(self.constraints_to_solve),
@@ -927,7 +943,7 @@ class ExplorationEngine:
                 attack_mode,
                 queue_mode,
                 layer,
-                indices,
+                summarize_indices(indices),
                 shap_value,
                 path_len,
                 remaining,
@@ -972,7 +988,7 @@ class ExplorationEngine:
             )
             log.debug(
                 "Popped constraint from queue (position=%s shap_value=%s constraint_id=%s)",
-                position,
+                summarize_position(position),
                 shap_value,
                 constraint_id,
             )

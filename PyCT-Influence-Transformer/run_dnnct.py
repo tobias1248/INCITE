@@ -30,6 +30,7 @@ class ExplorerConfig:
     solver: str = DEFAULT_SOLVER
     timeout: int = 900
     constraint_build_timeout: bool = True
+    constraint_build_timeout_seconds: int = 30
     solver_run_timeout: Optional[int] = 60
     safety: int = 0
     verbose: int = 1
@@ -113,6 +114,7 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
         solver=explorer_cfg.solver,
         timeout=explorer_cfg.timeout,
         constraint_build_timeout=explorer_cfg.constraint_build_timeout,
+        constraint_build_timeout_seconds=explorer_cfg.constraint_build_timeout_seconds,
         solver_run_timeout=explorer_cfg.solver_run_timeout,
         safety=explorer_cfg.safety,
         store=None,
@@ -134,6 +136,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         save_exp: dict[str, str] | None = None,
         max_iter=0, single_timeout=900, timeout=900, total_timeout=900, verbose=1,
         constraint_build_timeout: bool = True,
+        constraint_build_timeout_seconds: int = 30,
         solver_run_timeout: Optional[int] = 60,
         limit_change_range=None,
         only_first_forward=False,
@@ -168,6 +171,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         execute=execute,
         timeout=timeout,
         constraint_build_timeout=constraint_build_timeout,
+        constraint_build_timeout_seconds=constraint_build_timeout_seconds,
         solver_run_timeout=solver_run_timeout,
         verbose=verbose,
         smtdir=smtdir,
@@ -185,6 +189,12 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         "idx": idx,
         "score_alpha": score_alpha,
         "symbolic_path_threshold": symbolic_path_threshold,
+        "constraint_build_timeout": bool(constraint_build_timeout),
+        "constraint_build_timeout_seconds": (
+            int(constraint_build_timeout_seconds)
+            if constraint_build_timeout_seconds is not None
+            else None
+        ),
     }
     if save_exp:
         if "ton" in save_exp:

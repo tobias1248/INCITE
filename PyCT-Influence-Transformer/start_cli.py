@@ -30,14 +30,14 @@ def _parse_pixel_search(value: str) -> Tuple[int, ...]:
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    """Parse command-line arguments for transformer experiments."""
+    """Parse command-line arguments for experiment launcher."""
     parser = argparse.ArgumentParser(
-        description="Run PyCT transformer experiments across multiple processes."
+        description="Run PyCT attack experiments across multiple processes."
     )
     parser.add_argument(
         "--model-name",
         default="transformer_fashion_mnist",
-        help="Identifier for the model artifact to load.",
+        help="Model artifact name under ./model (without .h5 extension).",
     )
     parser.add_argument(
         "--num-process",
@@ -49,7 +49,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--timeout",
         type=int,
         default=3600,
-        help="Per-wave timeout in seconds; resets every time ton value increases.",
+        help="Per-stage timeout in seconds (applies for each ton stage).",
     )
     parser.add_argument(
         "--no-constraint-build-timeout",
@@ -59,16 +59,22 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.set_defaults(constraint_build_timeout=True)
     parser.add_argument(
+        "--constraint-build-timeout-seconds",
+        type=int,
+        default=30,
+        help="Timeout in seconds for SMT formula construction when build timeout is enabled (default: 30).",
+    )
+    parser.add_argument(
         "--solver-run-timeout",
         type=int,
         default=60,
-        help="Wall-clock timeout (seconds) for each SMT solver invocation; 0 disables this wrapper timeout (default: 60).",
+        help="Wall-clock timeout (seconds) per SMT solver invocation; 0 disables wrapper timeout.",
     )
     parser.add_argument(
         "--score-alpha",
         type=float,
         default=None,
-        help="Weight for path_len term in priority score (0..1). Required unless --attack-mode queue.",
+        help="Weight of path_len penalty in priority score (0..1). Required unless --attack-mode queue.",
     )
     parser.add_argument(
         "--symbolic-path-threshold",
@@ -85,13 +91,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--pixel-search",
         type=_parse_pixel_search,
         default=_parse_pixel_search(",".join(str(v) for v in _DEFAULT_PIXEL_SEARCH)),
-        help="Comma-separated ton sequence to try per input (default: 1,2,4,8,16,32).",
+        help="Comma-separated ton sequence per input, e.g. 1,2,4,8,16,32.",
     )
     parser.add_argument(
         "--attack-mode",
         default="shap",
         choices=("shap", "random", "random-assign", "queue"),
-        help="Select attack strategy.",
+        help="Attack strategy: shap/random/random-assign/queue.",
     )
     parser.add_argument(
         "--dataset",
@@ -103,13 +109,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--random-seed",
         type=int,
         default=2024,
-        help="Seed controlling deterministic random selection (random/random-assign modes).",
+        help="Random seed for random coordinate generation (random/random-assign modes).",
     )
     parser.add_argument(
         "--pixel-source",
         default="random",
         choices=("random", "shap"),
-        help="Pixel selection strategy used for random-assign baseline.",
+        help="Pixel source for random-assign mode only (ignored by shap/random/queue).",
     )
     parser.add_argument(
         "--norm-01",
@@ -128,7 +134,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--first-n",
         type=int,
         default=100,
-        help="Number of Fashion-MNIST test images to enqueue from index 0.",
+        help="Number of inputs to process from index 0.",
     )
     parser.add_argument(
         "--spawn-delay",
@@ -139,7 +145,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--force-refresh",
         action="store_true",
-        help="Rebuild cached outputs even when existing experiment folders are present.",
+        help="Rerun stages even when stats indicate the corresponding stage has already completed.",
     )
     parser.add_argument(
         "--log-level",

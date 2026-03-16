@@ -6,8 +6,18 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+from libct.utils import ConcolicObject
+from unittest import mock
 
 import dnnct.myDNN as mydnn
+
+
+class _TensorLike:
+    def __init__(self, value):
+        self._value = np.array(value, dtype=np.float32)
+
+    def numpy(self):
+        return self._value
 
 
 class MyDNNTransformerSupportTests(unittest.TestCase):
@@ -50,6 +60,62 @@ class MyDNNTransformerSupportTests(unittest.TestCase):
         self.assertLess(output[0], 3.0)
         self.assertGreater(output[1], 3.0)
         self.assertLess(output[1], 4.0)
+
+    def test_act_softmax_returns_concrete_float_values(self) -> None:
+        values = [
+            ConcolicObject(0.1, ["x"]),
+            ConcolicObject(0.4, ["y"]),
+            ConcolicObject(-0.2, ["z"]),
+        ]
+        output = mydnn.act_softmax(values)
+
+        self.assertTrue(all(type(value) is float for value in output))
+        self.assertAlmostEqual(sum(output), 1.0, places=6)
+
+    def test_mha_softmax_returns_concrete_float_values(self) -> None:
+        layer = mydnn.MultiHeadAttentionLayer(
+            num_heads=1,
+            key_dim_per_heads=2,
+            wq=_TensorLike(np.zeros((2, 1, 2))),
+            bq=_TensorLike(np.zeros((1, 2))),
+            wk=_TensorLike(np.zeros((2, 1, 2))),
+            bk=_TensorLike(np.zeros((1, 2))),
+            wv=_TensorLike(np.zeros((2, 1, 2))),
+            bv=_TensorLike(np.zeros((1, 2))),
+            output_weights=_TensorLike(np.zeros((1, 2, 2))),
+            output_bias=_TensorLike(np.zeros((2,))),
+        )
+        layer.model_dim = 2
+        scores = [
+            [ConcolicObject(0.3, ["a"]), ConcolicObject(0.1, ["b"])],
+            [ConcolicObject(-0.2, ["c"]), ConcolicObject(0.2, ["d"])],
+        ]
+        output = layer.softmax(scores)
+
+        self.assertEqual(len(output), 2)
+        self.assertTrue(all(type(value) is float for row in output for value in row))
+        self.assertAlmostEqual(sum(output[0]), 1.0, places=6)
+        self.assertAlmostEqual(sum(output[1]), 1.0, places=6)
+
+    def test_attention_position_registration_is_query_only(self) -> None:
+        layer = mydnn.MultiHeadAttentionLayer(
+            num_heads=1,
+            key_dim_per_heads=2,
+            wq=_TensorLike(np.zeros((2, 1, 2))),
+            bq=_TensorLike(np.zeros((1, 2))),
+            wk=_TensorLike(np.zeros((2, 1, 2))),
+            bk=_TensorLike(np.zeros((1, 2))),
+            wv=_TensorLike(np.zeros((2, 1, 2))),
+            bv=_TensorLike(np.zeros((1, 2))),
+            output_weights=_TensorLike(np.zeros((1, 2, 2))),
+            output_bias=_TensorLike(np.zeros((2,))),
+        )
+        layer.model_dim = 4
+        with mock.patch("dnnct.myDNN.register_current_indices") as mocked_register:
+            layer._register_attention_position(3, 99)
+        mocked_register.assert_called_once()
+        indices = mocked_register.call_args.args[0]
+        self.assertEqual(indices, [(3, 0), (3, 1), (3, 2), (3, 3)])
 
 
 if __name__ == "__main__":

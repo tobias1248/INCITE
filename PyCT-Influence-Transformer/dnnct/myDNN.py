@@ -180,13 +180,12 @@ def act_gelu(x):
     return factor * x
 
 def act_softmax(x):
-    # exp_values = [concolic_exp(val) for val in x]    # 計算指數函數
-    max_val = x[0]
-    for val in x:
-        if val > max_val:
-            max_val = val
-    exp_values = [exp_func(val - max_val) for val in x]    # 計算指數函數
-    softmax_values = [val / sum(exp_values) for val in exp_values]    # 計算softmax值
+    # Keep softmax concrete to avoid inflating symbolic expressions.
+    concrete = [float(unwrap(val)) for val in x]
+    max_val = max(concrete)
+    exp_values = [math.exp(val - max_val) for val in concrete]
+    exp_sum = sum(exp_values)
+    softmax_values = [val / exp_sum for val in exp_values]
     return softmax_values
 
 # https://stackoverflow.com/questions/17531796/find-the-dimensions-of-a-multidimensional-python-array
@@ -989,9 +988,8 @@ class MultiHeadAttentionLayer:
         return context_vector
 
     def _register_attention_position(self, query_idx, key_idx):
-        query_coords = [(query_idx, j) for j in range(self.model_dim)]
-        key_coords = [(key_idx, j) for j in range(self.model_dim)]
-        register_current_indices(query_coords + key_coords)
+        del key_idx
+        register_current_indices([(query_idx, j) for j in range(self.model_dim)])
 
     def myMax(self,x,i):
 
@@ -1003,11 +1001,10 @@ class MultiHeadAttentionLayer:
         return max
     
     def softmax(self,x):
-        # global c
-        
         x_max = [self.myMax(x,i) for i in range(len(x))]
-        e_x = [[my_exp(x[i][j] - x_max[i]) for j in range(len(x[i]))] for i in range(len(x))]
-        # c=0
+        concrete_x = [[float(unwrap(val)) for val in row] for row in x]
+        concrete_max = [float(unwrap(val)) for val in x_max]
+        e_x = [[math.exp(concrete_x[i][j] - concrete_max[i]) for j in range(len(concrete_x[i]))] for i in range(len(concrete_x))]
         e_x_sum = [self.mySum(e_x[i]) for i in range(len(e_x))]
         result = [[e_x[i][j] / e_x_sum[i] for j in range(len(e_x[i]))] for i in range(len(e_x)) ]
         return result

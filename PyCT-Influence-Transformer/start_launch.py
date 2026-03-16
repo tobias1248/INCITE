@@ -10,7 +10,6 @@ import queue as py_queue
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from start_config import _INPUT_PREFIX
 from utils.experiment_runner import update_ton_progress_stats
 from utils.experiment_task_specs import (
     fashion_mnist_transformer_random,
@@ -24,8 +23,6 @@ logger = logging.getLogger("ct.cli")
 def _resolve_experiment_layout(
     attack_mode: str,
     ton_values: Sequence[int],
-    *,
-    pixel_source: str = "random",
 ) -> str:
     if not ton_values:
         raise ValueError("ton_values must be non-empty.")
@@ -41,56 +38,6 @@ def _stats_indicate_completion(payload: Dict[str, Any]) -> bool:
     is_finished = bool(meta.get("is_finish"))
     is_timeout = bool(meta.get("is_timeout"))
     return bool(attack_label is not None or is_finished or is_timeout)
-
-
-def _derive_resume_plan(
-    model_name: str,
-    attack_mode: str,
-    first_n: int,
-) -> Tuple[int, bool]:
-    base_dir = Path("exp") / model_name / attack_mode
-    if not base_dir.is_dir():
-        return 0, False
-
-    latest_idx: Optional[int] = None
-    for candidate in base_dir.iterdir():
-        if not candidate.is_dir() or not candidate.name.startswith(_INPUT_PREFIX):
-            continue
-        try:
-            idx = int(candidate.name.split("_")[-1])
-        except ValueError:
-            continue
-        if idx >= first_n:
-            continue
-        if latest_idx is None or idx > latest_idx:
-            latest_idx = idx
-
-    if latest_idx is None:
-        return 0, False
-
-    candidate_dir = base_dir / f"{_INPUT_PREFIX}{latest_idx}"
-    stats_path = candidate_dir / "stats.json"
-    completed = False
-    if stats_path.is_file():
-        try:
-            with stats_path.open("r", encoding="utf-8") as handle:
-                payload = json.load(handle)
-            completed = _stats_indicate_completion(payload)
-        except (json.JSONDecodeError, OSError):
-            completed = False
-
-    if not completed:
-        return latest_idx, True
-
-    resume_idx = latest_idx + 1
-    return min(resume_idx, first_n), False
-
-
-def _derive_stage_outcome(stats_path: Path) -> Tuple[bool, str]:
-    stats, reason = _load_stats_payload(stats_path)
-    if not stats:
-        return False, reason
-    return _derive_stage_outcome_payload(stats)
 
 
 def _load_stats_payload(stats_path: Path) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -228,6 +175,7 @@ def _worker(
     task_queue: JoinableQueue,
     timeout: int,
     constraint_build_timeout: bool,
+    constraint_build_timeout_seconds: int,
     solver_run_timeout: Optional[int],
     norm_01: bool,
     attack_mode: str,
@@ -249,6 +197,7 @@ def _worker(
             runner = RandomAssignRunner(
                 timeout=timeout,
                 constraint_build_timeout=constraint_build_timeout,
+                constraint_build_timeout_seconds=constraint_build_timeout_seconds,
                 solver_run_timeout=solver_run_timeout,
                 norm=norm_01,
                 pixel_source=pixel_source,
@@ -260,6 +209,7 @@ def _worker(
             runner = QueueRunner(
                 timeout=timeout,
                 constraint_build_timeout=constraint_build_timeout,
+                constraint_build_timeout_seconds=constraint_build_timeout_seconds,
                 solver_run_timeout=solver_run_timeout,
                 norm=norm_01,
                 collect_constraints_with="queue",
@@ -270,6 +220,7 @@ def _worker(
             runner = ShapRunner(
                 timeout=timeout,
                 constraint_build_timeout=constraint_build_timeout,
+                constraint_build_timeout_seconds=constraint_build_timeout_seconds,
                 solver_run_timeout=solver_run_timeout,
                 norm=norm_01,
             )
@@ -331,13 +282,14 @@ def run_launcher(args: Any) -> None:
         raise ValueError("--first-n must be >= 1")
     if args.timeout < 1:
         raise ValueError("--timeout must be >= 1 second")
+    if args.constraint_build_timeout_seconds < 1:
+        raise ValueError("--constraint-build-timeout-seconds must be >= 1")
     if args.spawn_delay < 0:
         raise ValueError("--spawn-delay must be non-negative")
 
     attack_mode = _resolve_experiment_layout(
         args.attack_mode,
         args.pixel_search,
-        pixel_source=args.pixel_source,
     )
     os.environ["PYCT_TIMEOUT"] = str(args.timeout)
     if args.score_alpha is not None:
@@ -459,6 +411,7 @@ def run_launcher(args: Any) -> None:
                     task_queue,
                     args.timeout,
                     args.constraint_build_timeout,
+                    args.constraint_build_timeout_seconds,
                     args.solver_run_timeout if args.solver_run_timeout > 0 else None,
                     args.norm_01,
                     args.attack_mode,

@@ -96,6 +96,7 @@ class BaseRunner:
     norm: bool
     collect_constraints_with: Literal["priority_queue", "queue"]
     constraint_build_timeout: bool = True
+    constraint_build_timeout_seconds: int = 30
     solver_run_timeout: Optional[int] = None
 
     def run_tasks(self, tasks: Sequence[Dict[str, Any]]) -> None:
@@ -155,6 +156,7 @@ class BaseRunner:
             single_timeout=self.timeout,
             timeout=self.timeout,
             constraint_build_timeout=self.constraint_build_timeout,
+            constraint_build_timeout_seconds=self.constraint_build_timeout_seconds,
             collect_constraints_with=self.collect_constraints_with,
             solver_run_timeout=self.solver_run_timeout,
         )
@@ -199,6 +201,7 @@ class QueueRunner(BaseRunner):
         timeout: int,
         norm: bool,
         constraint_build_timeout: bool = True,
+        constraint_build_timeout_seconds: int = 30,
         solver_run_timeout: Optional[int] = None,
         collect_constraints_with: Literal["priority_queue", "queue"] = "queue",
     ) -> None:
@@ -207,6 +210,7 @@ class QueueRunner(BaseRunner):
             norm=norm,
             collect_constraints_with=collect_constraints_with,
             constraint_build_timeout=constraint_build_timeout,
+            constraint_build_timeout_seconds=constraint_build_timeout_seconds,
             solver_run_timeout=solver_run_timeout,
         )
         self.collect_constraints_with = collect_constraints_with
@@ -255,6 +259,7 @@ class ShapRunner(BaseRunner):
         model_type: str = "transformer",
         collect_constraints_with: Literal["priority_queue", "queue"] = "priority_queue",
         constraint_build_timeout: bool = True,
+        constraint_build_timeout_seconds: int = 30,
         solver_run_timeout: Optional[int] = None,
     ) -> None:
         super().__init__(
@@ -262,6 +267,7 @@ class ShapRunner(BaseRunner):
             norm=norm,
             collect_constraints_with=collect_constraints_with,
             constraint_build_timeout=constraint_build_timeout,
+            constraint_build_timeout_seconds=constraint_build_timeout_seconds,
             solver_run_timeout=solver_run_timeout,
         )
         self.collect_constraints_with = collect_constraints_with
@@ -338,6 +344,7 @@ class RandomAssignRunner(BaseRunner):
         model_type: str = "transformer",
         collect_constraints_with: Literal["priority_queue", "queue"] = "priority_queue",
         constraint_build_timeout: bool = True,
+        constraint_build_timeout_seconds: int = 30,
         solver_run_timeout: Optional[int] = None,
     ) -> None:
         super().__init__(
@@ -345,6 +352,7 @@ class RandomAssignRunner(BaseRunner):
             norm=norm,
             collect_constraints_with=collect_constraints_with,
             constraint_build_timeout=constraint_build_timeout,
+            constraint_build_timeout_seconds=constraint_build_timeout_seconds,
             solver_run_timeout=solver_run_timeout,
         )
         self.pixel_source = pixel_source
@@ -411,6 +419,7 @@ def run_attack_with_shap(
     timeout: int,
     norm: bool,
     constraint_build_timeout: bool = True,
+    constraint_build_timeout_seconds: int = 30,
     solver_run_timeout: Optional[int] = None,
     model_type: str = "transformer",
     collect_constraints_with: Literal["priority_queue", "queue"] = "priority_queue",
@@ -421,6 +430,7 @@ def run_attack_with_shap(
         model_type=model_type,
         collect_constraints_with=collect_constraints_with,
         constraint_build_timeout=constraint_build_timeout,
+        constraint_build_timeout_seconds=constraint_build_timeout_seconds,
         solver_run_timeout=solver_run_timeout,
     ).run_tasks(args)
 
@@ -430,6 +440,7 @@ def run_attack_with_queue(
     timeout: int,
     norm: bool,
     constraint_build_timeout: bool = True,
+    constraint_build_timeout_seconds: int = 30,
     solver_run_timeout: Optional[int] = None,
     collect_constraints_with: Literal["priority_queue", "queue"] = "queue",
 ) -> None:
@@ -437,6 +448,7 @@ def run_attack_with_queue(
         timeout=timeout,
         norm=norm,
         constraint_build_timeout=constraint_build_timeout,
+        constraint_build_timeout_seconds=constraint_build_timeout_seconds,
         solver_run_timeout=solver_run_timeout,
         collect_constraints_with=collect_constraints_with,
     ).run_tasks(args)
@@ -447,6 +459,7 @@ def run_attack_with_random_assign(
     timeout: int,
     norm: bool,
     constraint_build_timeout: bool = True,
+    constraint_build_timeout_seconds: int = 30,
     solver_run_timeout: Optional[int] = None,
     *,
     pixel_source: str,
@@ -457,6 +470,7 @@ def run_attack_with_random_assign(
     RandomAssignRunner(
         timeout=timeout,
         constraint_build_timeout=constraint_build_timeout,
+        constraint_build_timeout_seconds=constraint_build_timeout_seconds,
         solver_run_timeout=solver_run_timeout,
         norm=norm,
         pixel_source=pixel_source,

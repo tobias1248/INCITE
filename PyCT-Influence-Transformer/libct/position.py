@@ -1,4 +1,6 @@
-from typing import Tuple, Dict, Union
+from __future__ import annotations
+
+from typing import Any, Dict, Tuple, Union
 
 class Position(Tuple[int, Tuple[int, ...]]):
     pass
@@ -30,3 +32,34 @@ def get_current_position() -> Position:
     global current_layer_number
     global current_indices_in_current_layer
     return current_layer_number, current_indices_in_current_layer
+
+
+def summarize_indices(
+    indices: Union[Tuple[int, ...], list[Tuple[int, ...]], Any],
+    *,
+    preview: int = 3,
+) -> str:
+    """Return a compact, log-friendly representation of indices."""
+    if isinstance(indices, list):
+        length = len(indices)
+        if length == 0:
+            return "[] (len=0)"
+        if length <= preview * 2:
+            return f"{indices} (len={length})"
+        head = ", ".join(str(item) for item in indices[:preview])
+        tail = ", ".join(str(item) for item in indices[-preview:])
+        return f"[{head}, ..., {tail}] (len={length})"
+    return str(indices)
+
+
+def summarize_position(position: Any, *, preview: int = 3) -> str:
+    """Return a compact, log-friendly representation of a position tuple."""
+    if position is None:
+        return "None"
+    if (
+        isinstance(position, tuple)
+        and len(position) == 2
+    ):
+        layer, indices = position
+        return f"(layer={layer}, indices={summarize_indices(indices, preview=preview)})"
+    return str(position)
