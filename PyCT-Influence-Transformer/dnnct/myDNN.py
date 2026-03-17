@@ -907,9 +907,24 @@ class LSTMLayer:
         return new_h, new_c
 
 class MultiHeadAttentionLayer:
-    def __init__(self, num_heads, key_dim_per_heads, wq, bq, wk, bk, wv, bv, output_weights, output_bias):
-        self.num_heads = num_heads#20
-        self.key_dim_per_heads = key_dim_per_heads#32
+    def __init__(
+        self,
+        num_heads,
+        key_dim_per_heads,
+        wq,
+        bq,
+        wk,
+        bk,
+        wv,
+        bv,
+        output_weights,
+        output_bias,
+        *,
+        attention_axes=None,
+        sample_rank=None,
+    ):
+        self.num_heads = num_heads
+        self.key_dim_per_heads = key_dim_per_heads
         self.WQ = wq.numpy().tolist()
         self.BQ = bq.numpy().tolist()
         self.WK = wk.numpy().tolist()
@@ -918,53 +933,145 @@ class MultiHeadAttentionLayer:
         self.BV = bv.numpy().tolist()
         self.WO = output_weights.numpy().tolist()
         self.BO = output_bias.numpy().tolist()
+        self.attention_axes = tuple(attention_axes) if attention_axes is not None else None
+        self.sample_rank = sample_rank
 
     def forward(self, input, mask=None):
-        if len(dim(input)) == 2:
-            return self.forwardSingle(input, mask)
-        else:
-            return self.forwardBatch(input, mask)
-    
+        input_rank = len(dim(input))
+        if self.sample_rank is not None:
+            if input_rank == self.sample_rank:
+                return self.forwardSingle(input, mask)
+            if input_rank == self.sample_rank + 1:
+                return self.forwardBatch(input, mask)
+            raise ValueError(
+                f"Unexpected MultiHeadAttention input rank {input_rank}; "
+                f"expected {self.sample_rank} (single) or {self.sample_rank + 1} (batch)"
+            )
+        return self.forwardSingle(input, mask)
+
     def forwardBatch(self, inputs, mask=None):
         return [self.forwardSingle(input, mask) for input in inputs]
-    def forwardSingle(self, input, mask=None):
-        self.seq_len, self.model_dim = np.array(input).shape
-        Q = self.transform_and_split(input, self.WQ, self.BQ)
-        K = self.transform_and_split(input, self.WK, self.BK)
-        V = self.transform_and_split(input, self.WV, self.BV)
-        # print("KQV done")
-        attentions = [self.dot_product_attention(Q[i], K[i], V[i]) for i in range(self.num_heads)]
-        # print("attentions done")
-        outputs = self.concatenate_and_transform(attentions, self.WO, self.BO)
-        # print("outputs done")
-        return outputs
-    
-    def transform_and_split(self,sequence_of_vectors, weights, bias):
-    
 
-        outputs = [
-                        [
-                            [self.mySum((weights[k][i][j] * vector[k]) for k in range(self.model_dim)) + bias[i][j] for j in range(self.key_dim_per_heads)]#32
-                            for vector in sequence_of_vectors   #vector:1*32
-                        ]
-                        for i in range(self.num_heads)
-                    ]
-                
-        return outputs
-    def concatenate_and_transform(self,attentions, output_weights, output_bias):
-        assert np.array(output_bias).shape == (self.model_dim,)
+    def forwardSingle(self, input, mask=None):
+        canonical_input, meta = self._canonicalize_input(input)
+        Q = self.transform_and_split(canonical_input, self.WQ, self.BQ, meta["feature_dim"])
+        K = self.transform_and_split(canonical_input, self.WK, self.BK, meta["feature_dim"])
+        V = self.transform_and_split(canonical_input, self.WV, self.BV, meta["feature_dim"])
+        attentions = [
+            self.dot_product_attention(Q[i], K[i], V[i], meta=meta, mask=mask)
+            for i in range(self.num_heads)
+        ]
+        merged = self.concatenate_heads(attentions)
+        outputs = self.output_transform(merged, self.WO, self.BO)
+        return self._restore_output(outputs, meta)
+
+    def _canonicalize_input(self, tensor_in):
+        if isinstance(tensor_in, np.ndarray):
+            tensor_in = tensor_in.tolist()
+        shape = dim(tensor_in)
+        sample_rank = self.sample_rank if self.sample_rank is not None else len(shape)
+        if len(shape) != sample_rank:
+            raise ValueError(f"Unsupported MHA sample rank {len(shape)}; expected {sample_rank}")
+        local_attention_axes = self._normalize_attention_axes(sample_rank)
+        expected_axes = tuple(range(sample_rank - 1))
+        if local_attention_axes != expected_axes:
+            raise ValueError(
+                f"Unsupported attention_axes={self.attention_axes}; "
+                f"expected axes {tuple(ax + 1 for ax in expected_axes)} for sample rank {sample_rank + 1}"
+            )
+        feature_dim = shape[-1]
+        token_shape = tuple(shape[:-1])
+        token_count = 1
+        for size in token_shape:
+            token_count *= size
+        flat_vectors = self._flatten_token_vectors(tensor_in, sample_rank)
+        mode = "sequence" if len(token_shape) == 1 else "spatial_2d"
+        if len(token_shape) not in (1, 2):
+            raise ValueError(f"Unsupported token rank {len(token_shape)} for MHA input shape {shape}")
+        meta = {
+            "feature_dim": feature_dim,
+            "token_shape": token_shape,
+            "token_count": token_count,
+            "mode": mode,
+        }
+        return flat_vectors, meta
+
+    def _normalize_attention_axes(self, sample_rank):
+        if sample_rank < 2:
+            raise ValueError(f"Unsupported MHA sample rank {sample_rank}")
+        if self.attention_axes is None:
+            return tuple(range(sample_rank - 1))
+        local_axes = []
+        for axis in self.attention_axes:
+            local_axis = axis - 1 if axis >= 0 else sample_rank + axis
+            if local_axis < 0 or local_axis >= sample_rank - 1:
+                raise ValueError(
+                    f"Unsupported attention axis {axis} for sample rank {sample_rank + 1}"
+                )
+            local_axes.append(local_axis)
+        return tuple(sorted(local_axes))
+
+    def _flatten_token_vectors(self, tensor_in, sample_rank):
+        if sample_rank == 2:
+            return tensor_in
+        if sample_rank == 3:
+            flat_vectors = []
+            for row in tensor_in:
+                flat_vectors.extend(row)
+            return flat_vectors
+        raise ValueError(f"Unsupported sample rank {sample_rank} for token flattening")
+
+    def _restore_output(self, flat_tokens, meta):
+        if meta["mode"] == "sequence":
+            return flat_tokens
+        iterator = iter(flat_tokens)
+        return self._build_token_shape(iterator, list(meta["token_shape"]))
+
+    def _build_token_shape(self, iterator, token_shape):
+        if len(token_shape) == 1:
+            return [next(iterator) for _ in range(token_shape[0])]
+        return [
+            self._build_token_shape(iterator, token_shape[1:])
+            for _ in range(token_shape[0])
+        ]
+
+    def transform_and_split(self, sequence_of_vectors, weights, bias, feature_dim):
         outputs = [
             [
-                self.mySum([
-                      attentions[j][word][k] * output_weights[j][k][i]
-                    for j in range(self.num_heads)
-                    for k in range(self.key_dim_per_heads)
-                ]) + output_bias[i]
-                for i in range(self.model_dim)
+                [
+                    self.mySum(weights[k][i][j] * vector[k] for k in range(feature_dim)) + bias[i][j]
+                    for j in range(self.key_dim_per_heads)
+                ]
+                for vector in sequence_of_vectors
             ]
-            for word in range(self.seq_len)
+            for i in range(self.num_heads)
         ]
-        assert np.array(outputs).shape == (self.seq_len, self.model_dim)
+        return outputs
+
+    def concatenate_heads(self, attentions):
+        token_count = len(attentions[0])
+        return [
+            [
+                attentions[head][token_idx][dim_idx]
+                for head in range(self.num_heads)
+                for dim_idx in range(self.key_dim_per_heads)
+            ]
+            for token_idx in range(token_count)
+        ]
+
+    def output_transform(self, merged_tokens, output_weights, output_bias):
+        output_dim = len(output_bias)
+        outputs = [
+            [
+                self.mySum(
+                    merged_tokens[token_idx][head * self.key_dim_per_heads + dim_idx] * output_weights[head][dim_idx][out_idx]
+                    for head in range(self.num_heads)
+                    for dim_idx in range(self.key_dim_per_heads)
+                ) + output_bias[out_idx]
+                for out_idx in range(output_dim)
+            ]
+            for token_idx in range(len(merged_tokens))
+        ]
         return outputs
     def mySum(self,x):
             s = 0.0
@@ -973,7 +1080,7 @@ class MultiHeadAttentionLayer:
             for i in x:
                 s = s + i
             return s
-    def dot_product_attention(self, Q, K, V):
+    def dot_product_attention(self, Q, K, V, meta=None, mask=None):
         # print('$$$$$ dot product attention')
         K_T = [*zip(*K)]#32,500
     
@@ -981,27 +1088,37 @@ class MultiHeadAttentionLayer:
         # print("777")
         attention_scores = [[score / (self.key_dim_per_heads ** 0.5) for score in attention_score ]for attention_score in attention_scores]#500,500
         # print("779")
-        attention_scores = self.softmax(attention_scores)#500,500
+        attention_scores = self.softmax(attention_scores, meta=meta)#500,500
         # print("781")
         context_vector = self.matrix_multiply(attention_scores, V)#500,32
         # print("783")
         return context_vector
 
-    def _register_attention_position(self, query_idx, key_idx):
+    def _register_attention_position(self, query_idx, key_idx, meta):
         del key_idx
-        register_current_indices([(query_idx, j) for j in range(self.model_dim)])
+        if meta["mode"] == "sequence":
+            register_current_indices([(query_idx, j) for j in range(meta["feature_dim"])])
+            return
+        row, col = self._unflatten_token_index(query_idx, meta["token_shape"])
+        register_current_indices([(row, col, j) for j in range(meta["feature_dim"])])
 
-    def myMax(self,x,i):
+    def _unflatten_token_index(self, index, token_shape):
+        if len(token_shape) != 2:
+            raise ValueError(f"Expected 2D token shape, got {token_shape}")
+        rows, cols = token_shape
+        return index // cols, index % cols
+
+    def myMax(self, x, i, meta):
 
         max = x[i][0]
         for j in range(len(x[i])):
-            self._register_attention_position(i, j)
+            self._register_attention_position(i, j, meta)
             if x[i][j] > max:
                 max = x[i][j]
         return max
     
-    def softmax(self,x):
-        x_max = [self.myMax(x,i) for i in range(len(x))]
+    def softmax(self, x, meta):
+        x_max = [self.myMax(x, i, meta) for i in range(len(x))]
         concrete_x = [[float(unwrap(val)) for val in row] for row in x]
         concrete_max = [float(unwrap(val)) for val in x_max]
         e_x = [[math.exp(concrete_x[i][j] - concrete_max[i]) for j in range(len(concrete_x[i]))] for i in range(len(concrete_x))]
@@ -1367,10 +1484,14 @@ class NNModel:
             created += 1
             self._register_cache_key(keras_name, key)
         elif isinstance(layer, MultiHeadAttention):
-            num_heads = layer.get_config()['num_heads']
-            # num_heads#20
-            #32*20
-            key_dim_per_heads = layer.get_config()['key_dim']
+            layer_config = layer.get_config()
+            num_heads = layer_config['num_heads']
+            key_dim_per_heads = layer_config['key_dim']
+            attention_axes = layer_config.get('attention_axes')
+            query_shape = layer_config.get('query_shape') or layer.input_shape
+            sample_rank = None
+            if query_shape is not None:
+                sample_rank = len(query_shape) - 1
             wq=layer._query_dense.kernel
             bq=layer._query_dense.bias
             wk=layer._key_dense.kernel
@@ -1379,7 +1500,20 @@ class NNModel:
             bv=layer._value_dense.bias
             output_weights=layer._output_dense.kernel
             output_bias=layer._output_dense.bias
-            mha_layer = MultiHeadAttentionLayer(num_heads,key_dim_per_heads,wq,bq,wk,bk,wv,bv,output_weights,output_bias)
+            mha_layer = MultiHeadAttentionLayer(
+                num_heads,
+                key_dim_per_heads,
+                wq,
+                bq,
+                wk,
+                bk,
+                wv,
+                bv,
+                output_weights,
+                output_bias,
+                attention_axes=attention_axes,
+                sample_rank=sample_rank,
+            )
             if resolved_inbounds:
                 mha_layer.input_from = resolved_inbounds
             key = self._append_layer(mha_layer)

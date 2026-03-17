@@ -5,6 +5,11 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set,
 
 import numpy as np
 
+try:
+    from tqdm.auto import tqdm
+except ImportError:  # pragma: no cover - optional UX dependency
+    tqdm = None
+
 from libct.shapInfl import ShapValuesCalculator
 from libct.shap_pixel_provider import JsonShapPixelProvider
 
@@ -138,6 +143,12 @@ def _normalize_indices(first_n_img: Any) -> List[int]:
     if isinstance(first_n_img, Iterable):
         return list(first_n_img)
     raise TypeError(f"Unsupported type for first_n_img: {type(first_n_img)!r}")
+
+
+def _iter_cases(indices: Sequence[int], *, desc: str) -> Iterable[int]:
+    if tqdm is None:
+        return indices
+    return tqdm(indices, desc=desc, unit="case", dynamic_ncols=True)
 
 
 def _normalize_ton_sequence(
@@ -854,7 +865,7 @@ def fashion_mnist_transformer_shap_calculate_all(
     indices = _normalize_indices(first_n_img)
     artifacts: List[Dict[str, Any]] = []
 
-    for idx in indices:
+    for idx in _iter_cases(indices, desc="fashion_mnist SHAP"):
         (
             _,
             _,
@@ -900,7 +911,7 @@ def mnist_transformer_shap_calculate_all(
     indices = _normalize_indices(first_n_img)
     artifacts: List[Dict[str, Any]] = []
 
-    for idx in indices:
+    for idx in _iter_cases(indices, desc="mnist SHAP"):
         (
             _,
             _,
@@ -946,7 +957,7 @@ def cifar10_cal_shap_specs(
     indices = _normalize_indices(first_n_img)
     artifacts: List[Dict[str, Any]] = []
 
-    for idx in indices:
+    for idx in _iter_cases(indices, desc="cifar10 SHAP"):
         (
             _,
             _,
