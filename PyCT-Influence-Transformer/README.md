@@ -111,6 +111,9 @@ Current model artifacts in `model/`:
 - `simple_mnist_m6_09585.h5`
 - `mnist_sep_act_m6_9628.h5`
 
+Local-only SHAP artifacts:
+- `shap_value/` and `shap_value_all_layer/` are cache/artifact directories and should remain untracked.
+
 ## 1) Generate SHAP maps
 Run SHAP preprocessing before SHAP-guided attacks:
 
