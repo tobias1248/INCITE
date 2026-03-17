@@ -173,6 +173,18 @@ class Solver:
         path_len = getattr(constraint, "height", None)
 
         def _record_constraint_complexity(status, formulas, build_elapsed, solver_elapsed):
+            for key in (
+                "type",
+                "time",
+                "byte",
+                "assert_num",
+                "assert_len",
+                "path_len",
+                "build_time",
+                "total_time",
+                "detail",
+            ):
+                cls.ctr_size.setdefault(key, [])
             file_byte = None
             assert_count = None
             assert_lens = []

@@ -195,7 +195,8 @@ class ExplorationEngine:
         # first self.previous_result is the original label
 
         recorder.original_label = self.previous_result
-        recorder.save_original_input(all_args)
+        if hasattr(recorder, "save_original_input"):
+            recorder.save_original_input(all_args)
         self._update_symbolic_meta()
         recorder.save_stats_dict()
 
@@ -297,9 +298,15 @@ class ExplorationEngine:
     def _update_symbolic_meta(self) -> None:
         if recorder is None:
             return
-        recorder.extra_meta["symbolic_path_threshold"] = self.symbolic_path_threshold
-        recorder.extra_meta["symbolic_disabled_at_path_len"] = self.symbolic_disabled_at_path_len
-        recorder.extra_meta["symbolic_disabled"] = self.symbolic_disabled_at_path_len is not None
+        extra_meta = getattr(recorder, "extra_meta", None)
+        if extra_meta is None:
+            extra_meta = {}
+            recorder.extra_meta = extra_meta
+        threshold = getattr(self, "symbolic_path_threshold", None)
+        disabled_at = getattr(self, "symbolic_disabled_at_path_len", None)
+        extra_meta["symbolic_path_threshold"] = threshold
+        extra_meta["symbolic_disabled_at_path_len"] = disabled_at
+        extra_meta["symbolic_disabled"] = disabled_at is not None
 
     def explore(
             self, modpath, all_args={}, /, *, root='.', funcname=None,
@@ -932,7 +939,7 @@ class ExplorationEngine:
         shap_value: float | None = None,
         path_len: int | None = None,
     ) -> None:
-        if not self.constraint_log_enabled:
+        if not getattr(self, "constraint_log_enabled", False):
             return
         attack_mode = getattr(self, "popped_log_attack_mode", "unknown")
         sample_idx = getattr(self, "idx", "unknown")

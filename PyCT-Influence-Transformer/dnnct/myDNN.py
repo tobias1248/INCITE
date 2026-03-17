@@ -709,6 +709,43 @@ class AddPositionEmbeddingLayer:
         return self._output
 
 
+class AddClsTokenLayer:
+    def __init__(self, cls_token):
+        token = np.asarray(cls_token).tolist()
+        while len(token) == 1 and isinstance(token[0], list):
+            token = token[0]
+        if not token or not isinstance(token, list):
+            raise ValueError("AddClsToken expects CLS token weights with shape [1,1,D] or [1,D].")
+        self.cls_token = token
+        self._output = None
+
+    def _clone_token(self):
+        return [value for value in self.cls_token]
+
+    def _prepend_one(self, seq):
+        if not seq:
+            return [self._clone_token()]
+        first = seq[0]
+        if len(first) != len(self.cls_token):
+            raise ValueError(
+                f"CLS token dim mismatch: input={len(first)} cls={len(self.cls_token)}"
+            )
+        return [self._clone_token()] + list(seq)
+
+    def forward(self, tensor_in):
+        shape = dim(tensor_in)
+        if len(shape) == 2:
+            self._output = self._prepend_one(tensor_in)
+        elif len(shape) == 3:
+            self._output = [self._prepend_one(sample) for sample in tensor_in]
+        else:
+            raise ValueError("AddClsToken expects rank-2 or rank-3 tensor.")
+        return self._output
+
+    def getOutput(self):
+        return self._output
+
+
 def _softmax_from_concrete(scores):
     if not scores:
         return []
@@ -764,6 +801,29 @@ class SequencePoolingLayer:
             self._output = [self._pool_one(sample) for sample in tensor_in]
         else:
             raise ValueError("SequencePooling expects rank-2 or rank-3 tensor.")
+        return self._output
+
+    def getOutput(self):
+        return self._output
+
+
+class ExtractClsTokenLayer:
+    def __init__(self):
+        self._output = None
+
+    def _extract_one(self, seq):
+        if not seq:
+            raise ValueError("ExtractClsToken expects non-empty sequence.")
+        return seq[0]
+
+    def forward(self, tensor_in):
+        shape = dim(tensor_in)
+        if len(shape) == 2:
+            self._output = self._extract_one(tensor_in)
+        elif len(shape) == 3:
+            self._output = [self._extract_one(sample) for sample in tensor_in]
+        else:
+            raise ValueError("ExtractClsToken expects rank-2 or rank-3 tensor.")
         return self._output
 
     def getOutput(self):
@@ -1546,6 +1606,16 @@ class NNModel:
             key = self._append_layer(reshape_layer)
             created += 1
             self._register_cache_key(keras_name, key)
+        elif layer_type_name == "AddClsToken":
+            layer_weights = layer.get_weights()
+            if not layer_weights:
+                raise ValueError("AddClsToken layer has no cls token weights.")
+            cls_layer = AddClsTokenLayer(layer_weights[0])
+            if resolved_inbounds:
+                cls_layer.input_from = resolved_inbounds
+            key = self._append_layer(cls_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
         elif layer_type_name == "AddPositionEmbedding":
             layer_weights = layer.get_weights()
             if not layer_weights:
@@ -1573,6 +1643,13 @@ class NNModel:
             if resolved_inbounds:
                 seq_pool_layer.input_from = resolved_inbounds
             key = self._append_layer(seq_pool_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif layer_type_name == "ExtractClsToken":
+            extract_cls_layer = ExtractClsTokenLayer()
+            if resolved_inbounds:
+                extract_cls_layer.input_from = resolved_inbounds
+            key = self._append_layer(extract_cls_layer)
             created += 1
             self._register_cache_key(keras_name, key)
         else:

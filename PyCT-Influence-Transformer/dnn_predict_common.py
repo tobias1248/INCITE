@@ -43,6 +43,43 @@ class AddPositionEmbedding(keras.layers.Layer):
         return inputs + self.pos_embedding
 
 
+class AddClsToken(keras.layers.Layer):
+    """Prepend a learnable CLS token to a token sequence."""
+
+    def build(self, input_shape):
+        if len(input_shape) < 3:
+            raise ValueError("AddClsToken expects rank-3 inputs [B, L, D].")
+        dim = int(input_shape[2])
+        self.cls_token = self.add_weight(
+            name="cls_token",
+            shape=(1, 1, dim),
+            initializer="zeros",
+            trainable=True,
+        )
+        super().build(input_shape)
+
+    def call(self, inputs):
+        if hasattr(keras, "ops"):
+            batch = keras.ops.shape(inputs)[0]
+            cls = keras.ops.broadcast_to(
+                self.cls_token,
+                (batch, 1, int(self.cls_token.shape[-1])),
+            )
+            return keras.ops.concatenate([cls, inputs], axis=1)
+        import tensorflow as tf
+
+        batch = tf.shape(inputs)[0]
+        cls = tf.repeat(self.cls_token, repeats=batch, axis=0)
+        return tf.concat([cls, inputs], axis=1)
+
+
+class ExtractClsToken(keras.layers.Layer):
+    """Return the CLS token (index 0) from a token sequence."""
+
+    def call(self, inputs):
+        return inputs[:, 0, :]
+
+
 class DropPath(keras.layers.Layer):
     """DropPath as identity during inference."""
 
@@ -165,11 +202,15 @@ def _get_resnet_custom_objects():
 
 def _get_transformer_custom_objects():
     layer_map = {
+        "AddClsToken": AddClsToken,
         "AddPositionEmbedding": AddPositionEmbedding,
         "DropPath": DropPath,
+        "ExtractClsToken": ExtractClsToken,
         "SequencePooling": SequencePooling,
+        "Custom>AddClsToken": AddClsToken,
         "Custom>AddPositionEmbedding": AddPositionEmbedding,
         "Custom>DropPath": DropPath,
+        "Custom>ExtractClsToken": ExtractClsToken,
         "Custom>SequencePooling": SequencePooling,
     }
     return layer_map

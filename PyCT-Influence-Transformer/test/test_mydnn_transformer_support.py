@@ -49,6 +49,27 @@ class MyDNNTransformerSupportTests(unittest.TestCase):
 
         self.assertTrue(np.allclose(output, [[1.1, 2.2], [3.3, 4.4]], atol=1e-6))
 
+    def test_add_cls_token_layer_rank2(self) -> None:
+        cls_token = np.array([[[10.0, 20.0]]], dtype=np.float32)
+        layer = mydnn.AddClsTokenLayer(cls_token)
+        output = layer.forward([[1.0, 2.0], [3.0, 4.0]])
+
+        self.assertTrue(np.allclose(output, [[10.0, 20.0], [1.0, 2.0], [3.0, 4.0]], atol=1e-6))
+
+    def test_add_cls_token_layer_rank3(self) -> None:
+        cls_token = np.array([[[9.0, 8.0]]], dtype=np.float32)
+        layer = mydnn.AddClsTokenLayer(cls_token)
+        output = layer.forward(
+            [
+                [[1.0, 2.0], [3.0, 4.0]],
+                [[5.0, 6.0], [7.0, 8.0]],
+            ]
+        )
+
+        self.assertEqual(np.array(output).shape, (2, 3, 2))
+        self.assertTrue(np.allclose(output[0][0], [9.0, 8.0], atol=1e-6))
+        self.assertTrue(np.allclose(output[1][0], [9.0, 8.0], atol=1e-6))
+
     def test_sequence_pooling_layer(self) -> None:
         kernel = np.array([[1.0], [0.0]], dtype=np.float32)
         bias = np.array([0.0], dtype=np.float32)
@@ -60,6 +81,38 @@ class MyDNNTransformerSupportTests(unittest.TestCase):
         self.assertLess(output[0], 3.0)
         self.assertGreater(output[1], 3.0)
         self.assertLess(output[1], 4.0)
+
+    def test_extract_cls_token_layer_rank2(self) -> None:
+        layer = mydnn.ExtractClsTokenLayer()
+        output = layer.forward([[10.0, 20.0], [1.0, 2.0], [3.0, 4.0]])
+
+        self.assertTrue(np.allclose(output, [10.0, 20.0], atol=1e-6))
+
+    def test_extract_cls_token_layer_rank3(self) -> None:
+        layer = mydnn.ExtractClsTokenLayer()
+        output = layer.forward(
+            [
+                [[10.0, 20.0], [1.0, 2.0]],
+                [[30.0, 40.0], [3.0, 4.0]],
+            ]
+        )
+
+        self.assertEqual(np.array(output).shape, (2, 2))
+        self.assertTrue(np.allclose(output[0], [10.0, 20.0], atol=1e-6))
+        self.assertTrue(np.allclose(output[1], [30.0, 40.0], atol=1e-6))
+
+    def test_cls_token_flow_with_position_embedding(self) -> None:
+        cls_layer = mydnn.AddClsTokenLayer(np.array([[[1.0, 1.5]]], dtype=np.float32))
+        pos_layer = mydnn.AddPositionEmbeddingLayer(
+            np.array([[[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]], dtype=np.float32)
+        )
+        extract_layer = mydnn.ExtractClsTokenLayer()
+
+        with_cls = cls_layer.forward([[2.0, 3.0], [4.0, 5.0]])
+        with_pos = pos_layer.forward(with_cls)
+        output = extract_layer.forward(with_pos)
+
+        self.assertTrue(np.allclose(output, [1.1, 1.7], atol=1e-6))
 
     def test_act_softmax_returns_concrete_float_values(self) -> None:
         values = [
