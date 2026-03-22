@@ -504,16 +504,20 @@ def cifar10_transformer_shap(
     ton: Optional[int] = None,
     exp_prefix: Optional[str] = None,
     attack_mode: str = "shap",
+    pixel_selector: str = "pixel-shap",
 ) -> List[Dict[str, Any]]:
     from utils.dataset import Cifar10Dataset
 
     ton_sequence = _normalize_ton_sequence(ton_values, fallback=ton or 1)
+    if pixel_selector == "patch-shap" and tuple(ton_sequence) != (1,):
+        raise ValueError("patch-shap supports only --pixel-search 1 in v1.")
     dataset = Cifar10Dataset()
     sample_shape = tuple(int(dim) for dim in dataset.x_test.shape[1:])
 
     pixel_provider = JsonShapPixelProvider(
         model_name=model_name,
         shap_root="shap_value_all_layer",
+        selector=pixel_selector,
         coordinate_dims=3,
         coordinate_bounds=sample_shape,
     )

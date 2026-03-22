@@ -300,6 +300,8 @@ def run_launcher(args: Any) -> None:
     os.environ["PYCT_ENABLE_CONSTRAINT_LOG"] = "1" if args.enable_constraint_log else "0"
 
     attack_mode_parts = [attack_mode]
+    if args.attack_mode == "shap" and args.pixel_selector == "patch-shap":
+        attack_mode_parts.append("patchshap")
     if args.solver_run_timeout and args.solver_run_timeout > 0:
         attack_mode_parts.append(f"solver{args.solver_run_timeout}s")
     attack_mode_for_paths = "_".join(attack_mode_parts)
@@ -331,6 +333,9 @@ def run_launcher(args: Any) -> None:
 
     shap_fn = _select_shap_fn()
     random_fn = _select_random_fn()
+    shap_kwargs = {}
+    if args.dataset == "cifar10":
+        shap_kwargs["pixel_selector"] = args.pixel_selector
 
     if args.attack_mode == "shap":
         inputs = shap_fn(
@@ -339,6 +344,7 @@ def run_launcher(args: Any) -> None:
             force=force_generate,
             ton_values=args.pixel_search,
             attack_mode=attack_mode_for_paths,
+            **shap_kwargs,
         )
     elif args.attack_mode == "random":
         inputs = random_fn(
@@ -369,6 +375,7 @@ def run_launcher(args: Any) -> None:
                 ton_values=args.pixel_search,
                 exp_prefix=exp_prefix,
                 attack_mode=attack_mode_for_paths,
+                **shap_kwargs,
             )
     elif args.attack_mode == "queue":
         # For queue mode, reuse SHAP task generation and execute via QueueRunner inline.
@@ -379,6 +386,7 @@ def run_launcher(args: Any) -> None:
             ton_values=args.pixel_search,
             exp_prefix="queue",
             attack_mode=attack_mode_for_paths,
+            **shap_kwargs,
         )
     else:
         raise ValueError(f"Unsupported attack mode: {args.attack_mode}")

@@ -118,6 +118,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Pixel source for random-assign mode only (ignored by shap/random/queue).",
     )
     parser.add_argument(
+        "--pixel-selector",
+        default="pixel-shap",
+        choices=("pixel-shap", "patch-shap"),
+        help="Coordinate selector for SHAP attacks (default: pixel-shap). patch-shap is CIFAR10-only and requires --pixel-search 1.",
+    )
+    parser.add_argument(
         "--norm-01",
         dest="norm_01",
         action="store_true",
@@ -170,6 +176,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.attack_mode != "queue" and args.score_alpha is None:
         parser.error("--score-alpha is required unless --attack-mode queue")
+    if args.pixel_selector == "patch-shap":
+        if args.attack_mode != "shap":
+            parser.error("--pixel-selector patch-shap requires --attack-mode shap")
+        if args.dataset != "cifar10":
+            parser.error("--pixel-selector patch-shap requires --dataset cifar10")
+        if tuple(args.pixel_search) != (1,):
+            parser.error("--pixel-selector patch-shap requires --pixel-search 1")
     return args
 
 
