@@ -82,6 +82,23 @@ class MyDNNTransformerSupportTests(unittest.TestCase):
         self.assertGreater(output[1], 3.0)
         self.assertLess(output[1], 4.0)
 
+    def test_average_pooling_1d_layer(self) -> None:
+        layer = mydnn.AveragePooling1DLayer(pool_size=4, stride=4)
+        output = layer.forward(
+            [
+                [1.0, 10.0],
+                [3.0, 14.0],
+                [5.0, 18.0],
+                [7.0, 22.0],
+                [9.0, 26.0],
+                [11.0, 30.0],
+                [13.0, 34.0],
+                [15.0, 38.0],
+            ]
+        )
+
+        self.assertTrue(np.allclose(output, [[4.0, 16.0], [12.0, 32.0]], atol=1e-6))
+
     def test_extract_cls_token_layer_rank2(self) -> None:
         layer = mydnn.ExtractClsTokenLayer()
         output = layer.forward([[10.0, 20.0], [1.0, 2.0], [3.0, 4.0]])

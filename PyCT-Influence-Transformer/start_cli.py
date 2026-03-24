@@ -120,8 +120,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--pixel-selector",
         default="pixel-shap",
-        choices=("pixel-shap", "patch-shap"),
-        help="Coordinate selector for SHAP attacks (default: pixel-shap). patch-shap is CIFAR10-only and requires --pixel-search 1.",
+        choices=("pixel-shap", "patch-shap", "token-shap"),
+        help="Coordinate selector for SHAP attacks (default: pixel-shap). patch-shap/token-shap are CIFAR10-only and require --pixel-search 1.",
     )
     parser.add_argument(
         "--norm-01",
@@ -176,13 +176,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.attack_mode != "queue" and args.score_alpha is None:
         parser.error("--score-alpha is required unless --attack-mode queue")
-    if args.pixel_selector == "patch-shap":
+    if args.pixel_selector in {"patch-shap", "token-shap"}:
         if args.attack_mode != "shap":
-            parser.error("--pixel-selector patch-shap requires --attack-mode shap")
+            parser.error(f"--pixel-selector {args.pixel_selector} requires --attack-mode shap")
         if args.dataset != "cifar10":
-            parser.error("--pixel-selector patch-shap requires --dataset cifar10")
+            parser.error(f"--pixel-selector {args.pixel_selector} requires --dataset cifar10")
         if tuple(args.pixel_search) != (1,):
-            parser.error("--pixel-selector patch-shap requires --pixel-search 1")
+            parser.error(f"--pixel-selector {args.pixel_selector} requires --pixel-search 1")
     return args
 
 

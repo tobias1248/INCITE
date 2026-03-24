@@ -38,6 +38,7 @@ if "keras" not in sys.modules:
         "SimpleRNN",
         "MultiHeadAttention",
         "Add",
+        "AveragePooling1D",
         "GlobalAveragePooling2D",
         "GlobalAveragePooling1D",
         "Reshape",

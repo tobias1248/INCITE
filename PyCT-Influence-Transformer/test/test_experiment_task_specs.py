@@ -65,3 +65,34 @@ def test_cifar10_transformer_shap_patch_selector_rejects_multi_ton() -> None:
             attack_mode="shap_patchshap_solver60s",
             pixel_selector="patch-shap",
         )
+
+
+def test_cifar10_transformer_shap_token_selector_builds_single_channel(monkeypatch) -> None:
+    monkeypatch.setattr(dataset_mod, "Cifar10Dataset", _DummyDataset)
+    monkeypatch.setattr(specs, "JsonShapPixelProvider", _DummyPixelProvider)
+
+    inputs = specs.cifar10_transformer_shap(
+        "cifar10_cctlike_eight_mha",
+        first_n_img=[0],
+        force=True,
+        ton_values=(1,),
+        attack_mode="shap_tokenshap_solver60s",
+        pixel_selector="token-shap",
+    )
+
+    assert len(inputs) == 1
+    ton_plan = inputs[0]["ton_plans"][0]
+    assert ton_plan["con_dict"] == {"v_4_5_2": 1}
+    assert _DummyPixelProvider.last_init["selector"] == "token-shap"
+
+
+def test_cifar10_transformer_shap_token_selector_rejects_multi_ton() -> None:
+    with pytest.raises(ValueError, match="token-shap supports only --pixel-search 1"):
+        specs.cifar10_transformer_shap(
+            "cifar10_cctlike_eight_mha",
+            first_n_img=[0],
+            force=True,
+            ton_values=(1, 2),
+            attack_mode="shap_tokenshap_solver60s",
+            pixel_selector="token-shap",
+        )

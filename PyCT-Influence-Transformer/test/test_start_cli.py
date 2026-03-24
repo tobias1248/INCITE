@@ -82,3 +82,76 @@ def test_parse_args_rejects_patch_shap_for_multi_ton() -> None:
                 "0.8",
             ]
         )
+
+
+def test_parse_args_accepts_token_shap_for_cifar10_single_ton() -> None:
+    args = parse_args(
+        [
+            "--attack-mode",
+            "shap",
+            "--dataset",
+            "cifar10",
+            "--pixel-search",
+            "1",
+            "--pixel-selector",
+            "token-shap",
+            "--score-alpha",
+            "0.8",
+        ]
+    )
+
+    assert args.pixel_selector == "token-shap"
+
+
+def test_parse_args_rejects_token_shap_for_non_cifar10() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "shap",
+                "--dataset",
+                "mnist",
+                "--pixel-search",
+                "1",
+                "--pixel-selector",
+                "token-shap",
+                "--score-alpha",
+                "0.8",
+            ]
+        )
+
+
+def test_parse_args_rejects_token_shap_for_non_shap_attack() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "random",
+                "--dataset",
+                "cifar10",
+                "--pixel-search",
+                "1",
+                "--pixel-selector",
+                "token-shap",
+                "--score-alpha",
+                "0.8",
+            ]
+        )
+
+
+def test_parse_args_rejects_token_shap_for_multi_ton() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "shap",
+                "--dataset",
+                "cifar10",
+                "--pixel-search",
+                "1,2",
+                "--pixel-selector",
+                "token-shap",
+                "--score-alpha",
+                "0.8",
+            ]
+        )

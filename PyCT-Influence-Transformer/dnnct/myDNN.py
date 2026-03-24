@@ -31,6 +31,7 @@ from keras.layers import (
     SimpleRNN,
     MultiHeadAttention,
     Add,
+    AveragePooling1D,
     GlobalAveragePooling2D,
     GlobalAveragePooling1D,
     Reshape,
@@ -1272,6 +1273,63 @@ class GlobalAveragePooling2DLayer:
         return self._output
 
 
+class AveragePooling1DLayer:
+    def __init__(self, pool_size, stride=None, padding='valid'):
+        self.pool_size = int(pool_size)
+        self.stride = int(stride) if stride is not None else self.pool_size
+        self.padding = padding
+        self._output = None
+
+    def forward(self, tensor_in):
+        if isinstance(tensor_in, np.ndarray):
+            tensor_in = tensor_in.tolist()
+        input_shape = dim(tensor_in)
+        if len(input_shape) == 2:
+            tensor_out = self._forward_single(tensor_in)
+        elif len(input_shape) == 3:
+            tensor_out = [self._forward_single(sample) for sample in tensor_in]
+        else:
+            raise ValueError(
+                "AveragePooling1D expects rank-2 [steps, channels] "
+                "or rank-3 [batch, steps, channels] input."
+            )
+
+        self._output = tensor_out
+        return tensor_out
+
+    def _forward_single(self, tensor_in):
+        if self.padding != 'valid':
+            raise ValueError(f"AveragePooling1D only supports padding='valid', got {self.padding!r}")
+        if not tensor_in or not isinstance(tensor_in[0], collections.abc.Iterable):
+            raise ValueError("AveragePooling1D expects non-empty [steps, channels] input.")
+
+        steps = len(tensor_in)
+        channels = len(tensor_in[0])
+        if self.pool_size <= 0 or self.stride <= 0:
+            raise ValueError("AveragePooling1D requires positive pool_size and stride.")
+        if steps < self.pool_size:
+            raise ValueError(
+                f"AveragePooling1D pool_size={self.pool_size} exceeds input steps={steps}."
+            )
+
+        out_steps = ((steps - self.pool_size) // self.stride) + 1
+        tensor_out = []
+        for out_step in range(out_steps):
+            base = out_step * self.stride
+            pooled = []
+            for channel in range(channels):
+                register_current_indices((out_step, channel))
+                acc = 0.0
+                for offset in range(self.pool_size):
+                    acc += tensor_in[base + offset][channel]
+                pooled.append(acc / self.pool_size)
+            tensor_out.append(pooled)
+        return tensor_out
+
+    def getOutput(self):
+        return self._output
+
+
 class GlobalAveragePooling1DLayer:
     def __init__(self):
         self._output = None
@@ -1582,6 +1640,24 @@ class NNModel:
         elif isinstance(layer, Add):
             add_layer = AddLayer(resolved_inbounds)
             key = self._append_layer(add_layer)
+            created += 1
+            self._register_cache_key(keras_name, key)
+        elif isinstance(layer, AveragePooling1D):
+            cfg = layer.get_config()
+            pool_size = cfg.get("pool_size", 1)
+            if isinstance(pool_size, (list, tuple)):
+                pool_size = pool_size[0]
+            strides = cfg.get("strides")
+            if isinstance(strides, (list, tuple)):
+                strides = strides[0]
+            avgpool1d_layer = AveragePooling1DLayer(
+                pool_size,
+                stride=strides,
+                padding=cfg.get("padding", "valid"),
+            )
+            if resolved_inbounds:
+                avgpool1d_layer.input_from = resolved_inbounds
+            key = self._append_layer(avgpool1d_layer)
             created += 1
             self._register_cache_key(keras_name, key)
         elif isinstance(layer, GlobalAveragePooling2D):

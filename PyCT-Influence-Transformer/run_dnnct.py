@@ -75,6 +75,8 @@ def _prepare_experiment_paths(
     save_exp: Optional[dict[str, str]],
     only_first_forward: bool,
     timeout: Optional[int],
+    constraint_build_timeout: Optional[bool],
+    constraint_build_timeout_seconds: Optional[int],
     score_alpha: Optional[float],
     symbolic_path_threshold: Optional[int],
 ) -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -91,6 +93,8 @@ def _prepare_experiment_paths(
         "attack_mode": attack_mode,
         "only_first_forward": only_first_forward,
         "timeout": timeout,
+        "constraint_build_timeout": constraint_build_timeout,
+        "constraint_build_timeout_seconds": constraint_build_timeout_seconds,
         "score_alpha": score_alpha,
         "symbolic_path_threshold": symbolic_path_threshold,
     }
@@ -161,6 +165,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         save_exp,
         only_first_forward,
         timeout,
+        constraint_build_timeout,
+        constraint_build_timeout_seconds,
         score_alpha,
         symbolic_path_threshold,
     )

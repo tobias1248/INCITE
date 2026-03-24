@@ -194,11 +194,12 @@ python3 start_test.py --attack-mode random-assign --pixel-source random --datase
 Experiment outputs are stored under:
 
 ```text
-exp/<model_name>_<attack_mode>_<timeout>_<alpha_tag>_<threshold>/case_<idx>/
+exp/<model_name>_<attack_mode>_<timeout>_<constraint_build_timeout_seconds>_<alpha_tag>_<threshold>/case_<idx>/
 ```
 
 Notes:
 - `alpha_tag` format is `a00`, `a05`, `a08`, `a10`, etc.
+- `constraint_build_timeout_seconds` is numeric; `0` means build timeout is disabled.
 - If `--solver-run-timeout > 0`, attack mode in path includes suffix, for example `shap_solver60s`.
 - Common files per case:
   - `stats.json`

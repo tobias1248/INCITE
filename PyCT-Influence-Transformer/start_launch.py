@@ -292,6 +292,12 @@ def run_launcher(args: Any) -> None:
         args.pixel_search,
     )
     os.environ["PYCT_TIMEOUT"] = str(args.timeout)
+    os.environ["PYCT_CONSTRAINT_BUILD_TIMEOUT_ENABLED"] = (
+        "1" if args.constraint_build_timeout else "0"
+    )
+    os.environ["PYCT_CONSTRAINT_BUILD_TIMEOUT_SECONDS"] = str(
+        args.constraint_build_timeout_seconds
+    )
     if args.score_alpha is not None:
         os.environ["PYCT_SCORE_ALPHA"] = str(args.score_alpha)
     else:
@@ -302,6 +308,8 @@ def run_launcher(args: Any) -> None:
     attack_mode_parts = [attack_mode]
     if args.attack_mode == "shap" and args.pixel_selector == "patch-shap":
         attack_mode_parts.append("patchshap")
+    if args.attack_mode == "shap" and args.pixel_selector == "token-shap":
+        attack_mode_parts.append("tokenshap")
     if args.solver_run_timeout and args.solver_run_timeout > 0:
         attack_mode_parts.append(f"solver{args.solver_run_timeout}s")
     attack_mode_for_paths = "_".join(attack_mode_parts)

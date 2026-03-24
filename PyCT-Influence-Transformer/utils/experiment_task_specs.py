@@ -50,6 +50,8 @@ def get_save_dir_from_save_exp(
     *,
     only_first_forward: bool = False,
     timeout: Optional[int] = None,
+    constraint_build_timeout: Optional[bool] = None,
+    constraint_build_timeout_seconds: Optional[int] = None,
     score_alpha: Optional[float] = None,
     symbolic_path_threshold: Optional[int] = None,
 ) -> str:
@@ -73,6 +75,16 @@ def get_save_dir_from_save_exp(
             return save_exp.get(key)
         return os.environ.get(env_key)
 
+    def _resolve_bool(key: str, explicit: Optional[bool], env_key: str) -> Optional[bool]:
+        if explicit is not None:
+            return bool(explicit)
+        if isinstance(save_exp, dict) and key in save_exp:
+            return bool(save_exp.get(key))
+        raw = os.environ.get(env_key)
+        if raw is None:
+            return None
+        return raw.lower() not in {"0", "false", "no", "off"}
+
     def _format_component(value: Optional[Any]) -> str:
         if value is None:
             return "na"
@@ -80,15 +92,40 @@ def get_save_dir_from_save_exp(
             return f"{value:g}"
         return str(value)
 
+    def _format_build_timeout_component(enabled: Optional[bool], seconds: Optional[Any]) -> str:
+        if enabled is False:
+            return "0"
+        if seconds is None:
+            return "30"
+        try:
+            return str(int(seconds))
+        except (TypeError, ValueError):
+            return _format_component(seconds)
+
     base_model = f"{model_name}_only_first_forward" if only_first_forward else model_name
     timeout_val = _resolve_value("timeout", timeout, "PYCT_TIMEOUT")
+    build_timeout_enabled = _resolve_bool(
+        "constraint_build_timeout",
+        constraint_build_timeout,
+        "PYCT_CONSTRAINT_BUILD_TIMEOUT_ENABLED",
+    )
+    build_timeout_seconds_val = _resolve_value(
+        "constraint_build_timeout_seconds",
+        constraint_build_timeout_seconds,
+        "PYCT_CONSTRAINT_BUILD_TIMEOUT_SECONDS",
+    )
     alpha_val = _resolve_value("score_alpha", score_alpha, "PYCT_SCORE_ALPHA")
     threshold_val = _resolve_value("symbolic_path_threshold", symbolic_path_threshold, "PYCT_SYMBOLIC_PATH_THRESHOLD")
     alpha_component = _format_alpha(alpha_val)
-    base_dir = "{}_{}_{}_{}_{}".format(
+    build_timeout_component = _format_build_timeout_component(
+        build_timeout_enabled,
+        build_timeout_seconds_val,
+    )
+    base_dir = "{}_{}_{}_{}_{}_{}".format(
         base_model,
         attack_mode,
         _format_component(timeout_val),
+        build_timeout_component,
         alpha_component,
         _format_component(threshold_val),
     )
@@ -509,8 +546,8 @@ def cifar10_transformer_shap(
     from utils.dataset import Cifar10Dataset
 
     ton_sequence = _normalize_ton_sequence(ton_values, fallback=ton or 1)
-    if pixel_selector == "patch-shap" and tuple(ton_sequence) != (1,):
-        raise ValueError("patch-shap supports only --pixel-search 1 in v1.")
+    if pixel_selector in {"patch-shap", "token-shap"} and tuple(ton_sequence) != (1,):
+        raise ValueError(f"{pixel_selector} supports only --pixel-search 1 in v1.")
     dataset = Cifar10Dataset()
     sample_shape = tuple(int(dim) for dim in dataset.x_test.shape[1:])
 
