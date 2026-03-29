@@ -77,11 +77,11 @@ SHAP 在此不是最終目標，而是搜尋指引：
 shap_map_calculator.py
     -> 產生 SHAP cache JSON
 
-start_test.py
-    -> start_cli.py 解析 CLI
-    -> start_launch.py 建立 tasks / workers / ton stages
-    -> utils/experiment_runner.py 執行單個 payload
-    -> run_dnnct.py 建立 ExplorationEngine
+python -m cli
+    -> cli/args.py 解析 CLI
+    -> orchestration/launcher.py 建立 tasks / workers / ton stages
+    -> orchestration/runners.py 執行單個 payload
+    -> engine/executor.py 建立 ExplorationEngine
     -> libct/explore.py 執行 concolic exploration
     -> libct/record.py 寫出 stats / inputs / images
     -> statistic.py 做跨 case 聚合分析
@@ -91,12 +91,12 @@ start_test.py
 
 | 模組 | 角色 |
 | --- | --- |
-| `start_test.py` | 最薄的 CLI 入口，串起 parse 與 launcher |
-| `start_cli.py` | 定義實驗參數、驗證 attack mode 與 selector 限制 |
-| `start_launch.py` | 建立多進程 worker、安排 `ton` stage、處理 resume/skip |
-| `utils/experiment_task_specs.py` | 生成 dataset-specific payload、決定 output path |
+| `cli/main.py` | 最薄的 CLI 入口，串起 parse 與 launcher |
+| `cli/args.py` | 定義實驗參數、驗證 attack mode 與 selector 限制 |
+| `orchestration/launcher.py` | 建立多進程 worker、安排 `ton` stage、處理 resume/skip |
+| `tasks/builders/*` | 生成 dataset-specific payload、決定 output path |
 | `shap_map_calculator.py` | 預先產生 SHAP cache |
-| `run_dnnct.py` | 載入模型、組裝 explorer、傳遞 metadata |
+| `engine/executor.py` | 載入模型、組裝 explorer、傳遞 metadata |
 | `dnn_predict_common.py` | 載入 Keras model 並轉接到自訂 `NNModel` 執行路徑 |
 | `dnnct/myDNN.py` | 純 Python forward path，補齊 transformer 相關 layer 支援 |
 | `libct/explore.py` | concolic engine 主體，收集/排序/彈出 constraints |
@@ -141,7 +141,7 @@ Task generation 的責任是把原始資料集樣本轉成 concolic engine 能�
 
 ### 5.3 Launcher 與多進程調度
 
-`start_launch.py` 會：
+`orchestration/launcher.py` 會：
 
 1. 依據 CLI 選擇 dataset-specific task generator。
 2. 根據 attack mode 決定 runner 類型。
@@ -156,7 +156,7 @@ Task generation 的責任是把原始資料集樣本轉成 concolic engine 能�
 
 ### 5.4 Exploration 與 SMT solving
 
-`run_dnnct.py` 會把單個 payload 組裝成 `ExplorationEngine` 所需參數，並補上：
+`engine/executor.py` 會把單個 payload 組裝成 `ExplorationEngine` 所需參數，並補上：
 
 - `score_alpha`
 - `symbolic_path_threshold`
@@ -314,7 +314,7 @@ stage 狀態會回寫到 `stats.json` 的 `meta.ton_progress`，並額外記錄�
 - `patch-shap`
 - `token-shap`
 
-其關鍵不是多一個 flag，而是 `libct/shap_pixel_provider.py` 會分析 model config，推斷 tokenizer 類型：
+其關鍵不是多一個 flag，而是 `explainability/pixel_provider.py` 會分析 model config，推斷 tokenizer 類型：
 
 - `patch_2d`：例如 Conv2D patch embedding + Reshape
 - `sequence_pool_1d`：例如 token sequence + AveragePooling1D
@@ -569,11 +569,11 @@ exp/<model>_<attack_mode>_<timeout>_<build_timeout>_<alpha_tag>_<symbolic_thresh
 如果讀者想快速理解程式碼，建議依下列順序閱讀：
 
 1. `README.md`
-2. `start_test.py`
-3. `start_cli.py`
-4. `start_launch.py`
-5. `utils/experiment_task_specs.py`
-6. `run_dnnct.py`
+2. `cli/main.py`
+3. `cli/args.py`
+4. `orchestration/launcher.py`
+5. `tasks/builders/`
+6. `engine/executor.py`
 7. `libct/explore.py`
 8. `libct/record.py`
 9. `dnn_predict_common.py`
@@ -582,7 +582,7 @@ exp/<model>_<attack_mode>_<timeout>_<build_timeout>_<alpha_tag>_<symbolic_thresh
 
 若只想理解 SHAP selector 與 transformer 支援，可優先讀：
 
-1. `libct/shap_pixel_provider.py`
+1. `explainability/pixel_provider.py`
 2. `shap_map_calculator.py`
 3. `dnn_predict_common.py`
 4. `dnnct/myDNN.py`

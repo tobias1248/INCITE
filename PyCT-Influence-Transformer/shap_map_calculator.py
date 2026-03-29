@@ -72,11 +72,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         raise ValueError("--sleep-seconds must be non-negative")
 
     # Import heavy dependencies lazily to keep startup fast.
-    from utils.experiment_task_specs import (
-        fashion_mnist_transformer_shap_calculate_all,
-        mnist_transformer_shap_calculate_all,
-        cifar10_cal_shap_specs,
-    )
+    from tasks.builders.cifar10 import cifar10_cal_shap_specs
+    from tasks.builders.fashion_mnist import fashion_mnist_transformer_shap_calculate_all
+    from tasks.builders.mnist import mnist_transformer_shap_calculate_all
 
     if args.sleep_seconds:
         time.sleep(args.sleep_seconds)

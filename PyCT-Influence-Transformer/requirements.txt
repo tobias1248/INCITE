@@ -1,3 +1,7 @@
+#
+# Legacy export for pip-compatible tooling.
+# The project's Python version is declared in pyproject.toml: >=3.9,<3.10
+#
 numpy==1.24.3
 tensorflow==2.13.1
 keras==2.13.1

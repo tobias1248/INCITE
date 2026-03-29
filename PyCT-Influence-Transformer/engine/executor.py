@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import os
 import gc
-import libct.explore
+import os
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Literal, Dict, Set, Tuple
 from types import ModuleType
+from typing import Any, Callable, Dict, Literal, Optional, Set, Tuple
 
-from utils.experiment_task_specs import get_save_dir_from_save_exp
+import libct.explore
+
 from libct.utils import (
-    get_module_from_rootdir_and_modpath,
     get_function_from_module_and_funcname,
+    get_module_from_rootdir_and_modpath,
 )
+from tasks.paths import get_save_dir_from_save_exp
 
-PYCT_ROOT = './'
-MODEL_ROOT = os.path.join(PYCT_ROOT, 'model')
+PYCT_ROOT = "./"
+MODEL_ROOT = os.path.join(PYCT_ROOT, "model")
 VALID_COLLECT_MODES = {"priority_queue", "queue", "stack"}
 DEFAULT_SOLVER = "cvc5"
 PredictorCacheEntry = Tuple[ModuleType, Callable[..., Any], Callable[..., Any], Set[str]]
@@ -50,6 +51,7 @@ def _resolve_model_artifacts(model_name: str) -> tuple[str, str, str]:
         raise FileNotFoundError(f"Model file not found: {model_path}")
     module_path = os.path.join(PYCT_ROOT, "dnn_predict_common.py")
     root = os.path.dirname(__file__)
+    root = os.path.dirname(root)
     return model_path, module_path, root
 
 
