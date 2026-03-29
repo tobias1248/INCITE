@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *.pyo
 
+# Local environments
+.venv/
+
 # Logs and temporary files
 *.log
 *.tmp

@@ -1,93 +1,30 @@
 from __future__ import annotations
 
 import gc
-import json
 import logging
-import queue
-import traceback
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Sequence, Literal, Tuple
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Dict, Literal, Optional, Sequence, Tuple
 
 from libct.random_assign_attack import (
     run_random_assign_step,
     write_combined_log,
     write_experiment_artifacts,
 )
-from libct.shapInfl import ShapValuesCalculator
+from orchestration.progress import derive_ton_outcome, update_ton_progress_stats
 
 log = logging.getLogger("ct.runner")
-
 
 __all__ = [
     "QueueRunner",
     "ShapRunner",
+    "RandomAssignRunner",
     "run_attack_with_shap",
     "run_attack_with_queue",
     "run_attack_with_random_assign",
     "update_ton_progress_stats",
 ]
-
-
-def _derive_ton_outcome(recorder: Any) -> Tuple[bool, str]:
-    attack_label = getattr(recorder, "attack_label", None)
-    solved_all = getattr(recorder, "solve_all_ctr", False)
-    is_timeout = getattr(recorder, "is_timeout", False)
-    if attack_label is not None:
-        return False, "adv_found"
-    if solved_all:
-        return True, "solve_all_ctr"
-    if is_timeout:
-        return True, "timeout"
-    return False, "incomplete"
-
-
-def update_ton_progress_stats(
-    stats_path: Path,
-    *,
-    current_ton: int,
-    status: str,
-    reason: str,
-    next_ton: Optional[int] = None,
-) -> bool:
-    if not stats_path.is_file():
-        return False
-    try:
-        with stats_path.open("r", encoding="utf-8") as handle:
-            stats = json.load(handle)
-    except (OSError, json.JSONDecodeError):
-        return False
-
-    progress = {
-        "current": current_ton,
-        "next": next_ton,
-        "stop_at": current_ton if status == "stop" else None,
-        "status": status,
-        "reason": reason,
-    }
-    meta = stats.setdefault("meta", {})
-    meta["ton_progress"] = progress
-    stats.pop("ton_progress", None)
-    stats.pop("progress", None)
-    stats.pop("ton_sequence", None)
-    meta.pop("progress", None)
-    meta.pop("ton_sequence", None)
-    meta.pop("finished", None)
-
-    try:
-        with stats_path.open("w", encoding="utf-8") as handle:
-            json.dump(stats, handle)
-    except OSError:
-        return False
-    try:
-        history_path = stats_path.with_name("stats_history.jsonl")
-        with history_path.open("a", encoding="utf-8") as handle:
-            json.dump(stats, handle)
-            handle.write("\n")
-    except OSError:
-        return False
-    return True
 
 
 @dataclass
@@ -120,7 +57,7 @@ class BaseRunner:
             finally:
                 self._cleanup(payload)
 
-    def _run_single(self, payload: Dict[str, Any]) -> None:  # pragma: no cover - abstract
+    def _run_single(self, payload: Dict[str, Any]) -> None:
         raise NotImplementedError
 
     def _log_payload_end(self, payload: Dict[str, Any], result: Any) -> None:
@@ -146,9 +83,9 @@ class BaseRunner:
         gc.collect()
 
     def _execute_attack(self, payload: Dict[str, Any]) -> Any:
-        import run_dnnct
+        from engine.executor import run
 
-        return run_dnnct.run(
+        return run(
             **payload,
             norm=self.norm,
             max_iter=0,
@@ -177,7 +114,7 @@ class BaseRunner:
         stats_path = Path(save_dir) / "stats.json"
         if not stats_path.is_file():
             return
-        should_continue, reason = _derive_ton_outcome(recorder)
+        should_continue, reason = derive_ton_outcome(recorder)
         status = "continue" if should_continue else "stop"
         next_ton = None
         try:
@@ -229,7 +166,6 @@ class QueueRunner(BaseRunner):
             plan_payload["con_dict"] = plan["con_dict"]
             plan_payload["save_exp"] = plan["save_exp"]
 
-            start_time = time.monotonic()
             result = self._execute_attack(plan_payload)
             last_result = result
 
@@ -238,19 +174,17 @@ class QueueRunner(BaseRunner):
                 recorder = result[1]
             if recorder is not None:
                 self._write_ton_sequence(recorder, ton_sequence, plan.get("ton"))
-                should_continue, reason = _derive_ton_outcome(recorder)
+                should_continue, reason = derive_ton_outcome(recorder)
                 if reason == "adv_found":
-                    break  # success
+                    break
                 if should_continue:
-                    continue  # solved all or timed out, move to next ton
+                    continue
                 break
 
         return last_result
 
 
 class ShapRunner(BaseRunner):
-    """Execute SHAP-guided attacks while respecting CLI-provided options."""
-
     def __init__(
         self,
         timeout: int,
@@ -287,7 +221,6 @@ class ShapRunner(BaseRunner):
             plan_payload["con_dict"] = plan["con_dict"]
             plan_payload["save_exp"] = plan["save_exp"]
 
-            start_time = time.monotonic()
             result = self._execute_attack(plan_payload)
             last_result = result
 
@@ -296,44 +229,17 @@ class ShapRunner(BaseRunner):
                 recorder = result[1]
             if recorder is not None:
                 self._write_ton_sequence(recorder, ton_sequence, plan.get("ton"))
-                should_continue, reason = _derive_ton_outcome(recorder)
+                should_continue, reason = derive_ton_outcome(recorder)
                 if reason == "adv_found":
-                    break  # success
+                    break
                 if should_continue:
-                    continue  # solved all or timed out, move to next ton
+                    continue
                 break
 
         return last_result
 
 
-# class _ShapPrefetchRunner(BaseRunner):
-#     """Pre-compute SHAP values to warm caches prior to attack execution."""
-
-#     def __init__(self, timeout: int = 0) -> None:
-#         super().__init__(timeout=timeout or 0, norm=False)
-
-#     def _run_single(self, payload: Dict[str, Any]) -> None:
-#         model_name = payload.get("model_name")
-#         if model_name is None:
-#             raise KeyError("Expected 'model_name' in payload for SHAP computation.")
-
-#         calculator = ShapValuesCalculator(
-#             model_path=f"./model/{model_name}.h5",
-#             background_dataset=payload["background_dataset_for_shap"],
-#             input_data=payload["input_for_shap"],
-#             idx=payload["idx"],
-#             explainer_type=payload.get("explainer_type", "gradient"),
-#         )
-#         assume_cached = bool(payload.get("shap_value_pre_calculated"))
-#         calculator.ensure(
-#             assume_cached=assume_cached,
-#             force_refresh=not assume_cached,
-#         )
-
-
 class RandomAssignRunner(BaseRunner):
-    """Execute baseline attacks that randomly assign values to selected pixels."""
-
     def __init__(
         self,
         timeout: int,
@@ -478,9 +384,3 @@ def run_attack_with_random_assign(
         model_type=model_type,
         collect_constraints_with=collect_constraints_with,
     ).run_tasks(args)
-
-
-# def shap_prefetch(
-#     args: Sequence[Dict[str, Any]],
-# ) -> None:
-#     _ShapPrefetchRunner().run_tasks(args)

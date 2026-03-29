@@ -1,0 +1,25 @@
+[project]
+name = "pyct-influence-transformer"
+version = "0.1.0"
+description = "Concolic testing on image classifiers with SHAP-guided constraint prioritization."
+readme = "README.md"
+requires-python = ">=3.9,<3.10"
+dependencies = [
+    "func-timeout==4.3.5",
+    "keras==2.13.1",
+    "keras-resnet",
+    "numpy==1.24.3",
+    "opencv-python==4.8.1.78",
+    "shap==0.42.1",
+    "tensorflow==2.13.1",
+]
+
+[dependency-groups]
+dev = [
+    "coverage==4.5.4",
+    "pytest==6.2.5",
+]
+
+[tool.uv]
+package = false
+default-groups = ["dev"]

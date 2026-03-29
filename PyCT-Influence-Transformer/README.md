@@ -10,8 +10,8 @@ An experimental framework for concolic testing on image classifiers, built on to
 - Post-run aggregation via `statistic.py` (including split by status).
 
 ## Current defaults and key behavior
-- Entrypoint: `start_test.py`
-- Default solver: `cvc5` (`run_dnnct.py`, `libct/explore.py`)
+- Entrypoint: `python -m cli`
+- Default solver: `cvc5` (`engine/executor.py`, `libct/explore.py`)
 - `--solver-run-timeout` default: `60` seconds
 - `--score-alpha` is required
 - `--symbolic-path-threshold` default: `8000`
@@ -19,13 +19,15 @@ An experimental framework for concolic testing on image classifiers, built on to
 - Supported datasets: `fashion_mnist`, `cifar10`, `mnist`
 
 ## Repository layout
-- `start_test.py`: main CLI wrapper
-- `start_cli.py`: argument parsing and logging setup
-- `start_launch.py`: task scheduling, stage progression, multiprocessing
-- `run_dnnct.py`: model loading + exploration engine wiring
+- `cli/`: canonical CLI entrypoint and argument parsing
+- `orchestration/`: task scheduling, stage progression, multiprocessing, runners
+- `tasks/`: task payload schemas, output paths, dataset-family builders
+- `datasets/`: dataset adapters and tensor-to-payload conversion
+- `engine/`: exploration engine wiring and model execution bootstrap
+- `modeling/`: shared Keras/custom-layer loading compatibility helpers
+- `explainability/`: SHAP calculation and pixel-selection utilities
 - `libct/`: concolic engine, solver, recorder
 - `dnnct/`: pure-Python DNN execution path
-- `utils/experiment_task_specs.py`: task generation + output directory naming
 - `statistic.py`: metrics aggregation over `stats.json`
 - `shap_map_calculator.py`: SHAP map generation pipeline
 
@@ -33,6 +35,7 @@ An experimental framework for concolic testing on image classifiers, built on to
 - Linux environment (or WSL)
 - Python 3.9
 - `cvc5` installed and available on `PATH`
+- `uv` installed (`https://docs.astral.sh/uv/`)
 
 Verify solver installation:
 ```bash
@@ -60,47 +63,32 @@ sudo make install
 
 ## Environment setup
 
-### Option A: Conda (recommended)
+This repository now uses `uv` as the source of truth for dependency management.
+Python compatibility is declared in `pyproject.toml` as `>=3.9,<3.10`, and `.python-version` pins local development to `3.9`.
+
+### Create the environment
 ```bash
-conda env create -f environment.yml
-conda activate shap-concolic
+uv sync
 ```
 
-### Option B: pip/venv (for other package managers)
-A `requirements.txt` is provided and mirrors the `pip:` section in `environment.yml`.
+This creates `.venv/` automatically and installs both runtime and dev dependencies.
 
+### Run commands inside the managed environment
 ```bash
-python3.9 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+uv run python -m cli --help
+uv run pytest
 ```
 
-### Regenerate `requirements.txt` from `environment.yml`
-If you update the `pip:` section in `environment.yml`, regenerate with:
+Dataset cache policy:
+- By default, MNIST / Fashion-MNIST / CIFAR10 must already exist in the local Keras cache under `~/.keras/datasets`.
+- To point at a different local cache, set `PYCT_KERAS_HOME=/path/to/keras-home`.
+- To allow on-demand dataset downloads, set `PYCT_ALLOW_DATASET_DOWNLOAD=1`.
+
+### Export `requirements.txt` for pip-compatible tooling
+If you still need a flat `requirements.txt`, export it from the `uv` project metadata:
 
 ```bash
-python3 - <<'PY'
-from pathlib import Path
-
-lines = Path('environment.yml').read_text(encoding='utf-8').splitlines()
-packages = []
-in_pip = False
-
-for raw in lines:
-    s = raw.strip()
-    if s == '- pip:':
-        in_pip = True
-        continue
-    if in_pip:
-        if s.startswith('- '):
-            pkg = s[2:].strip()
-            if pkg:
-                packages.append(pkg)
-
-Path('requirements.txt').write_text('\n'.join(packages) + '\n', encoding='utf-8')
-print(f'wrote {len(packages)} packages to requirements.txt')
-PY
+uv export --format requirements.txt --no-hashes -o requirements.txt
 ```
 
 ## Models
@@ -136,7 +124,7 @@ Important SHAP options:
 
 ### SHAP-guided run
 ```bash
-python3 start_test.py \
+python3 -m cli \
   --dataset cifar10 \
   --model-name cifar10_concolic_transformer \
   --attack-mode shap \
@@ -150,7 +138,7 @@ python3 start_test.py \
 
 ### Queue mode (FIFO constraint collection)
 ```bash
-python3 start_test.py \
+python3 -m cli \
   --dataset cifar10 \
   --model-name cifar10_concolic_transformer \
   --attack-mode queue \
@@ -165,10 +153,10 @@ python3 start_test.py \
 ### Random baselines
 ```bash
 # random
-python3 start_test.py --attack-mode random --dataset cifar10 --model-name cifar10_concolic_transformer --pixel-search 1 --first-n 100 --score-alpha 0.8
+python3 -m cli --attack-mode random --dataset cifar10 --model-name cifar10_concolic_transformer --pixel-search 1 --first-n 100 --score-alpha 0.8
 
 # random-assign (pixel source: random or shap)
-python3 start_test.py --attack-mode random-assign --pixel-source random --dataset cifar10 --model-name cifar10_concolic_transformer --pixel-search 1 --first-n 100 --score-alpha 0.8
+python3 -m cli --attack-mode random-assign --pixel-source random --dataset cifar10 --model-name cifar10_concolic_transformer --pixel-search 1 --first-n 100 --score-alpha 0.8
 ```
 
 ## CLI reference (core flags)
@@ -232,6 +220,8 @@ python3 statistic.py --path exp/<your_experiment_dir> --json --split-by-status
   - Usually indicates forward/constraint-generation overhead dominates.
 - Inconsistent SHAP behavior:
   - Regenerate maps with `--force-refresh` and fixed background settings.
+- Dataset cache missing in offline environments:
+  - Pre-populate `~/.keras/datasets`, or set `PYCT_KERAS_HOME` to a local cache. Use `PYCT_ALLOW_DATASET_DOWNLOAD=1` only when network downloads are acceptable.
 
 ## Quick sanity checklist
 - `cvc5 --version` works

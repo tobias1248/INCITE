@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Sequence, Tuple
 import numpy as np
 
 import dnn_predict_common
-from utils.experiment_task_specs import get_save_dir_from_save_exp
+from tasks.paths import get_save_dir_from_save_exp
 
 try:
     import cv2

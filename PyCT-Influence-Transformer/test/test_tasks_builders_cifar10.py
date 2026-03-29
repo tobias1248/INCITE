@@ -9,8 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import utils.dataset as dataset_mod
-import utils.experiment_task_specs as specs
+import tasks.builders.cifar10 as specs
 
 
 class _DummyDataset:
@@ -22,7 +21,12 @@ class _DummyDataset:
         con_dict = {}
         for i, j, k in attack_pixels:
             con_dict[f"v_{i}_{j}_{k}"] = 1
-        return in_dict, con_dict, np.zeros((32, 32, 3), dtype=np.float32), np.zeros((1, 32, 32, 3), dtype=np.float32)
+        return (
+            in_dict,
+            con_dict,
+            np.zeros((32, 32, 3), dtype=np.float32),
+            np.zeros((1, 32, 32, 3), dtype=np.float32),
+        )
 
 
 class _DummyPixelProvider:
@@ -37,7 +41,7 @@ class _DummyPixelProvider:
 
 
 def test_cifar10_transformer_shap_patch_selector_builds_single_channel(monkeypatch) -> None:
-    monkeypatch.setattr(dataset_mod, "Cifar10Dataset", _DummyDataset)
+    monkeypatch.setattr(specs, "Cifar10Dataset", _DummyDataset)
     monkeypatch.setattr(specs, "JsonShapPixelProvider", _DummyPixelProvider)
 
     inputs = specs.cifar10_transformer_shap(
@@ -68,7 +72,7 @@ def test_cifar10_transformer_shap_patch_selector_rejects_multi_ton() -> None:
 
 
 def test_cifar10_transformer_shap_token_selector_builds_single_channel(monkeypatch) -> None:
-    monkeypatch.setattr(dataset_mod, "Cifar10Dataset", _DummyDataset)
+    monkeypatch.setattr(specs, "Cifar10Dataset", _DummyDataset)
     monkeypatch.setattr(specs, "JsonShapPixelProvider", _DummyPixelProvider)
 
     inputs = specs.cifar10_transformer_shap(
