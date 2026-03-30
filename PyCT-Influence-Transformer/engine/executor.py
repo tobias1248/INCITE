@@ -49,7 +49,7 @@ def _resolve_model_artifacts(model_name: str) -> tuple[str, str, str]:
     model_path = os.path.join(MODEL_ROOT, f"{model_name}.h5")
     if not os.path.isfile(model_path):
         raise FileNotFoundError(f"Model file not found: {model_path}")
-    module_path = os.path.join(PYCT_ROOT, "dnn_predict_common.py")
+    module_path = os.path.join(PYCT_ROOT, "engine", "predictor_runtime.py")
     root = os.path.dirname(__file__)
     root = os.path.dirname(root)
     return model_path, module_path, root

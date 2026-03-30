@@ -17,6 +17,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--dataset",
         choices=("fashion_mnist", "cifar10", "mnist"),
+        required=True,
         help="Dataset to use when preparing inputs/backgrounds for SHAP ['fashion_mnist', 'cifar10', 'mnist'].",
     )
     parser.add_argument(

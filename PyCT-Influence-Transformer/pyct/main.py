@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cli.args import configure_logging, parse_args
+from pyct.args import configure_logging, parse_args
 
 
 def main(argv=None) -> None:

@@ -4,7 +4,7 @@ import argparse
 import logging
 from typing import Any, Dict, Optional, Sequence, Tuple
 
-from start_config import (
+from pyct.config import (
     _DEFAULT_PIXEL_SEARCH,
     _LOG_LEVEL_CHOICES,
 )

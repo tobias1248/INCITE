@@ -7,10 +7,10 @@ An experimental framework for concolic testing on image classifiers, built on to
 - Multi-stage attack flow via `--pixel-search` (for example `1,2,4,8,16,32`).
 - Per-case experiment artifacts and statistics under `exp/`.
 - Constraint solving through SMT (`cvc5` is the default solver).
-- Post-run aggregation via `statistic.py` (including split by status).
+- Post-run aggregation via `python -m pyct.stats` (including split by status).
 
 ## Current defaults and key behavior
-- Entrypoint: `python -m cli`
+- Entrypoint: `python -m pyct`
 - Default solver: `cvc5` (`engine/executor.py`, `libct/explore.py`)
 - `--solver-run-timeout` default: `60` seconds
 - `--score-alpha` is required
@@ -19,7 +19,7 @@ An experimental framework for concolic testing on image classifiers, built on to
 - Supported datasets: `fashion_mnist`, `cifar10`, `mnist`
 
 ## Repository layout
-- `cli/`: canonical CLI entrypoint and argument parsing
+- `pyct/`: canonical application entrypoints for attacks, SHAP preprocessing, and stats
 - `orchestration/`: task scheduling, stage progression, multiprocessing, runners
 - `tasks/`: task payload schemas, output paths, dataset-family builders
 - `datasets/`: dataset adapters and tensor-to-payload conversion
@@ -28,8 +28,8 @@ An experimental framework for concolic testing on image classifiers, built on to
 - `explainability/`: SHAP calculation and pixel-selection utilities
 - `libct/`: concolic engine, solver, recorder
 - `dnnct/`: pure-Python DNN execution path
-- `statistic.py`: metrics aggregation over `stats.json`
-- `shap_map_calculator.py`: SHAP map generation pipeline
+- `reporting/`: metrics aggregation over `stats.json`
+- `pyct/shap.py`: SHAP map generation CLI
 
 ## Prerequisites
 - Linux environment (or WSL)
@@ -75,7 +75,7 @@ This creates `.venv/` automatically and installs both runtime and dev dependenci
 
 ### Run commands inside the managed environment
 ```bash
-uv run python -m cli --help
+uv run python -m pyct --help
 uv run pytest
 ```
 
@@ -106,7 +106,7 @@ Local-only SHAP artifacts:
 Run SHAP preprocessing before SHAP-guided attacks:
 
 ```bash
-python3 shap_map_calculator.py \
+python3 -m pyct.shap \
   --dataset cifar10 \
   --model-name cifar10_concolic_transformer \
   --first-n 100 \
@@ -124,7 +124,7 @@ Important SHAP options:
 
 ### SHAP-guided run
 ```bash
-python3 -m cli \
+python3 -m pyct \
   --dataset cifar10 \
   --model-name cifar10_concolic_transformer \
   --attack-mode shap \
@@ -138,7 +138,7 @@ python3 -m cli \
 
 ### Queue mode (FIFO constraint collection)
 ```bash
-python3 -m cli \
+python3 -m pyct \
   --dataset cifar10 \
   --model-name cifar10_concolic_transformer \
   --attack-mode queue \
@@ -153,10 +153,10 @@ python3 -m cli \
 ### Random baselines
 ```bash
 # random
-python3 -m cli --attack-mode random --dataset cifar10 --model-name cifar10_concolic_transformer --pixel-search 1 --first-n 100 --score-alpha 0.8
+python3 -m pyct --attack-mode random --dataset cifar10 --model-name cifar10_concolic_transformer --pixel-search 1 --first-n 100 --score-alpha 0.8
 
 # random-assign (pixel source: random or shap)
-python3 -m cli --attack-mode random-assign --pixel-source random --dataset cifar10 --model-name cifar10_concolic_transformer --pixel-search 1 --first-n 100 --score-alpha 0.8
+python3 -m pyct --attack-mode random-assign --pixel-source random --dataset cifar10 --model-name cifar10_concolic_transformer --pixel-search 1 --first-n 100 --score-alpha 0.8
 ```
 
 ## CLI reference (core flags)
@@ -198,17 +198,17 @@ Notes:
 
 ### Human-readable summary
 ```bash
-python3 statistic.py --path exp/<your_experiment_dir>
+python3 -m pyct.stats --path exp/<your_experiment_dir>
 ```
 
 ### Split by status (`success` / `timeout` / ...)
 ```bash
-python3 statistic.py --path exp/<your_experiment_dir> --split-by-status
+python3 -m pyct.stats --path exp/<your_experiment_dir> --split-by-status
 ```
 
 ### JSON output for scripting
 ```bash
-python3 statistic.py --path exp/<your_experiment_dir> --json --split-by-status
+python3 -m pyct.stats --path exp/<your_experiment_dir> --json --split-by-status
 ```
 
 ## Common issues

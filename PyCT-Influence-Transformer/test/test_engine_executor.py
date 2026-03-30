@@ -18,6 +18,81 @@ def test_validate_collect_mode_rejects_invalid_mode() -> None:
         executor._validate_collect_mode("fifo")
 
 
+def test_resolve_model_artifacts_raises_when_model_file_is_missing(monkeypatch) -> None:
+    monkeypatch.setattr(executor.os.path, "isfile", lambda path: False)
+
+    with pytest.raises(FileNotFoundError, match="Model file not found"):
+        executor._resolve_model_artifacts("missing-model")
+
+
+def test_load_predictor_reuses_cached_module_entry(monkeypatch) -> None:
+    executor._PREDICTOR_CACHE.clear()
+    module = object()
+    init_fn = object()
+    predict_fn = object()
+    module_calls = []
+    function_calls = []
+
+    monkeypatch.setattr(
+        executor,
+        "get_module_from_rootdir_and_modpath",
+        lambda root, module_path: module_calls.append((root, module_path)) or module,
+    )
+    monkeypatch.setattr(
+        executor,
+        "get_function_from_module_and_funcname",
+        lambda mod, name: function_calls.append((mod, name)) or (init_fn if name == "init_model" else predict_fn),
+    )
+
+    first = executor._load_predictor("/tmp/predictor_runtime.py", "/tmp/root")
+    second = executor._load_predictor("/tmp/predictor_runtime.py", "/tmp/root")
+
+    assert first == second
+    assert module_calls == [("/tmp/root", "/tmp/predictor_runtime.py")]
+    assert function_calls == [(module, "init_model"), (module, "predict")]
+
+
+def test_prepare_experiment_paths_returns_none_without_save_exp() -> None:
+    assert executor._prepare_experiment_paths(
+        "demo",
+        "queue",
+        None,
+        False,
+        1,
+        True,
+        30,
+        None,
+        None,
+    ) == (None, None, None)
+
+
+def test_prepare_experiment_paths_builds_save_and_smt_dirs(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(
+        executor,
+        "get_save_dir_from_save_exp",
+        lambda **kwargs: calls.append(kwargs) or "/tmp/output",
+    )
+
+    result = executor._prepare_experiment_paths(
+        "demo",
+        "queue_solver1s",
+        {"input_name": "case_0", "save_smt": True},
+        True,
+        9,
+        False,
+        15,
+        0.8,
+        2000,
+    )
+
+    assert result == ("/tmp/output", "/tmp/output", "case_0")
+    assert len(calls) == 2
+    assert calls[0]["only_first_forward"] is True
+    assert calls[0]["score_alpha"] == 0.8
+    assert calls[0]["symbolic_path_threshold"] == 2000
+
+
 def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> None:
     init_calls = []
     initialized_models = set()
@@ -43,7 +118,7 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
     monkeypatch.setattr(
         executor,
         "_resolve_model_artifacts",
-        lambda model_name: (f"/tmp/{model_name}.h5", "/tmp/dnn_predict_common.py", "/tmp/root"),
+        lambda model_name: (f"/tmp/{model_name}.h5", "/tmp/engine/predictor_runtime.py", "/tmp/root"),
     )
     monkeypatch.setattr(executor, "_load_predictor", fake_load_predictor)
     monkeypatch.setattr(executor, "_prepare_experiment_paths", lambda *args, **kwargs: ("/tmp/save", "/tmp/smt", "case_0"))
@@ -84,6 +159,55 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
         "ton": 1,
         "ton_next": 2,
     }
-    assert captured["explore_args"][0] == "/tmp/dnn_predict_common.py"
+    assert captured["explore_args"][0] == "/tmp/engine/predictor_runtime.py"
     assert captured["explore_kwargs"]["collect_constraints_with"] == "queue"
     assert captured["cleared"] is True
+
+
+def test_run_uses_defaults_when_save_exp_and_optional_args_are_missing(monkeypatch) -> None:
+    captured = {}
+
+    class _FakeEngine:
+        extra_meta = None
+
+        def explore(self, *args, **kwargs):
+            captured["explore_kwargs"] = kwargs
+            captured["extra_meta"] = self.extra_meta
+            return (1, SimpleNamespace())
+
+    monkeypatch.setattr(
+        executor,
+        "_resolve_model_artifacts",
+        lambda model_name: (f"/tmp/{model_name}.h5", "/tmp/engine/predictor_runtime.py", "/tmp/root"),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_load_predictor",
+        lambda module_path, root: (object(), lambda model_path: None, object(), set()),
+    )
+    monkeypatch.setattr(executor, "_prepare_experiment_paths", lambda *args, **kwargs: (None, None, None))
+    monkeypatch.setattr(executor, "_build_explorer", lambda cfg: _FakeEngine())
+    monkeypatch.setattr(executor.libct.explore, "clear_global_context", lambda: None)
+
+    result = executor.run(
+        model_name="demo",
+        in_dict={"v_0_0": 1.0},
+        con_dict={"v_0_0": 1},
+        norm=True,
+        solve_order_stack=True,
+        idx=1,
+        collect_constraints_with="stack",
+    )
+
+    assert result[0] == 1
+    assert captured["extra_meta"] == {
+        "model_name": "demo",
+        "attack_mode": "unknown",
+        "idx": 1,
+        "score_alpha": None,
+        "symbolic_path_threshold": None,
+        "constraint_build_timeout": True,
+        "constraint_build_timeout_seconds": 30,
+    }
+    assert captured["explore_kwargs"]["collect_constraints_with"] == "stack"
+    assert captured["explore_kwargs"]["shap_value_pre_calculated"] is False
