@@ -1,4 +1,4 @@
-from cli.main import main
+from pyct.main import main
 
 
 if __name__ == "__main__":

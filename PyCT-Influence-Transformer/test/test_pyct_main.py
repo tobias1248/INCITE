@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import cli.main as main_mod
+import pyct.main as main_mod
 
 
 def test_importing_cli_main_does_not_import_launcher(monkeypatch) -> None:

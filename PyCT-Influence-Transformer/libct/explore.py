@@ -23,7 +23,7 @@ import numpy as np
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 from types import ModuleType
 from libct.constraint import Constraint
-from libct.shapInfl import ShapValuesComparator
+from explainability.shap_calculator import ShapValuesComparator
 import heapq
 from collections import deque
 

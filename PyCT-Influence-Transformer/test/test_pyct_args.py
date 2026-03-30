@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from cli.args import parse_args
+from pyct.args import parse_args
 
 
 def test_parse_args_accepts_patch_shap_for_cifar10_single_ton() -> None:

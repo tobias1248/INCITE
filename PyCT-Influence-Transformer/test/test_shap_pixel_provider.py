@@ -12,8 +12,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from libct.shap_pixel_provider import (
+from explainability.pixel_provider import (
     JsonShapPixelProvider,
+    TokenizerSpec,
+    _coerce_int_list,
+    _extract_input_hw,
+    _extract_layers,
+    _load_model_config,
+    _resolve_model_path,
+    build_shap_tensor_from_json,
     infer_patch_size_for_model,
     infer_tokenizer_spec_for_model,
 )
@@ -37,6 +44,37 @@ def _write_model_config(root: Path, model: str, layers: list[dict[str, object]])
     }
     with h5py.File(path, "w") as handle:
         handle.attrs["model_config"] = json.dumps(payload)
+
+
+def test_resolve_model_path_accepts_explicit_h5_or_model_name() -> None:
+    assert _resolve_model_path("demo") == Path("model") / "demo.h5"
+    assert _resolve_model_path("/tmp/demo.h5") == Path("/tmp/demo.h5")
+
+
+def test_load_model_config_requires_json_object_and_readable_file(tmp_path: Path) -> None:
+    bad_path = tmp_path / "model" / "bad.h5"
+    bad_path.parent.mkdir(parents=True)
+    with h5py.File(bad_path, "w") as handle:
+        handle.attrs["model_config"] = json.dumps(["not", "object"])
+
+    with pytest.raises(ValueError, match="not a JSON object"):
+        _load_model_config(bad_path)
+
+    with pytest.raises(FileNotFoundError, match="Unable to read model file"):
+        _load_model_config(tmp_path / "model" / "missing.h5")
+
+
+def test_extract_layers_and_input_hw_validate_structure() -> None:
+    with pytest.raises(ValueError, match="unsupported layer config structure"):
+        _extract_layers({"config": {"layers": {}}}, Path("demo.h5"))
+
+    assert _coerce_int_list([1, "2"], expected_len=2) == (1, 2)
+    assert _coerce_int_list("12", expected_len=2) is None
+    assert _extract_input_hw(
+        [
+            {"class_name": "InputLayer", "config": {"batch_input_shape": [None, 28, 28, 1]}},
+        ]
+    ) == (28, 28)
 
 
 def test_top_pixels_sorted_and_padded(tmp_path: Path) -> None:
@@ -94,6 +132,29 @@ def test_build_tensor_matches_topk(tmp_path: Path) -> None:
     assert np.array_equal(tensor[1, 0], np.array([2, 2, 0]))
 
 
+def test_as_array_and_build_shap_tensor_helper(tmp_path: Path) -> None:
+    model = "dummy"
+    _write_shap_json(tmp_path, model, 0, {"-1_0_0": 0.2, "-1_1_1": 0.8})
+
+    provider = JsonShapPixelProvider(
+        model_name=model,
+        shap_root=str(tmp_path / "shap_value_all_layer"),
+        coordinate_dims=3,
+    )
+
+    array = provider.as_array(0, ton=1)
+    rebuilt = build_shap_tensor_from_json(
+        [0],
+        model_name=model,
+        shap_root=str(tmp_path / "shap_value_all_layer"),
+        coordinate_dims=3,
+    )
+
+    assert array.shape == (1, 3)
+    assert np.array_equal(array[0], np.array([1, 1, 0]))
+    assert rebuilt.shape == (1, 2, 3)
+
+
 def test_invalid_ton_raises(tmp_path: Path) -> None:
     model = "dummy"
     _write_shap_json(tmp_path, model, 0, {"-1_0_0": 0.1})
@@ -104,6 +165,15 @@ def test_invalid_ton_raises(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError):
         provider.top_pixels(0, ton=0)
+
+
+def test_provider_rejects_invalid_selector_and_coordinate_args() -> None:
+    with pytest.raises(ValueError, match="Unsupported selector"):
+        JsonShapPixelProvider(model_name="demo", selector="bad-selector")
+    with pytest.raises(ValueError, match="coordinate_dims must be positive"):
+        JsonShapPixelProvider(model_name="demo", coordinate_dims=0)
+    with pytest.raises(ValueError, match="coordinate_bounds must contain positive integers"):
+        JsonShapPixelProvider(model_name="demo", coordinate_bounds=(0, 1, 2))
 
 
 def test_infer_patch_size_from_model_config(tmp_path: Path) -> None:
@@ -254,6 +324,34 @@ def test_infer_patch_size_rejects_mismatched_stride(tmp_path: Path) -> None:
         infer_patch_size_for_model(model, model_root=str(tmp_path / "model"))
 
 
+def test_infer_tokenizer_spec_rejects_ambiguous_or_unsupported_models(tmp_path: Path) -> None:
+    ambiguous = "ambiguous"
+    _write_model_config(
+        tmp_path,
+        ambiguous,
+        [
+            {"class_name": "InputLayer", "config": {"batch_input_shape": [None, 32, 32, 3], "name": "input_1"}},
+            {"class_name": "Conv2D", "config": {"name": "patch_embedding", "kernel_size": [4, 4], "strides": [4, 4]}},
+            {"class_name": "Reshape", "config": {"name": "flatten_patches", "target_shape": [64, 96]}},
+            {"class_name": "Reshape", "config": {"name": "tokens", "target_shape": [1024, 3]}},
+        ],
+    )
+    unsupported = "unsupported"
+    _write_model_config(
+        tmp_path,
+        unsupported,
+        [
+            {"class_name": "InputLayer", "config": {"batch_input_shape": [None, 32, 32, 3], "name": "input_1"}},
+            {"class_name": "Dense", "config": {"name": "dense"}},
+        ],
+    )
+
+    with pytest.raises(ValueError, match="matched multiple tokenizer heuristics"):
+        infer_tokenizer_spec_for_model(ambiguous, model_root=str(tmp_path / "model"))
+    with pytest.raises(ValueError, match="Unsupported model tokenizer"):
+        infer_tokenizer_spec_for_model(unsupported, model_root=str(tmp_path / "model"))
+
+
 def test_patch_shap_selects_top_coordinate_within_top_patch(tmp_path: Path) -> None:
     model = "tiny"
     _write_model_config(
@@ -300,6 +398,35 @@ def test_patch_shap_selects_top_coordinate_within_top_patch(tmp_path: Path) -> N
     )
 
     assert provider.top_pixels(0, ton=1) == [(4, 4, 1)]
+
+
+def test_patch_shap_requires_patch_size_and_spatial_coords(monkeypatch, tmp_path: Path) -> None:
+    model = "tiny"
+    monkeypatch.setattr(
+        "explainability.pixel_provider.infer_tokenizer_spec_for_model",
+        lambda *args, **kwargs: TokenizerSpec(
+            kind="patch_2d",
+            input_hw=(32, 32),
+            token_count_before=64,
+            token_count_after=64,
+            patch_size=4,
+        ),
+    )
+    provider = JsonShapPixelProvider(
+        model_name=model,
+        shap_root=str(tmp_path / "shap_value_all_layer"),
+        selector="patch-shap",
+        coordinate_dims=1,
+    )
+    ranked = [((0,), 1.0)]
+
+    provider.patch_size = None
+    with pytest.raises(ValueError, match="patch_size is required"):
+        provider._select_patch_shap_coordinates(ranked, Path("demo.json"))
+
+    provider.patch_size = 4
+    with pytest.raises(ValueError, match="requires at least 2 spatial dimensions"):
+        provider._select_patch_shap_coordinates(ranked, Path("demo.json"))
 
 
 def test_patch_shap_rejects_ton_greater_than_one(tmp_path: Path) -> None:
@@ -565,3 +692,86 @@ def test_token_shap_supports_sequence_model_without_pooling(tmp_path: Path) -> N
     )
 
     assert provider.top_pixels(0, ton=1) == [(0, 6, 0)]
+
+
+def test_token_shap_validates_domain_and_group_bounds(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "explainability.pixel_provider.infer_tokenizer_spec_for_model",
+        lambda *args, **kwargs: TokenizerSpec(
+            kind="sequence_pool_1d",
+            input_hw=(2, 2),
+            token_count_before=4,
+            token_count_after=1,
+            pool_size=1,
+            stride=1,
+        ),
+    )
+    provider = JsonShapPixelProvider(
+        model_name="demo",
+        shap_root=str(tmp_path / "shap_value_all_layer"),
+        selector="token-shap",
+        coordinate_dims=3,
+    )
+
+    with pytest.raises(ValueError, match="maps outside the tokenizer domain"):
+        provider._select_token_shap_coordinates([((5, 0, 0), 1.0)], Path("demo.json"))
+    with pytest.raises(ValueError, match="maps outside pooled token groups"):
+        provider._select_token_shap_coordinates([((1, 1, 0), 1.0)], Path("demo.json"))
+
+
+def test_load_sorted_uses_cache_and_json_failures_are_reported(tmp_path: Path) -> None:
+    model = "dummy"
+    path = tmp_path / "shap_value_all_layer" / model / "shap_value_0.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"values": {"-1_1_1": 0.9, "-1_0_0": 0.1}}), encoding="utf-8")
+    provider = JsonShapPixelProvider(
+        model_name=model,
+        shap_root=str(tmp_path / "shap_value_all_layer"),
+        coordinate_dims=3,
+    )
+
+    first = provider.top_pixels(0, ton=1)
+    path.write_text(json.dumps({"values": {"-1_9_9": 9.9}}), encoding="utf-8")
+    second = provider.top_pixels(0, ton=1)
+
+    assert first == second == [(1, 1, 0)]
+
+    missing = JsonShapPixelProvider(model_name="missing", shap_root=str(tmp_path / "shap_value_all_layer"))
+    with pytest.raises(FileNotFoundError, match="Missing SHAP cache"):
+        missing.top_pixels(3)
+
+
+def test_load_json_and_extract_ranked_items_validate_payloads(tmp_path: Path) -> None:
+    bad_json = tmp_path / "bad.json"
+    bad_json.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+    nested_bad = tmp_path / "nested_bad.json"
+    nested_bad.write_text(json.dumps({"values": [1, 2, 3]}), encoding="utf-8")
+    provider = JsonShapPixelProvider(model_name="demo", shap_root=str(tmp_path), coordinate_dims=3, coordinate_bounds=(4, 4, 2))
+
+    with pytest.raises(TypeError, match="JSON dict"):
+        provider._load_json(bad_json)
+    with pytest.raises(TypeError, match="JSON dict of values"):
+        provider._load_json(nested_bad)
+    with pytest.raises(ValueError, match="No pixel-level SHAP entries found"):
+        provider._extract_ranked_pixel_items({"0_0": 1.0}, Path("demo.json"))
+
+
+def test_normalize_coords_handles_padding_truncation_and_bounds(tmp_path: Path) -> None:
+    provider = JsonShapPixelProvider(
+        model_name="demo",
+        shap_root=str(tmp_path),
+        coordinate_dims=3,
+        coordinate_bounds=(4, 4, 2),
+    )
+
+    assert provider._normalize_coords((1, 2)) == (1, 2, 0)
+    assert provider._normalize_coords((1, 2, 1)) == (1, 2, 1)
+    assert provider._normalize_coords((1, 2, 3)) is None
+    assert provider._normalize_coords((1, 2, 3, 4)) is None
+
+
+def test_build_tensor_rejects_empty_indices(tmp_path: Path) -> None:
+    provider = JsonShapPixelProvider(model_name="demo", shap_root=str(tmp_path), coordinate_dims=3)
+
+    with pytest.raises(ValueError, match="indices must be non-empty"):
+        provider.build_tensor([])

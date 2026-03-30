@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 
-import dnn_predict_common
+from engine import predictor_runtime
 from tasks.paths import get_save_dir_from_save_exp
 
 try:
@@ -70,7 +70,7 @@ def _is_coordinate_in_bounds(shape: Tuple[int, ...], coordinate: PixelCoordinate
 
 def _forward(array: np.ndarray) -> np.ndarray:
     """Forward the NNModel and return logits as a 1D numpy array."""
-    outputs = dnn_predict_common.myModel.forward(array.tolist())
+    outputs = predictor_runtime.myModel.forward(array.tolist())
     logits = np.asarray(outputs, dtype=np.float32)
     if logits.ndim > 1:
         logits = logits.reshape(-1)
@@ -79,7 +79,7 @@ def _forward(array: np.ndarray) -> np.ndarray:
 
 def _ensure_model_loaded(model_name: str) -> None:
     model_path = Path("model") / f"{model_name}.h5"
-    dnn_predict_common.init_model(str(model_path))
+    predictor_runtime.init_model(str(model_path))
 
 
 def run_random_assign_step(

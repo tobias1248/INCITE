@@ -71,8 +71,8 @@ except ModuleNotFoundError:
 else:
     del _cv2
 
-if "libct.shapInfl" not in sys.modules:
-    shap_module = ModuleType("libct.shapInfl")
+if "explainability.shap_calculator" not in sys.modules:
+    shap_module = ModuleType("explainability.shap_calculator")
 
     class _StubComparator:
         def __init__(self, *args, **kwargs) -> None:
@@ -85,7 +85,7 @@ if "libct.shapInfl" not in sys.modules:
             return 0.0
 
     shap_module.ShapValuesComparator = _StubComparator  # type: ignore[attr-defined]
-    sys.modules["libct.shapInfl"] = shap_module
+    sys.modules["explainability.shap_calculator"] = shap_module
 
 import libct.explore as explore
 

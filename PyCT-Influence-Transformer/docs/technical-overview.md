@@ -74,40 +74,40 @@ SHAP 在此不是最終目標，而是搜尋指引：
 ### 4.1 高層資料流
 
 ```text
-shap_map_calculator.py
+python -m pyct.shap
     -> 產生 SHAP cache JSON
 
-python -m cli
-    -> cli/args.py 解析 CLI
+python -m pyct
+    -> pyct/args.py 解析 CLI
     -> orchestration/launcher.py 建立 tasks / workers / ton stages
     -> orchestration/runners.py 執行單個 payload
     -> engine/executor.py 建立 ExplorationEngine
     -> libct/explore.py 執行 concolic exploration
     -> libct/record.py 寫出 stats / inputs / images
-    -> statistic.py 做跨 case 聚合分析
+    -> python -m pyct.stats 做跨 case 聚合分析
 ```
 
 ### 4.2 主要模組職責
 
 | 模組 | 角色 |
 | --- | --- |
-| `cli/main.py` | 最薄的 CLI 入口，串起 parse 與 launcher |
-| `cli/args.py` | 定義實驗參數、驗證 attack mode 與 selector 限制 |
+| `pyct/main.py` | 最薄的 attack 入口，串起 parse 與 launcher |
+| `pyct/args.py` | 定義實驗參數、驗證 attack mode 與 selector 限制 |
 | `orchestration/launcher.py` | 建立多進程 worker、安排 `ton` stage、處理 resume/skip |
 | `tasks/builders/*` | 生成 dataset-specific payload、決定 output path |
-| `shap_map_calculator.py` | 預先產生 SHAP cache |
+| `pyct/shap.py` | 預先產生 SHAP cache 的 CLI |
 | `engine/executor.py` | 載入模型、組裝 explorer、傳遞 metadata |
-| `dnn_predict_common.py` | 載入 Keras model 並轉接到自訂 `NNModel` 執行路徑 |
+| `engine/predictor_runtime.py` | 載入 Keras model 並轉接到自訂 `NNModel` 執行路徑 |
 | `dnnct/myDNN.py` | 純 Python forward path，補齊 transformer 相關 layer 支援 |
 | `libct/explore.py` | concolic engine 主體，收集/排序/彈出 constraints |
 | `libct/record.py` | 保存每次攻擊的統計、輸入、輸出與中間資料 |
-| `statistic.py` | 聚合 `stats.json`，產生跨實驗摘要 |
+| `reporting/experiment_stats.py` | 聚合 `stats.json`，產生跨實驗摘要 |
 
 ## 5. 執行流程
 
 ### 5.1 SHAP 預處理流程
 
-SHAP 預處理由 `shap_map_calculator.py` 負責。它根據 dataset 與 model 選擇對應 handler，並將背景樣本設定寫入環境變數：
+SHAP 預處理由 `python -m pyct.shap` 對應的 `pyct/shap.py` 負責。它根據 dataset 與 model 選擇對應 handler，並將背景樣本設定寫入環境變數：
 
 - `PYCT_BG_PER_CLASS`
 - `PYCT_BG_SEED`
@@ -332,7 +332,7 @@ stage 狀態會回寫到 `stats.json` 的 `meta.ton_progress`，並額外記錄�
 
 #### (1) Keras 模型相容載入
 
-`dnn_predict_common.py` 為下列自訂 layer 提供 compatibility objects：
+`engine/predictor_runtime.py` 為下列自訂 layer 提供 compatibility objects：
 
 - `AddClsToken`
 - `AddPositionEmbedding`
@@ -528,7 +528,7 @@ exp/<model>_<attack_mode>_<timeout>_<build_timeout>_<alpha_tag>_<symbolic_thresh
 
 ## 8. 結果分析流程
 
-`statistic.py` 會遞迴掃描 `stats.json`，並聚合：
+`reporting/experiment_stats.py` 會遞迴掃描 `stats.json`，並聚合：
 
 - success / timeout / exhausted / incomplete 數量
 - 多種 timing metric
@@ -569,22 +569,22 @@ exp/<model>_<attack_mode>_<timeout>_<build_timeout>_<alpha_tag>_<symbolic_thresh
 如果讀者想快速理解程式碼，建議依下列順序閱讀：
 
 1. `README.md`
-2. `cli/main.py`
-3. `cli/args.py`
+2. `pyct/main.py`
+3. `pyct/args.py`
 4. `orchestration/launcher.py`
 5. `tasks/builders/`
 6. `engine/executor.py`
 7. `libct/explore.py`
 8. `libct/record.py`
-9. `dnn_predict_common.py`
+9. `engine/predictor_runtime.py`
 10. `dnnct/myDNN.py`
-11. `statistic.py`
+11. `reporting/experiment_stats.py`
 
 若只想理解 SHAP selector 與 transformer 支援，可優先讀：
 
 1. `explainability/pixel_provider.py`
-2. `shap_map_calculator.py`
-3. `dnn_predict_common.py`
+2. `pyct/shap.py`
+3. `engine/predictor_runtime.py`
 4. `dnnct/myDNN.py`
 
 ## 12. 總結
