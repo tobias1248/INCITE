@@ -7,6 +7,7 @@ from libct.concolic import Concolic
 from libct.position import summarize_position
 from libct.predicate import Predicate
 from libct.utils import py2smt
+from tasks.paths import get_repo_output_subdir
 
 
 log = logging.getLogger("ct.solver")
@@ -148,8 +149,11 @@ class Solver:
         model_name = Path(model_path).stem if model_path else "unknown_model"
         attack_mode = cls._derive_attack_mode(engine)
         ton_label = cls._derive_attack_ton(engine)
-        output_dir = Path("popped_constraint_position") / model_name / f"{attack_mode}_{ton_label}"
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = get_repo_output_subdir(
+            "popped_constraint_position",
+            model_name,
+            f"{attack_mode}_{ton_label}",
+        )
         return output_dir / f"constraint_{idx}.txt"
 
     @staticmethod

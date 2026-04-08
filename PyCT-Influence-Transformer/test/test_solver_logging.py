@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+import tempfile
 
 try:
     import func_timeout as _func_timeout  # type: ignore
@@ -101,6 +102,33 @@ class SolverLoggingTests(unittest.TestCase):
                         result = solver.Solver._expr_has_engines_and_equals_value("expr", 1)
 
         self.assertIs(result, sentinel_engine)
+
+    def test_resolve_constraint_log_path_uses_repo_root_directory(self) -> None:
+        engine = SimpleNamespace(
+            concolic_flag_dict={"pixel": 1},
+            shap_value_pre_calculated=True,
+            model_path="model/mock.h5",
+            popped_log_attack_mode="shap_solver60s",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_root = Path(tmp_dir)
+
+            def _fake_repo_output_subdir(dirname: str, *parts: str) -> Path:
+                path = tmp_root / dirname / Path(*parts)
+                path.mkdir(parents=True, exist_ok=True)
+                return path
+
+            with mock.patch(
+                "libct.solver.get_repo_output_subdir",
+                side_effect=_fake_repo_output_subdir,
+            ):
+                log_path = solver.Solver._resolve_constraint_log_path(engine, 7)
+
+        self.assertEqual(
+            log_path,
+            tmp_root / "popped_constraint_position" / "mock" / "shap_solver60s_1" / "constraint_7.txt",
+        )
 
 
 if __name__ == "__main__":

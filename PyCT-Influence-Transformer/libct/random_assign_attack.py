@@ -11,6 +11,7 @@ import numpy as np
 
 from engine import predictor_runtime
 from tasks.paths import get_save_dir_from_save_exp
+from tasks.paths import get_repo_output_subdir
 
 try:
     import cv2
@@ -159,12 +160,11 @@ def format_assignments(assignments: Sequence[PixelAssignment]) -> str:
 
 
 def write_combined_log(result: RandomAssignResult) -> None:
-    base_dir = (
-        Path("popped_constraint_position")
-        / result.model_name
-        / f"random_assign_{result.pixel_source}"
+    base_dir = get_repo_output_subdir(
+        "popped_constraint_position",
+        result.model_name,
+        f"random_assign_{result.pixel_source}",
     )
-    base_dir.mkdir(parents=True, exist_ok=True)
     log_path = base_dir / f"random-assign-{result.idx}.txt"
 
     with log_path.open("a", encoding="utf-8") as handle:
