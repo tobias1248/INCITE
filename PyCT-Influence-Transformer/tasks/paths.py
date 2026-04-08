@@ -1,9 +1,28 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any, Optional
 
 from tasks.types import SaveExpConfig
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def get_repo_root() -> Path:
+    return REPO_ROOT
+
+
+def get_repo_output_dir(dirname: str) -> Path:
+    path = REPO_ROOT / dirname
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def get_repo_output_subdir(dirname: str, *parts: str) -> Path:
+    path = get_repo_output_dir(dirname).joinpath(*parts)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def get_save_dir_from_save_exp(
@@ -107,7 +126,12 @@ def get_save_dir_from_save_exp(
         else:
             idx = "unknown"
     case_name = save_exp.get("input_name", f"case_{idx}")
-    return os.path.join("exp", base_dir, case_name)
+    return str(get_repo_output_dir("exp") / base_dir / case_name)
 
 
-__all__ = ["get_save_dir_from_save_exp"]
+__all__ = [
+    "get_repo_output_dir",
+    "get_repo_output_subdir",
+    "get_repo_root",
+    "get_save_dir_from_save_exp",
+]
