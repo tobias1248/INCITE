@@ -96,6 +96,7 @@ class ExplorationEngine:
                 input_name=None,
                 module_: ModuleType,
                 execute_: Callable,
+                validation_execute_: Optional[Callable] = None,
                 only_first_forward: bool,
                 shap_score_alpha: Optional[float] = None,
                 symbolic_path_threshold: Optional[int] = None):
@@ -103,6 +104,7 @@ class ExplorationEngine:
 
         module = module_
         execute = execute_
+        self.validation_execute = validation_execute_ or execute_
 
         self.save_dir = save_dir
         self.input_name = input_name
@@ -170,6 +172,8 @@ class ExplorationEngine:
         recorder.start()
         Solver.norm = self.normalize
         Solver.limit_change_range = self.limit_change_range
+        recorder.original_label = self._predict_validation(all_args)
+        self.previous_result = recorder.original_label
 
         tried_input_args = [all_args.copy()]  # .copy() is important!!
         iterations = 0
@@ -192,9 +196,6 @@ class ExplorationEngine:
         recorder.gen_constraint.append(len(self.constraints_to_solve))
         recorder.first_execution_end()
 
-        # first self.previous_result is the original label
-
-        recorder.original_label = self.previous_result
         if hasattr(recorder, "save_original_input"):
             recorder.save_original_input(all_args)
         self._update_symbolic_meta()
@@ -229,6 +230,7 @@ class ExplorationEngine:
 
             recorder.solve_constr_start()
             solve_constr_num = len(self.constraints_to_solve)
+            found_adversarial = False
             while len(self.constraints_to_solve) > 0:
                 if _check_deadline():
                     timed_out = True
@@ -250,6 +252,7 @@ class ExplorationEngine:
                         # sat and this input args have not used
                         # .copy() is important!!
                         tried_input_args.append(all_args.copy())
+                        found_adversarial = self._validate_sat_candidate(all_args)
                         break
 
             recorder.solve_constr_end()
@@ -258,6 +261,14 @@ class ExplorationEngine:
 
             if timed_out:
                 recorder.total_timeout()
+                break
+
+            if found_adversarial:
+                recorder.gen_constraint.append(0)
+                iterations += 1
+                recorder.iter_end(Solver.stats, solve_constr_num)
+                self._update_symbolic_meta()
+                recorder.save_stats_dict()
                 break
 
             # solve new input and use it to execute
@@ -459,20 +470,28 @@ class ExplorationEngine:
 
         return {key: _sanitize(val) for key, val in inputs.items()}
 
-    def _record_result(self, inputs: Dict[str, Any], result: Any) -> bool:
-        """Update cached prediction and persist adversarial example if it changed."""
-        if result in (self.Timeout, self.Exception, self.Unpicklable):
-            self.previous_result = result
-            return True
-        if self.previous_result is not None and self.previous_result != result:
-            log.warning(
-                "[RESULT_CHANGE] Previous result %s differs from current %s",
-                self.previous_result,
-                result,
-            )
-            recorder.find_adversarial_input(inputs, result)
-            return False
+    def _predict_validation(self, inputs: Dict[str, Any]) -> Any:
+        primitive_inputs = self._clone_primitive_inputs(inputs)
+        val_args, val_kwargs = self._complete_primitive_arguments(
+            self.validation_execute,
+            primitive_inputs,
+        )
+        return self.validation_execute(*val_args, **val_kwargs)
 
+    def _validate_sat_candidate(self, inputs: Dict[str, Any]) -> bool:
+        attack_label = self._predict_validation(inputs)
+        if recorder.original_label != attack_label:
+            log.warning(
+                "[RESULT_CHANGE] Original result %s differs from validated candidate %s",
+                recorder.original_label,
+                attack_label,
+            )
+            recorder.find_adversarial_input(inputs, attack_label)
+            return True
+        return False
+
+    def _record_result(self, inputs: Dict[str, Any], result: Any) -> bool:
+        """Retain search execution results without using them for attack validation."""
         self.previous_result = result
         return True
 

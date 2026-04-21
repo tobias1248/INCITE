@@ -87,6 +87,8 @@ def _make_args(**overrides):
         solver_run_timeout=1,
         score_alpha=None,
         symbolic_path_threshold=2000,
+        ternary_simplification=False,
+        ternary_threshold_scale=0.75,
         enable_constraint_log=False,
         pixel_search=(1,),
         attack_mode="queue",
@@ -156,7 +158,12 @@ def test_run_launcher_selects_queue_builder_and_sets_env(monkeypatch) -> None:
     assert launcher.os.environ["PYCT_CONSTRAINT_BUILD_TIMEOUT_ENABLED"] == "1"
     assert launcher.os.environ["PYCT_CONSTRAINT_BUILD_TIMEOUT_SECONDS"] == "15"
     assert launcher.os.environ["PYCT_SYMBOLIC_PATH_THRESHOLD"] == "2000"
+    assert launcher.os.environ["PYCT_TERNARY_SIMPLIFICATION"] == "0"
+    assert launcher.os.environ["PYCT_TERNARY_THRESHOLD_SCALE"] == "0.75"
     assert _FakeProcess.created and _FakeProcess.created[0].started is True
+    queued_payload = next(item for item in _FakeQueue.created[0].items if isinstance(item, dict))
+    assert queued_payload["ternary_simplification"] is False
+    assert "ternary_threshold_scale" not in queued_payload
 
 
 @pytest.mark.parametrize(
@@ -364,6 +371,28 @@ def test_run_launcher_clears_score_alpha_env_when_not_set(monkeypatch) -> None:
     launcher.run_launcher(_make_args(score_alpha=None))
 
     assert "PYCT_SCORE_ALPHA" not in launcher.os.environ
+
+
+def test_run_launcher_propagates_custom_ternary_config(monkeypatch) -> None:
+    payload = {"idx": 0, "save_exp": {}, "con_dict": {}, "solve_order_stack": False}
+    _install_runtime_fakes(monkeypatch)
+    monkeypatch.setattr(launcher, "collect_stage_cases", lambda inputs: [])
+    monkeypatch.setattr(launcher, "should_run_payload", lambda payload, force_refresh: True)
+    monkeypatch.setattr(launcher, "mnist_transformer_shap", lambda *args, **kwargs: [dict(payload)])
+    monkeypatch.setattr(launcher, "mnist_transformer_random", lambda *args, **kwargs: [])
+
+    launcher.run_launcher(
+        _make_args(
+            ternary_simplification=True,
+            ternary_threshold_scale=1.5,
+        )
+    )
+
+    queued_payload = next(item for item in _FakeQueue.created[0].items if isinstance(item, dict))
+    assert queued_payload["ternary_simplification"] is True
+    assert queued_payload["ternary_threshold_scale"] == 1.5
+    assert launcher.os.environ["PYCT_TERNARY_SIMPLIFICATION"] == "1"
+    assert launcher.os.environ["PYCT_TERNARY_THRESHOLD_SCALE"] == "1.5"
 
 
 def test_worker_exits_immediately_when_shutdown_requested(monkeypatch, caplog) -> None:

@@ -16,6 +16,8 @@ def test_get_save_dir_from_save_exp_formats_expected_layout(monkeypatch):
     monkeypatch.setenv('PYCT_CONSTRAINT_BUILD_TIMEOUT_SECONDS', '45')
     monkeypatch.setenv('PYCT_SCORE_ALPHA', '0.8')
     monkeypatch.setenv('PYCT_SYMBOLIC_PATH_THRESHOLD', '2000')
+    monkeypatch.setenv('PYCT_TERNARY_SIMPLIFICATION', '1')
+    monkeypatch.setenv('PYCT_TERNARY_THRESHOLD_SCALE', '1.5')
 
     save_dir = paths.get_save_dir_from_save_exp(
         {'input_name': 'case_3', 'idx': 3},
@@ -24,7 +26,7 @@ def test_get_save_dir_from_save_exp_formats_expected_layout(monkeypatch):
     )
 
     assert save_dir == str(
-        ROOT / 'exp' / 'transformer_fashion_mnist_shap_solver60s_1800_45_a08_2000' / 'case_3'
+        ROOT / 'exp' / 'transformer_fashion_mnist_shap_solver60s_1800_45_a08_2000_t1_1.5' / 'case_3'
     )
 
 
@@ -38,10 +40,12 @@ def test_get_save_dir_from_save_exp_uses_only_first_forward_flag():
         constraint_build_timeout=False,
         score_alpha=0.5,
         symbolic_path_threshold=100,
+        ternary_simplification=False,
+        ternary_threshold_scale=0.75,
     )
 
     assert save_dir == str(
-        ROOT / 'exp' / 'mnist_model_only_first_forward_queue_10_0_a05_100' / 'case_9'
+        ROOT / 'exp' / 'mnist_model_only_first_forward_queue_10_0_a05_100_t0_0.75' / 'case_9'
     )
 
 

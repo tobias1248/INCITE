@@ -155,3 +155,38 @@ def test_parse_args_rejects_token_shap_for_multi_ton() -> None:
                 "0.8",
             ]
         )
+
+
+def test_parse_args_defaults_ternary_flags() -> None:
+    args = parse_args(["--attack-mode", "queue"])
+
+    assert args.ternary_simplification is False
+    assert args.ternary_threshold_scale == pytest.approx(0.75)
+
+
+def test_parse_args_accepts_custom_ternary_threshold_scale() -> None:
+    args = parse_args(
+        [
+            "--attack-mode",
+            "queue",
+            "--ternary-simplification",
+            "--ternary-threshold-scale",
+            "1.5",
+        ]
+    )
+
+    assert args.ternary_simplification is True
+    assert args.ternary_threshold_scale == pytest.approx(1.5)
+
+
+@pytest.mark.parametrize("value", ["0", "-0.1"])
+def test_parse_args_rejects_non_positive_ternary_threshold_scale(value: str) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "queue",
+                "--ternary-threshold-scale",
+                value,
+            ]
+        )

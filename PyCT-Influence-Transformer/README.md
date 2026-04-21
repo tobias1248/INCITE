@@ -179,16 +179,17 @@ python3 -m pyct --attack-mode random-assign --pixel-source random --dataset cifa
 | `--force-refresh` | flag | disabled | Recompute even if outputs already exist |
 
 ## Output layout
-Experiment outputs are stored under:
+Experiment outputs are stored under the repository root:
 
 ```text
-exp/<model_name>_<attack_mode>_<timeout>_<constraint_build_timeout_seconds>_<alpha_tag>_<threshold>/case_<idx>/
+<repo_root>/exp/<model_name>_<attack_mode>_<timeout>_<constraint_build_timeout_seconds>_<alpha_tag>_<threshold>/case_<idx>/
 ```
 
 Notes:
 - `alpha_tag` format is `a00`, `a05`, `a08`, `a10`, etc.
 - `constraint_build_timeout_seconds` is numeric; `0` means build timeout is disabled.
 - If `--solver-run-timeout > 0`, attack mode in path includes suffix, for example `shap_solver60s`.
+- Output paths are resolved against the repo root, not the runtime working directory. This avoids artifacts drifting into `engine/exp/` during execution.
 - Common files per case:
   - `stats.json`
   - `stats_history.jsonl` (stage snapshots)

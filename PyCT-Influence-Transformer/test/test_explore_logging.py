@@ -126,6 +126,7 @@ class ExploreLoggingTests(unittest.TestCase):
 
     def _make_engine(self) -> explore.ExplorationEngine:
         engine = explore.ExplorationEngine.__new__(explore.ExplorationEngine)
+        engine.validation_execute = lambda **_data: 0
         engine.normalize = None
         engine.limit_change_range = None
         engine.constraints_to_solve = []
@@ -143,6 +144,7 @@ class ExploreLoggingTests(unittest.TestCase):
         engine.file_as_total = False
         engine.can_use_concolic_wrapper = False
         engine.previous_result = None
+        engine.original_args = {}
         return engine
 
     def test_execution_loop_logs_when_no_constraints(self) -> None:

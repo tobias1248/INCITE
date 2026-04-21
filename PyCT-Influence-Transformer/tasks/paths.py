@@ -36,6 +36,8 @@ def get_save_dir_from_save_exp(
     constraint_build_timeout_seconds: Optional[int] = None,
     score_alpha: Optional[float] = None,
     symbolic_path_threshold: Optional[int] = None,
+    ternary_simplification: Optional[bool] = None,
+    ternary_threshold_scale: Optional[float] = None,
 ) -> str:
     def _format_alpha(value: Optional[Any]) -> str:
         if value is None:
@@ -102,18 +104,32 @@ def get_save_dir_from_save_exp(
         symbolic_path_threshold,
         "PYCT_SYMBOLIC_PATH_THRESHOLD",
     )
+    ternary_enabled_val = _resolve_bool(
+        "ternary_simplification",
+        ternary_simplification,
+        "PYCT_TERNARY_SIMPLIFICATION",
+    )
+    ternary_threshold_val = _resolve_value(
+        "ternary_threshold_scale",
+        ternary_threshold_scale,
+        "PYCT_TERNARY_THRESHOLD_SCALE",
+    )
     alpha_component = _format_alpha(alpha_val)
     build_timeout_component = _format_build_timeout_component(
         build_timeout_enabled,
         build_timeout_seconds_val,
     )
-    base_dir = "{}_{}_{}_{}_{}_{}".format(
+    ternary_enabled_component = "t1" if ternary_enabled_val else "t0"
+    ternary_threshold_component = _format_component(ternary_threshold_val)
+    base_dir = "{}_{}_{}_{}_{}_{}_{}_{}".format(
         base_model,
         attack_mode,
         _format_component(timeout_val),
         build_timeout_component,
         alpha_component,
         _format_component(threshold_val),
+        ternary_enabled_component,
+        ternary_threshold_component,
     )
     idx = save_exp.get("idx")
     if idx is None:

@@ -16,6 +16,17 @@ from engine import predictor_runtime as predictor
 MODEL_PATH = ROOT / 'model' / 'simple_mnist_m6_09585.h5'
 
 
+def _reset_predictor_state() -> None:
+    predictor.myModel = None
+    predictor.loaded_model_path = None
+    predictor.loaded_model_key = None
+    predictor.searchModel = None
+    predictor.search_model_key = None
+    predictor.validationModel = None
+    predictor.validation_model_key = None
+    predictor._MODEL_CACHE.clear()
+
+
 def test_collect_input_names_uses_model_inputs_when_input_layer_is_absent() -> None:
     model = predictor.load_model_with_compat(str(MODEL_PATH))
 
@@ -90,18 +101,22 @@ def test_collect_layers_and_inbound_skips_excluded_layers_and_resolves_grandpare
 
 
 def test_init_model_bootstraps_real_mnist_model_without_missing_input_key() -> None:
-    predictor.myModel = None
-    predictor.loaded_model_path = None
+    _reset_predictor_state()
 
     predictor.init_model(str(MODEL_PATH))
 
     assert predictor.myModel is not None
     assert predictor.myModel.keras_to_cache_key['input_1'] == 'layer_input'
+    assert predictor.loaded_model_key == (str(MODEL_PATH), False, 0.75)
 
 
 def test_init_model_returns_early_when_same_model_already_loaded(monkeypatch) -> None:
-    predictor.myModel = object()
+    _reset_predictor_state()
+    cached_model = object()
+    predictor.myModel = cached_model
     predictor.loaded_model_path = str(MODEL_PATH)
+    predictor.loaded_model_key = (str(MODEL_PATH), False, 0.75)
+    predictor._MODEL_CACHE[(str(MODEL_PATH), False, 0.75)] = cached_model
     monkeypatch.setattr(
         predictor,
         "load_model_with_compat",
@@ -112,7 +127,7 @@ def test_init_model_returns_early_when_same_model_already_loaded(monkeypatch) ->
 
 
 def test_predict_raises_when_model_is_not_initialized() -> None:
-    predictor.myModel = None
+    _reset_predictor_state()
 
     with pytest.raises(RuntimeError, match="Model not initialized"):
         predictor.predict(v_0_0=1.0)
@@ -213,8 +228,11 @@ def test_init_model_clears_session_when_switching_model_path(monkeypatch, tmp_pa
     other_model.write_bytes(b"fake")
     real_loader = predictor.load_model_with_compat
 
+    _reset_predictor_state()
     predictor.myModel = object()
     predictor.loaded_model_path = "existing-model.h5"
+    predictor.loaded_model_key = ("existing-model.h5", False, 0.75)
+    predictor._MODEL_CACHE[("existing-model.h5", False, 0.75)] = predictor.myModel
 
     monkeypatch.setattr(predictor.keras.backend, "clear_session", lambda: calls.append("clear"))
     monkeypatch.setattr(
@@ -226,3 +244,75 @@ def test_init_model_clears_session_when_switching_model_path(monkeypatch, tmp_pa
     predictor.init_model(str(other_model))
 
     assert calls == ["clear"]
+
+
+def test_init_model_distinguishes_cache_entries_by_ternary_config(monkeypatch) -> None:
+    _reset_predictor_state()
+    calls = []
+    real_loader = predictor.load_model_with_compat
+
+    def fake_loader(model_path):
+        calls.append(model_path)
+        model = real_loader(str(MODEL_PATH))
+        model._name = Path(model_path).stem
+        return model
+
+    monkeypatch.setattr(predictor, "load_model_with_compat", fake_loader)
+
+    predictor.init_model(str(MODEL_PATH), ternary_simplification=False, ternary_threshold_scale=0.75)
+    first_model = predictor.myModel
+    predictor.init_model(str(MODEL_PATH), ternary_simplification=True, ternary_threshold_scale=0.75)
+    second_model = predictor.myModel
+    predictor.init_model(str(MODEL_PATH), ternary_simplification=True, ternary_threshold_scale=1.5)
+    third_model = predictor.myModel
+
+    assert len(calls) == 3
+    assert first_model is not second_model
+    assert second_model is not third_model
+    assert len(predictor._MODEL_CACHE) == 3
+
+
+def test_init_model_reuses_cache_only_when_model_and_ternary_config_match(monkeypatch) -> None:
+    _reset_predictor_state()
+    load_calls = []
+    real_loader = predictor.load_model_with_compat
+
+    monkeypatch.setattr(
+        predictor,
+        "load_model_with_compat",
+        lambda model_path: load_calls.append(model_path) or real_loader(str(MODEL_PATH)),
+    )
+
+    predictor.init_model(str(MODEL_PATH), ternary_simplification=True, ternary_threshold_scale=0.75)
+    first_model = predictor.myModel
+    predictor.init_model(str(MODEL_PATH), ternary_simplification=True, ternary_threshold_scale=0.75)
+    second_model = predictor.myModel
+
+    assert len(load_calls) == 1
+    assert first_model is second_model
+
+
+def test_init_model_assigns_role_specific_models() -> None:
+    _reset_predictor_state()
+
+    predictor.init_model(str(MODEL_PATH), ternary_simplification=False, ternary_threshold_scale=0.75, role="validation")
+    predictor.init_model(str(MODEL_PATH), ternary_simplification=True, ternary_threshold_scale=1.5, role="search")
+
+    assert predictor.validationModel is not None
+    assert predictor.searchModel is not None
+    assert predictor.validation_model_key == (str(MODEL_PATH), False, 0.75)
+    assert predictor.search_model_key == (str(MODEL_PATH), True, 1.5)
+
+
+def test_predict_search_and_validation_use_role_specific_models() -> None:
+    predictor.searchModel = SimpleNamespace(
+        input_shape=(1, 2),
+        forward=lambda tensor_input: [0.1, 0.8],
+    )
+    predictor.validationModel = SimpleNamespace(
+        input_shape=(1, 2),
+        forward=lambda tensor_input: [0.9, 0.2],
+    )
+
+    assert predictor.predict_search(v_0_0=0.1, v_0_1=0.2) == 1
+    assert predictor.predict_validation(v_0_0=0.1, v_0_1=0.2) == 0
