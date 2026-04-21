@@ -1,0 +1,4 @@
+interface:
+  display_name: "PyCT Doc"
+  short_description: "Write repo docs, guides, and examples that stay accurate"
+  default_prompt: "Use $pyct-doc to update PyCT-Influence-Transformer documentation with accurate commands, prerequisites, and examples that match the current codebase."

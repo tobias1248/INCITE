@@ -1,0 +1,4 @@
+interface:
+  display_name: "PyCT Review"
+  short_description: "Review PyCT changes for bugs, risk, and maintainability"
+  default_prompt: "Use $pyct-review to inspect a PyCT-Influence-Transformer change, list findings by severity with file references, and call out missing validation or risky abstractions."
