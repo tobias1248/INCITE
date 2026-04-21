@@ -29,6 +29,13 @@ def _parse_pixel_search(value: str) -> Tuple[int, ...]:
     return tuple(sequence)
 
 
+def _parse_positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0.0:
+        raise argparse.ArgumentTypeError("value must be > 0.")
+    return parsed
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments for experiment launcher."""
     parser = argparse.ArgumentParser(
@@ -86,6 +93,17 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--enable-constraint-log",
         action="store_true",
         help="Enable verbose push/pop constraint logs (default: disabled).",
+    )
+    parser.add_argument(
+        "--ternary-simplification",
+        action="store_true",
+        help="Enable threshold-based ternary simplification for supported layers.",
+    )
+    parser.add_argument(
+        "--ternary-threshold-scale",
+        type=_parse_positive_float,
+        default=0.75,
+        help="Positive scale for ternary delta: threshold_scale * mean(abs(W)) (default: 0.75).",
     )
     parser.add_argument(
         "--pixel-search",

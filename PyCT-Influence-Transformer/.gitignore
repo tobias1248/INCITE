@@ -38,3 +38,6 @@ agent/
 
 # models
 *.h5
+
+# ref documentation
+reference_docs/

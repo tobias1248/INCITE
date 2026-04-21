@@ -21,6 +21,8 @@ class SaveExpConfig(TypedDict, total=False):
     constraint_build_timeout_seconds: int
     score_alpha: float
     symbolic_path_threshold: int
+    ternary_simplification: bool
+    ternary_threshold_scale: float
 
 
 class TonPlan(TypedDict):
@@ -43,6 +45,8 @@ class TaskPayload(TypedDict, total=False):
     save_exp: SaveExpConfig
     score_alpha: Optional[float]
     symbolic_path_threshold: Optional[int]
+    ternary_simplification: bool
+    ternary_threshold_scale: float
 
 
 @dataclass(frozen=True)

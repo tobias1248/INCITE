@@ -1,9 +1,9 @@
-
 import sys
 import numpy as np
 import math
 from itertools import product
 import collections.abc
+from dataclasses import dataclass
 from functools import reduce
 import logging
 from typing import Tuple, Optional, List, Any
@@ -65,6 +65,25 @@ ACTIVATIONS = (
 
 log = logging.getLogger("ct.model")
 debug = False
+
+
+@dataclass(frozen=True)
+class TernaryRuntimeConfig:
+    enabled: bool = False
+    threshold_scale: float = 0.75
+
+
+def compute_delta(weights, threshold_scale: float) -> float:
+    weights_array = np.asarray(weights, dtype=float)
+    return float(threshold_scale * np.mean(np.abs(weights_array)))
+
+
+def adjusted_input(x, weight: float, delta: float):
+    if weight > delta:
+        return x
+    if abs(weight) <= delta:
+        return 0.0
+    return -x
 
 
 def _piecewise_linear_exp(x):
@@ -388,12 +407,26 @@ class CenterCrop2DLayer:
         return self._output
 
 class DenseLayer:
-    def __init__(self, weights, bias, shape, activation="None"):
+    def __init__(
+        self,
+        weights,
+        bias,
+        shape,
+        activation="None",
+        *,
+        ternary_config: Optional[TernaryRuntimeConfig] = None,
+    ):
         self.weights = weights.astype(float)
         self.bias = bias
         self.shape = shape
         self.activation = activation
         self._output = None
+        self.ternary_config = ternary_config or TernaryRuntimeConfig()
+        self._delta = (
+            compute_delta(self.weights, self.ternary_config.threshold_scale)
+            if self.ternary_config.enabled
+            else None
+        )
     def addActivation(self, activation):
         self.activation = activation
 
@@ -408,7 +441,11 @@ class DenseLayer:
                 register_current_indices((out_id,))
                 ## Dot operation
                 for in_id in range(0, self.shape[1]):
-                    tensor_out[out_id] = tensor_in[in_id]*float(self.weights[out_id][in_id]) + tensor_out[out_id]
+                    weight = float(self.weights[out_id][in_id])
+                    if self.ternary_config.enabled and self._delta is not None:
+                        tensor_out[out_id] += adjusted_input(tensor_in[in_id], weight, self._delta)
+                    else:
+                        tensor_out[out_id] = tensor_in[in_id] * weight + tensor_out[out_id]
                 if self.activation!="None":
                     tensor_out[out_id] = actFunc(tensor_out[out_id], self.activation)
         elif len(in_shape) == 2:
@@ -419,7 +456,11 @@ class DenseLayer:
                     register_current_indices((i,out_id))
                 ## Dot operation
                     for in_id in range(0, self.shape[1]):
-                        tensor_out[i][out_id] += tensor_in[i][in_id]*float(self.weights[out_id][in_id])
+                        weight = float(self.weights[out_id][in_id])
+                        if self.ternary_config.enabled and self._delta is not None:
+                            tensor_out[i][out_id] += adjusted_input(tensor_in[i][in_id], weight, self._delta)
+                        else:
+                            tensor_out[i][out_id] += tensor_in[i][in_id] * weight
                     if self.activation!="None":
                         tensor_out[i][out_id] = actFunc(tensor_out[i][out_id], self.activation)
 
@@ -437,7 +478,17 @@ class DenseLayer:
 
 
 class Conv2DLayer:
-    def __init__(self, weights, bias, shape, activation="None", stride=(1, 1), padding='valid'):
+    def __init__(
+        self,
+        weights,
+        bias,
+        shape,
+        activation="None",
+        stride=(1, 1),
+        padding='valid',
+        *,
+        ternary_config: Optional[TernaryRuntimeConfig] = None,
+    ):
         self.weights = weights.astype(float)
         self.shape = shape
         self.bias = bias
@@ -445,6 +496,12 @@ class Conv2DLayer:
         self.stride = stride
         self.activation = activation
         self._output = None
+        self.ternary_config = ternary_config or TernaryRuntimeConfig()
+        self._delta = (
+            compute_delta(self.weights, self.ternary_config.threshold_scale)
+            if self.ternary_config.enabled
+            else None
+        )
     def addActivation(self, activation):
         self.activation = activation
     def _pad_input(self, tensor_in, pad_h, pad_w):
@@ -495,7 +552,15 @@ class Conv2DLayer:
                     for i, j, k in product( range(row_base, row_base+num_row),
                                             range(col_base, col_base+num_col), 
                                             range(0, num_depth)):
-                        tensor_out[row][col][channel] = tensor_in[i][j][k] * float(filter_weights[i-row_base][j-col_base][k]) + tensor_out[row][col][channel] 
+                        weight = float(filter_weights[i-row_base][j-col_base][k])
+                        if self.ternary_config.enabled and self._delta is not None:
+                            tensor_out[row][col][channel] += adjusted_input(
+                                tensor_in[i][j][k],
+                                weight,
+                                self._delta,
+                            )
+                        else:
+                            tensor_out[row][col][channel] = tensor_in[i][j][k] * weight + tensor_out[row][col][channel]
                     if self.activation!="None":
                         tensor_out[row][col][channel] = actFunc(tensor_out[row][col][channel], self.activation)
                     #print(type(tensor_out[row][col][channel]))
@@ -1361,7 +1426,12 @@ class GlobalAveragePooling1DLayer:
 
 
 class NNModel:
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        ternary_simplification: bool = False,
+        ternary_threshold_scale: float = 0.75,
+    ):
         self.layers: List[Any] = []
         self.input_shape: Optional[Tuple[int, ...]] = None
         self.my_layer_keys: List[str] = []
@@ -1369,6 +1439,10 @@ class NNModel:
         self.input_layer_names: List[str] = []
         self.multiple_inputs = False
         self.layer_type_counter: dict[str, int] = {}
+        self.ternary_config = TernaryRuntimeConfig(
+            enabled=bool(ternary_simplification),
+            threshold_scale=float(ternary_threshold_scale),
+        )
 
     def register_input_names(self, names: List[str]):
         self.input_layer_names = list(names or [])
@@ -1461,7 +1535,14 @@ class NNModel:
             stride = config.get('strides', (1, 1))
             padding = config.get('padding', 'valid')
 
-            conv_layer = Conv2DLayer(weights, biases, weights.shape, stride=stride, padding=padding)
+            conv_layer = Conv2DLayer(
+                weights,
+                biases,
+                weights.shape,
+                stride=stride,
+                padding=padding,
+                ternary_config=self.ternary_config,
+            )
             if resolved_inbounds:
                 conv_layer.input_from = resolved_inbounds
             conv_key = self._append_layer(conv_layer)
@@ -1483,7 +1564,12 @@ class NNModel:
                 biases = np.zeros(weights.shape[0], dtype=float)
             activation = layer.get_config()['activation']
 
-            dense_layer = DenseLayer(weights, biases, weights.shape)
+            dense_layer = DenseLayer(
+                weights,
+                biases,
+                weights.shape,
+                ternary_config=self.ternary_config,
+            )
             if resolved_inbounds:
                 dense_layer.input_from = resolved_inbounds
             dense_key = self._append_layer(dense_layer)

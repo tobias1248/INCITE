@@ -103,6 +103,12 @@ python -m pyct
 | `libct/record.py` | 保存每次攻擊的統計、輸入、輸出與中間資料 |
 | `reporting/experiment_stats.py` | 聚合 `stats.json`，產生跨實驗摘要 |
 
+其中有一個實作細節值得特別說明：
+
+- `libct/explore.py` 在 execution 期間會暫時切換工作目錄到 runtime module 所在位置。
+- 為了避免輸出跟著 `cwd` 漂移，正式輸出路徑不再依賴相對路徑。
+- `exp/`、`popped_constraint_position/` 等輸出都透過 `tasks.paths` 解析為 **repo root 下的絕對路徑**。
+
 ## 5. 執行流程
 
 ### 5.1 SHAP 預處理流程
@@ -512,10 +518,10 @@ current_height >= symbolic_path_threshold
 
 ## 7. 實驗輸出與命名設計
 
-實驗目錄採參數化命名：
+實驗目錄採參數化命名，且固定建立在 **repo root** 下：
 
 ```text
-exp/<model>_<attack_mode>_<timeout>_<build_timeout>_<alpha_tag>_<symbolic_threshold>/case_<idx>/
+<repo_root>/exp/<model>_<attack_mode>_<timeout>_<build_timeout>_<alpha_tag>_<symbolic_threshold>/case_<idx>/
 ```
 
 這個命名策略的價值在於：
@@ -525,6 +531,14 @@ exp/<model>_<attack_mode>_<timeout>_<build_timeout>_<alpha_tag>_<symbolic_thresh
 - 有利於批量比較與自動統計。
 
 對研究型 repo 來說，這比單一輸出資料夾更容易維護。
+
+除 `exp/` 外，constraint pop log 也會固定寫到：
+
+```text
+<repo_root>/popped_constraint_position/<model_name>/<attack_mode>_<ton>/
+```
+
+這樣即使 runtime 在執行中切換 `cwd`，輸出仍會穩定落在 repo root，不會漂移到 `engine/exp/` 或其他子目錄。
 
 ## 8. 結果分析流程
 

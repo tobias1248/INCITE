@@ -1,7 +1,7 @@
 import itertools
 import logging
 from pathlib import Path
-from typing import Optional, Tuple, cast
+from typing import Dict, Literal, Optional, Tuple, cast
 
 import keras
 import numpy as np
@@ -19,8 +19,16 @@ from modeling.keras_loader import load_model_with_compat
 
 log = logging.getLogger("ct.model")
 
+ModelCacheKey = Tuple[str, bool, float]
+ModelRole = Literal["default", "search", "validation"]
 myModel: Optional[NNModel] = None
 loaded_model_path: Optional[str] = None
+loaded_model_key: Optional[ModelCacheKey] = None
+_MODEL_CACHE: Dict[ModelCacheKey, NNModel] = {}
+searchModel: Optional[NNModel] = None
+search_model_key: Optional[ModelCacheKey] = None
+validationModel: Optional[NNModel] = None
+validation_model_key: Optional[ModelCacheKey] = None
 
 
 def _get_inbound_layers(layer):
@@ -96,19 +104,61 @@ def _collect_layers_and_inbound(model):
     return layers, inbound_map
 
 
-def init_model(model_path):
-    global myModel, loaded_model_path
-    if myModel is not None and loaded_model_path == model_path:
+def _assign_model_for_role(
+    role: ModelRole,
+    model: NNModel,
+    model_key: ModelCacheKey,
+    model_path: str,
+) -> None:
+    global myModel, loaded_model_key, loaded_model_path
+    global searchModel, search_model_key, validationModel, validation_model_key
+
+    if role == "default":
+        myModel = model
+        loaded_model_key = model_key
+        loaded_model_path = model_path
         return
-    if loaded_model_path is not None and loaded_model_path != model_path:
+    if role == "search":
+        searchModel = model
+        search_model_key = model_key
+        return
+    if role == "validation":
+        validationModel = model
+        validation_model_key = model_key
+        return
+    raise ValueError(f"Unsupported model role: {role}")
+
+
+def init_model(
+    model_path,
+    *,
+    ternary_simplification: bool = False,
+    ternary_threshold_scale: float = 0.75,
+    role: ModelRole = "default",
+):
+    global myModel, loaded_model_key, loaded_model_path
+    resolved_model_path = str(model_path)
+    model_key: ModelCacheKey = (
+        resolved_model_path,
+        bool(ternary_simplification),
+        float(ternary_threshold_scale),
+    )
+    cached = _MODEL_CACHE.get(model_key)
+    if cached is not None:
+        _assign_model_for_role(role, cached, model_key, resolved_model_path)
+        return
+    if loaded_model_key is not None and loaded_model_key != model_key:
         keras.backend.clear_session()
-    model = load_model_with_compat(model_path)
-    model_stem = Path(model_path).stem
+    model = load_model_with_compat(resolved_model_path)
+    model_stem = Path(resolved_model_path).stem
     model._name = model_stem
     model.summary()
     log.info("Loaded model '%s' with input_shape=%s", model_stem, model.input_shape)
     layers, inbound_map = _collect_layers_and_inbound(model)
-    my_model = NNModel()
+    my_model = NNModel(
+        ternary_simplification=ternary_simplification,
+        ternary_threshold_scale=ternary_threshold_scale,
+    )
     input_layer_names = _collect_input_names(model)
     my_model.register_input_names(input_layer_names)
     my_model.input_shape = model.input_shape[1:]
@@ -128,15 +178,15 @@ def init_model(model_path):
     for my_layer in my_model.layers:
         log.debug("My model layer type: %s", type(my_layer).__name__)
 
-    myModel = my_model
-    loaded_model_path = model_path
+    _MODEL_CACHE[model_key] = my_model
+    _assign_model_for_role(role, my_model, model_key, resolved_model_path)
 
 
-def predict(**data):
-    if myModel is None or myModel.input_shape is None:
+def _predict_with_model(model: Optional[NNModel], **data):
+    if model is None or model.input_shape is None:
         raise RuntimeError("Model not initialized. Call init_model() before predict().")
 
-    model = cast(NNModel, myModel)
+    model = cast(NNModel, model)
     input_shape = cast(Tuple[int, ...], model.input_shape)
     iter_args = (range(dim) for dim in input_shape)
     tensor_input = np.zeros(input_shape).tolist()
@@ -171,6 +221,18 @@ def predict(**data):
     return ret_class
 
 
+def predict(**data):
+    return _predict_with_model(myModel, **data)
+
+
+def predict_search(**data):
+    return _predict_with_model(searchModel, **data)
+
+
+def predict_validation(**data):
+    return _predict_with_model(validationModel, **data)
+
+
 __all__ = [
     "AddClsToken",
     "AddPositionEmbedding",
@@ -179,4 +241,6 @@ __all__ = [
     "SequencePooling",
     "init_model",
     "predict",
+    "predict_search",
+    "predict_validation",
 ]

@@ -160,6 +160,8 @@ def run_launcher(args: Any) -> None:
         os.environ.pop("PYCT_SCORE_ALPHA", None)
     os.environ["PYCT_SYMBOLIC_PATH_THRESHOLD"] = str(args.symbolic_path_threshold)
     os.environ["PYCT_ENABLE_CONSTRAINT_LOG"] = "1" if args.enable_constraint_log else "0"
+    os.environ["PYCT_TERNARY_SIMPLIFICATION"] = "1" if args.ternary_simplification else "0"
+    os.environ["PYCT_TERNARY_THRESHOLD_SCALE"] = str(args.ternary_threshold_scale)
 
     attack_mode_parts = [attack_mode]
     if args.attack_mode == "shap" and args.pixel_selector == "patch-shap":
@@ -242,6 +244,11 @@ def run_launcher(args: Any) -> None:
     for payload in inputs:
         payload["score_alpha"] = args.score_alpha
         payload["symbolic_path_threshold"] = args.symbolic_path_threshold
+        payload["ternary_simplification"] = args.ternary_simplification
+        if args.ternary_simplification:
+            payload["ternary_threshold_scale"] = args.ternary_threshold_scale
+        else:
+            payload.pop("ternary_threshold_scale", None)
 
     logger.info(
         "Prepared %s input(s) for attack=%s ton_sequence=%s",

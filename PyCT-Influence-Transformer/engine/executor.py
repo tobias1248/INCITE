@@ -19,7 +19,15 @@ PYCT_ROOT = "./"
 MODEL_ROOT = os.path.join(PYCT_ROOT, "model")
 VALID_COLLECT_MODES = {"priority_queue", "queue", "stack"}
 DEFAULT_SOLVER = "cvc5"
-PredictorCacheEntry = Tuple[ModuleType, Callable[..., Any], Callable[..., Any], Set[str]]
+ModelRuntimeKey = Tuple[str, bool, float]
+InitializedPredictorKey = Tuple[str, ModelRuntimeKey]
+PredictorCacheEntry = Tuple[
+    ModuleType,
+    Callable[..., Any],
+    Callable[..., Any],
+    Callable[..., Any],
+    Set[InitializedPredictorKey],
+]
 _PREDICTOR_CACHE: Dict[Tuple[str, str], PredictorCacheEntry] = {}
 
 
@@ -28,6 +36,7 @@ class ExplorerConfig:
     model_path: str
     module: ModuleType
     execute: Callable[..., Any]
+    validation_execute: Callable[..., Any]
     solver: str = DEFAULT_SOLVER
     timeout: int = 900
     constraint_build_timeout: bool = True
@@ -43,6 +52,8 @@ class ExplorerConfig:
     only_first_forward: bool = False
     shap_score_alpha: Optional[float] = None
     symbolic_path_threshold: Optional[int] = None
+    ternary_simplification: bool = False
+    ternary_threshold_scale: float = 0.75
 
 
 def _resolve_model_artifacts(model_name: str) -> tuple[str, str, str]:
@@ -65,8 +76,15 @@ def _load_predictor(
         return cached
     module = get_module_from_rootdir_and_modpath(root, module_path)
     func_init_model = get_function_from_module_and_funcname(module, "init_model")
-    execute = get_function_from_module_and_funcname(module, "predict")
-    entry: PredictorCacheEntry = (module, func_init_model, execute, set())
+    execute_search = get_function_from_module_and_funcname(module, "predict_search")
+    execute_validation = get_function_from_module_and_funcname(module, "predict_validation")
+    entry: PredictorCacheEntry = (
+        module,
+        func_init_model,
+        execute_search,
+        execute_validation,
+        set(),
+    )
     _PREDICTOR_CACHE[cache_key] = entry
     return entry
 
@@ -81,6 +99,8 @@ def _prepare_experiment_paths(
     constraint_build_timeout_seconds: Optional[int],
     score_alpha: Optional[float],
     symbolic_path_threshold: Optional[int],
+    ternary_simplification: Optional[bool],
+    ternary_threshold_scale: Optional[float],
 ) -> tuple[Optional[str], Optional[str], Optional[str]]:
     save_dir = None
     smt_dir = None
@@ -99,6 +119,8 @@ def _prepare_experiment_paths(
         "constraint_build_timeout_seconds": constraint_build_timeout_seconds,
         "score_alpha": score_alpha,
         "symbolic_path_threshold": symbolic_path_threshold,
+        "ternary_simplification": ternary_simplification,
+        "ternary_threshold_scale": ternary_threshold_scale,
     }
     save_dir = get_save_dir_from_save_exp(**path_kwargs)
     input_name = save_exp.get("input_name")
@@ -132,6 +154,7 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
         input_name=explorer_cfg.input_name,
         module_=explorer_cfg.module,
         execute_=explorer_cfg.execute,
+        validation_execute_=explorer_cfg.validation_execute,
         only_first_forward=explorer_cfg.only_first_forward,
         shap_score_alpha=explorer_cfg.shap_score_alpha,
         symbolic_path_threshold=explorer_cfg.symbolic_path_threshold,
@@ -150,15 +173,45 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         input_for_shap=None, background_dataset_for_shap=None, shap_value_pre_calculated: Optional[bool] = None,
         popped_log_attack_mode=None,
         score_alpha: Optional[float] = None,
-        symbolic_path_threshold: Optional[int] = None) -> tuple[int, Any]:
+        symbolic_path_threshold: Optional[int] = None,
+        ternary_simplification: bool = False,
+        ternary_threshold_scale: float = 0.75) -> tuple[int, Any]:
 
     collect_mode: Literal["priority_queue", "queue", "stack"] = _validate_collect_mode(collect_constraints_with)
     model_path, module_path, root = _resolve_model_artifacts(model_name)
+    search_runtime_key: ModelRuntimeKey = (
+        model_path,
+        bool(ternary_simplification),
+        float(ternary_threshold_scale),
+    )
+    validation_runtime_key: ModelRuntimeKey = (
+        model_path,
+        False,
+        0.75,
+    )
 
-    module, func_init_model, execute, initialized_models = _load_predictor(module_path, root)
-    if model_path not in initialized_models:
-        func_init_model(model_path)
-        initialized_models.add(model_path)
+    module, func_init_model, execute_search, execute_validation, initialized_models = _load_predictor(module_path, root)
+    if ("validation", validation_runtime_key) not in initialized_models:
+        func_init_model(
+            model_path,
+            ternary_simplification=False,
+            ternary_threshold_scale=0.75,
+            role="validation",
+        )
+        initialized_models.add(("validation", validation_runtime_key))
+
+    if ternary_simplification:
+        if ("search", search_runtime_key) not in initialized_models:
+            func_init_model(
+                model_path,
+                ternary_simplification=ternary_simplification,
+                ternary_threshold_scale=ternary_threshold_scale,
+                role="search",
+            )
+            initialized_models.add(("search", search_runtime_key))
+        execute = execute_search
+    else:
+        execute = execute_validation
 
     attack_mode = popped_log_attack_mode or (save_exp.get("attack_mode") if save_exp else "unknown")
     save_dir, smtdir, input_name = _prepare_experiment_paths(
@@ -171,12 +224,15 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         constraint_build_timeout_seconds,
         score_alpha,
         symbolic_path_threshold,
+        ternary_simplification,
+        ternary_threshold_scale,
     )
 
     explorer_cfg = ExplorerConfig(
         model_path=model_path,
         module=module,
         execute=execute,
+        validation_execute=execute_validation,
         timeout=timeout,
         constraint_build_timeout=constraint_build_timeout,
         constraint_build_timeout_seconds=constraint_build_timeout_seconds,
@@ -188,6 +244,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         only_first_forward=only_first_forward,
         shap_score_alpha=score_alpha,
         symbolic_path_threshold=symbolic_path_threshold,
+        ternary_simplification=ternary_simplification,
+        ternary_threshold_scale=ternary_threshold_scale,
     )
 
     engine = _build_explorer(explorer_cfg)
@@ -197,6 +255,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         "idx": idx,
         "score_alpha": score_alpha,
         "symbolic_path_threshold": symbolic_path_threshold,
+        "ternary_simplification": bool(ternary_simplification),
+        "ternary_threshold_scale": float(ternary_threshold_scale),
         "constraint_build_timeout": bool(constraint_build_timeout),
         "constraint_build_timeout_seconds": (
             int(constraint_build_timeout_seconds)
