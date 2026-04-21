@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Experiment Runner"
+  short_description: "Turn PyCT experiment commands into reusable workflows"
+  default_prompt: "Use $build-experiment-runner to turn repeated PyCT-Influence-Transformer experiment commands into reproducible bash workflows with clear parameters, logs, and bounded parallelism."

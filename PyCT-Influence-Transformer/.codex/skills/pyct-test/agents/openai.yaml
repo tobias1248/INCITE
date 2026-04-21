@@ -1,0 +1,4 @@
+interface:
+  display_name: "PyCT Test"
+  short_description: "Validate changes with focused tests and smoke runs"
+  default_prompt: "Use $pyct-test to prove a PyCT-Influence-Transformer change still works with targeted pytest coverage, smoke checks, and clear reproduction steps for any failure."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "PyCT Code"
+  short_description: "Implement features, fix bugs, and refactor PyCT code"
+  default_prompt: "Use $pyct-code to modify PyCT-Influence-Transformer source code, keep package boundaries intact, and hand broad validation to the test agent after the code change is ready."
