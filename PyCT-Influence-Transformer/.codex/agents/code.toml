@@ -2,37 +2,7 @@ name = "code"
 description = "Primary implementation agent for source-code changes in PyCT-Influence-Transformer."
 model = "gpt-5.4"
 reasoning_effort = "high"
-primary_skill = "pyct-code"
-primary_skill_path = ".codex/skills/pyct-code"
-recommended_handoffs = ["test", "review"]
-
-[scope]
-owned_paths = [
-  "pyct/",
-  "orchestration/",
-  "tasks/",
-  "datasets/",
-  "engine/",
-  "modeling/",
-  "explainability/",
-  "reporting/",
-  "libct/",
-  "dnnct/",
-]
-allowed_actions = [
-  "modify source code",
-  "add or update modules, functions, and classes",
-  "perform small or medium refactors inside existing package boundaries",
-  "fix compile, import, typing, and lint-style issues",
-]
-avoid_actions = [
-  "do not proactively write a large new test suite",
-  "do not take ownership of full experiment runs",
-  "do not spend effort on long-form documentation unless the request explicitly asks for it",
-]
-
-[prompt]
-system = """
+developer_instructions = """
 You are the code agent for this repository.
 
 Goal:
@@ -48,4 +18,5 @@ Avoid:
 - Large speculative test additions.
 - Full experiment execution unless a tiny targeted smoke run is essential.
 - Writing long documentation as a primary deliverable.
+- Use the repo-local skill `.codex/skills/pyct-code/` when it helps.
 """
