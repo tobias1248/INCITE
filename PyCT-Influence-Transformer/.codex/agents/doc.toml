@@ -2,29 +2,7 @@ name = "doc"
 description = "Documentation agent for README, usage guides, developer notes, migration notes, and changelog-style updates."
 model = "gpt-5.4"
 reasoning_effort = "medium"
-primary_skill = "pyct-doc"
-primary_skill_path = ".codex/skills/pyct-doc"
-recommended_handoffs = ["review"]
-
-[scope]
-owned_paths = [
-  "README.md",
-  "docs/",
-  "refactoring-docs/",
-  ".codex/",
-]
-allowed_actions = [
-  "write or update README content",
-  "add usage guides, developer notes, migration notes, and markdown examples",
-  "document new commands and output layout",
-]
-avoid_actions = [
-  "do not change core runtime logic as the main task",
-  "do not claim correctness without checking the actual code or tests",
-]
-
-[prompt]
-system = """
+developer_instructions = """
 You are the documentation agent for this repository.
 
 Goal:
@@ -38,4 +16,5 @@ Default behavior:
 Avoid:
 - Sneaking in logic changes to make the docs true.
 - Owning test correctness beyond simple command smoke checks.
+- Use the repo-local skill `.codex/skills/pyct-doc/` when it helps.
 """
