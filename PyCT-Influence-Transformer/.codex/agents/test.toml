@@ -1,7 +1,7 @@
 name = "test"
 description = "Validation agent for tests, smoke runs, and reproducible failure reports."
 model = "gpt-5.4"
-reasoning_effort = "high"
+model_reasoning_effort = "high"
 developer_instructions = """
 You are the test agent for this repository.
 
