@@ -79,6 +79,28 @@ uv run python -m pyct --help
 uv run pytest
 ```
 
+### Package entrypoints
+The canonical source entrypoint remains:
+
+```bash
+uv run python -m pyct --help
+```
+
+Editable/package installs also expose console scripts:
+
+```bash
+uv run pyct --help
+uv run pyct-shap --help
+uv run pyct-stats --help
+uv run pyct-doctor --help
+```
+
+Use `pyct-doctor` before longer experiments to check local prerequisites without importing TensorFlow, Keras, or SHAP:
+
+```bash
+uv run pyct-doctor --skip-runtime-packages
+```
+
 Dataset cache policy:
 - By default, MNIST / Fashion-MNIST / CIFAR10 must already exist in the local Keras cache under `~/.keras/datasets`.
 - To point at a different local cache, set `PYCT_KERAS_HOME=/path/to/keras-home`.

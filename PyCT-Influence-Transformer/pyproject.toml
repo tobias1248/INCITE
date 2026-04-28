@@ -1,9 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "pyct-influence-transformer"
 version = "0.1.0"
 description = "Concolic testing on image classifiers with SHAP-guided constraint prioritization."
 readme = "README.md"
 requires-python = ">=3.9,<3.10"
+authors = [
+    { name = "PyCT Influence Transformer contributors" },
+]
+license = "LicenseRef-Proprietary"
+keywords = [
+    "concolic testing",
+    "deep learning",
+    "robustness",
+    "shap",
+    "symbolic execution",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "func-timeout==4.3.5",
     "keras==2.13.1",
@@ -14,6 +38,17 @@ dependencies = [
     "tensorflow==2.13.1",
 ]
 
+[project.scripts]
+pyct = "pyct.main:main"
+pyct-doctor = "pyct.doctor:main"
+pyct-shap = "pyct.shap:main"
+pyct-stats = "pyct.stats:main"
+
+[project.urls]
+Homepage = "https://github.com/tobias1248/INCITE"
+Repository = "https://github.com/tobias1248/INCITE"
+Issues = "https://github.com/tobias1248/INCITE/issues"
+
 [dependency-groups]
 dev = [
     "coverage==4.5.4",
@@ -21,5 +56,19 @@ dev = [
 ]
 
 [tool.uv]
-package = false
+package = true
 default-groups = ["dev"]
+
+[tool.setuptools.packages.find]
+include = [
+    "datasets*",
+    "dnnct*",
+    "engine*",
+    "explainability*",
+    "libct*",
+    "modeling*",
+    "orchestration*",
+    "pyct*",
+    "reporting*",
+    "tasks*",
+]
