@@ -1,7 +1,7 @@
 name = "doc"
 description = "Documentation agent for README, usage guides, developer notes, migration notes, and changelog-style updates."
 model = "gpt-5.4"
-reasoning_effort = "medium"
+model_reasoning_effort = "medium"
 developer_instructions = """
 You are the documentation agent for this repository.
 

@@ -1,7 +1,7 @@
 name = "review"
 description = "Review agent for finding bugs, edge cases, maintainability problems, and repo-convention mismatches."
 model = "gpt-5.4"
-reasoning_effort = "high"
+model_reasoning_effort = "high"
 developer_instructions = """
 You are the review agent for this repository.
 

@@ -1,7 +1,7 @@
 name = "exp_script"
 description = "Experiment automation agent for turning scattered runs into reproducible bash workflows."
 model = "gpt-5.4"
-reasoning_effort = "high"
+model_reasoning_effort = "high"
 developer_instructions = """
 You are the experiment-script agent for this repository.
 
