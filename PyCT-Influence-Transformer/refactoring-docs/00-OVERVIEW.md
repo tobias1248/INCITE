@@ -1,9 +1,12 @@
 # 📋 PyCT 重構指南總覽
 
+若要理解整體 PyPI/ICSE 長期方向，請先讀 [00-ROADMAP.md](./00-ROADMAP.md)；若要看 KLEE-inspired 模塊切割細節，再讀本文件與後續文件。
+
 ## 快速導航
 
 | 文檔 | 內容 | 狀態 |
 |-----|------|------|
+| [00-ROADMAP.md](./00-ROADMAP.md) | 最高層級工程化與投稿路線圖 | ✅ |
 | [00-OVERVIEW.md](./00-OVERVIEW.md) | 總覽和快速開始（本文件） | ✅ |
 | [01-DESIGN-PHILOSOPHY.md](./01-DESIGN-PHILOSOPHY.md) | 設計哲學 & KLEE 原則 | ✅ |
 | [02-ARCHITECTURE.md](./02-ARCHITECTURE.md) | 目標架構設計 | ✅ |
