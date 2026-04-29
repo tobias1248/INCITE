@@ -30,6 +30,8 @@ Expected outcomes:
 
 Goal: split the monolithic concolic runtime into explicit Searcher, Executor, State, and Engine components while preserving current attack semantics.
 
+The first implementation batch should be compatibility modularization: extract the current constraint-level worklist, state primitives, and executor boundary before rewriting the engine around full path-level `ExecutionState` scheduling.
+
 Expected outcomes:
 
 - `libct/explore.py` becomes a compatibility shell or a smaller coordinator instead of the primary location for all runtime behavior.

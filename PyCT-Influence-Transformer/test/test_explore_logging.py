@@ -192,6 +192,27 @@ class ExploreLoggingTests(unittest.TestCase):
             msg="Expected log about popped constraint position",
         )
 
+    def test_push_and_pop_priority_constraint_uses_modular_searcher(self) -> None:
+        from libct.constraint import Constraint
+        from libct.searcher import create_constraint_searcher
+
+        Constraint.global_constraints.clear()
+        engine = self._make_engine()
+        engine.constraints_collection_type = "priority_queue"
+        engine.constraints_to_solve = create_constraint_searcher("priority_queue")
+        engine.comparator = None
+        engine.shap_score_alpha = 0.5
+        engine.constraint_log_enabled = False
+        constraint = Constraint(None, None, height=2)
+
+        engine.push_constraint(constraint, ("layer", (1, 2)))
+        popped_constraint, shap_value, position = engine.pop_constraint()
+
+        self.assertIs(popped_constraint, constraint)
+        self.assertEqual(shap_value, 0.0)
+        self.assertEqual(position, ("layer", (1, 2)))
+        self.assertEqual(len(engine.constraints_to_solve), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

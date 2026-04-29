@@ -16,6 +16,9 @@ from libct.solver import Solver, _ensure_smtlib2_logger
 from libct.position import summarize_indices, summarize_position
 from libct.utils import ConcolicObject, unwrap, get_in_dict_shape
 from libct.record import ConcolicTestRecorder
+from libct.executor import LegacyConcolicExecutor
+from libct.searcher import Searcher, create_constraint_searcher
+from libct.state import ConstraintWorkItem
 import cProfile
 import shap
 import numpy as np
@@ -152,6 +155,7 @@ class ExplorationEngine:
         self.concolic_flag_dict: dict[str, int] = {}  # NOTE for DNN testing
         self.previous_result = None
         self.original_args = None  # used to limit variable range
+        self._execution_executor = LegacyConcolicExecutor(self)
 
     def _reset_symbolic_guard(self) -> None:
         self.symbolic_enabled = True
@@ -356,9 +360,9 @@ class ExplorationEngine:
                 idx = self.idx,
                 shap_value_pre_calculated = self.shap_value_pre_calculated)
             self.compare = self.comparator.compare
-            self.constraints_to_solve = []
         else:
-            self.constraints_to_solve = deque()
+            self.comparator = None
+        self.constraints_to_solve = create_constraint_searcher(self.constraints_collection_type)
 
         if self.funcname is None:
             self.funcname = self.modpath.split('.')[-1]
@@ -497,16 +501,20 @@ class ExplorationEngine:
 
     def _one_execution(self, all_args, concolic_dict):
         """Run one concolic+primitive execution pair to advance exploration."""
+        execution_executor = getattr(self, "_execution_executor", None)
+        if execution_executor is None:
+            execution_executor = LegacyConcolicExecutor(self)
+            self._execution_executor = execution_executor
         primitive_inputs = self._clone_primitive_inputs(all_args)
         # primitive input arguments "all_args" may be modified here.
-        result = self._one_execution_concolic(all_args, concolic_dict)
+        result = execution_executor.run_concolic(all_args, concolic_dict)
         # We don't measure coverage in the primitive mode under the non-single coverage setting.
         if not self.single_coverage:
             # .copy() is important! Think why.
             self.in_out.append((all_args.copy(), result))
             return self._record_result(all_args, result)
         # we must measure the coverage in the primitive mode since self.constraints_to_solve would become unpicklable if measured in the concolic mode
-        answer = self._one_execution_primitive(primitive_inputs)
+        answer = execution_executor.run_primitive(primitive_inputs)
 
         if self.Timeout not in (result, answer):
             if result != answer:
@@ -644,7 +652,7 @@ class ExplorationEngine:
                 log.warning(
                     "Constraints payload contains unpicklable objects; skipping constraint transfer",
                 )
-                self.constraints_to_solve = deque()
+                self.constraints_to_solve = create_constraint_searcher(self.constraints_collection_type)
 
         r2.close()
         s2.close()
@@ -900,14 +908,17 @@ class ExplorationEngine:
         path_len = getattr(constraint, "height", None)
         if self.constraints_collection_type == 'priority_queue':
             score, _assert_num = self._compute_priority_score(shap_value, constraint)
-            heapq.heappush(
-                self.constraints_to_solve,
-                (-score, constraint.id, position, constraint, abs(shap_value)),
+            item = ConstraintWorkItem.from_constraint(
+                constraint,
+                position=position,
+                shap_value=shap_value,
+                score=score,
             )
+            self._push_work_item(item)
             if recorder is not None:
                 current_size = len(self.constraints_to_solve)
                 recorder.queue_last = current_size
-                if current_size > recorder.queue_max:
+                if current_size > getattr(recorder, "queue_max", 0):
                     recorder.queue_max = current_size
             if self.constraint_log_enabled:
                 log.info(
@@ -920,11 +931,16 @@ class ExplorationEngine:
                     len(self.constraints_to_solve),
                 )
         else:
-            self.constraints_to_solve.append(constraint)
+            item = ConstraintWorkItem.from_constraint(
+                constraint,
+                position=position,
+                shap_value=shap_value,
+            )
+            self._push_work_item(item)
             if recorder is not None:
                 current_size = len(self.constraints_to_solve)
                 recorder.queue_last = current_size
-                if current_size > recorder.queue_max:
+                if current_size > getattr(recorder, "queue_max", 0):
                     recorder.queue_max = current_size
             if self.constraint_log_enabled:
                 log.info(
@@ -947,6 +963,18 @@ class ExplorationEngine:
         score = (1 - alpha) * math.log10(abs(shap_value) + self.SHAP_SCORE_EPS)
         score -= alpha * math.log10(path_len + 1)
         return score, path_len
+
+    def _push_work_item(self, item: ConstraintWorkItem) -> None:
+        worklist = self.constraints_to_solve
+        if isinstance(worklist, Searcher):
+            worklist.push(item)
+        elif self.constraints_collection_type == 'priority_queue':
+            heapq.heappush(
+                worklist,
+                (-item.score, item.constraint.id, item.position, item.constraint, item.shap_value),
+            )
+        else:
+            worklist.append(item.constraint)
 
     def _log_pop_event(
         self,
@@ -985,6 +1013,37 @@ class ExplorationEngine:
             )
 
     def pop_constraint(self) -> Constraint:
+        if isinstance(self.constraints_to_solve, Searcher):
+            item = self.constraints_to_solve.pop()
+            constraint = item.constraint
+            if self.constraints_collection_type == 'priority_queue':
+                position = item.position
+                layer_number = None
+                indices = None
+                if isinstance(position, tuple) and len(position) == 2:
+                    layer_number, indices = position
+                self._log_pop_event(
+                    queue_mode="priority",
+                    remaining=len(self.constraints_to_solve),
+                    layer=layer_number,
+                    indices=indices,
+                    shap_value=f"{abs(item.shap_value):.3e}",
+                    path_len=getattr(constraint, "height", None),
+                )
+                log.debug(
+                    "Popped constraint from queue (position=%s shap_value=%s constraint_id=%s)",
+                    summarize_position(position),
+                    item.shap_value,
+                    constraint.id,
+                )
+                return constraint, item.shap_value, position
+            queue_mode = "stack" if self.constraints_collection_type == 'stack' else "queue"
+            self._log_pop_event(
+                queue_mode=queue_mode,
+                remaining=len(self.constraints_to_solve),
+                path_len=getattr(constraint, "height", None),
+            )
+            return constraint
         if self.constraints_collection_type =='stack':
             constraint = self.constraints_to_solve.pop()
             self._log_pop_event(

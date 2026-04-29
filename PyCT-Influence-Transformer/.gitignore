@@ -29,7 +29,7 @@ dnnct_transformer_multi_approved.py
 build_insight.py
 
 # exp documentation
-insight.md
+exp_docs/
 
 # agent scratch notes
 agent/

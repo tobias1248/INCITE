@@ -1,5 +1,19 @@
 # ✅ 集成與驗證清單
 
+## Milestone 2 Compatibility Batch
+
+This milestone is accepted as a compatibility-preserving modularization before the final KLEE-style engine rewrite.
+
+- [ ] `libct/state/` exposes `ExecutionState`, `StateManager`, and `ConstraintWorkItem`.
+- [ ] `libct/searcher/` owns stack, queue, priority, and random constraint worklist behavior.
+- [ ] `libct/executor/` exposes a legacy executor adapter used by `ExplorationEngine`.
+- [ ] `priority_queue` keeps the existing score formula and pop return shape.
+- [ ] Existing CLI arguments, output paths, `stats.json`, and `stats_history.jsonl` remain unchanged.
+- [ ] Required validation: full pytest suite and CLI help smoke checks.
+- [ ] Environment-dependent validation: one tiny queue-mode attack and one tiny SHAP-mode attack when local cache/model/artifacts/solver are available.
+
+The final target of `libct/explore.py < 300 行` remains a later engine rewrite acceptance criterion, not a blocker for this compatibility batch.
+
 ## Phase 1：單元測試
 
 ### Searcher 模塊測試
