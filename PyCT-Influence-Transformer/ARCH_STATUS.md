@@ -28,4 +28,15 @@ This branch starts the engineering track for turning PyCT into a reusable resear
 
 ## Runtime Refactoring Gap
 
-The KLEE-inspired plan in `refactoring-docs/` is not implemented yet. The next runtime-focused batch should start with a compatibility-preserving extraction of state/searcher primitives from `libct/explore.py`, backed by unit tests from `refactoring-docs/07-INTEGRATION-CHECKLIST.md`.
+The KLEE-inspired plan in `refactoring-docs/` is now in the compatibility modularization stage:
+
+- `libct/state/` defines structured `ExecutionState`, `StateManager`, and `ConstraintWorkItem` primitives.
+- `libct/searcher/` owns stack, queue, priority, and random constraint worklist strategies.
+- `libct/executor/` introduces a thin executor boundary around the legacy concolic and primitive execution methods.
+- `libct/explore.py` still owns the main exploration loop, recorder interactions, solver integration, and subprocess execution internals, but it no longer directly implements raw stack/queue/heap search policy for normal runs.
+
+Deferred runtime work:
+
+- Shrink `libct/explore.py` into a smaller coordinator after solver, recorder, and subprocess responsibilities are isolated.
+- Move from constraint-level `ConstraintWorkItem` scheduling toward full path-level `ExecutionState` scheduling once compatibility tests cover the current output contracts.
+- Add real CLI attack smoke validation when local cached datasets, model files, SHAP artifacts, and `cvc5` are available.

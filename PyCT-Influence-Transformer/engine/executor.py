@@ -185,6 +185,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         bool(ternary_simplification),
         float(ternary_threshold_scale),
     )
+    # TODO: 為什麼需要傳這個0.75？
+    # 應該是為了區分search和validation的runtime key，但這樣寫有點奇怪，未來可以考慮改成更明確的方式
     validation_runtime_key: ModelRuntimeKey = (
         model_path,
         False,
