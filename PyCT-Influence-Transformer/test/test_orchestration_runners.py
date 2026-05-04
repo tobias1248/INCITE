@@ -20,6 +20,34 @@ def _write_stats(path: Path) -> None:
     path.write_text(json.dumps({"meta": {}}), encoding="utf-8")
 
 
+def _result_recorder(
+    save_dir: Path,
+    *,
+    attack_label=None,
+    solve_all_ctr: bool = False,
+    is_timeout: bool = False,
+    status: str | None = None,
+    error_type: str | None = None,
+    input_name: str = "case_0",
+):
+    extra_meta = {}
+    if status is not None:
+        extra_meta["status"] = status
+    if error_type is not None:
+        extra_meta["error_type"] = error_type
+    return (
+        0,
+        SimpleNamespace(
+            save_dir=str(save_dir),
+            input_name=input_name,
+            attack_label=attack_label,
+            solve_all_ctr=solve_all_ctr,
+            is_timeout=is_timeout,
+            extra_meta=extra_meta,
+        ),
+    )
+
+
 class _DummyRunner(runners.BaseRunner):
     def __init__(self, result=None, exc: Exception | None = None) -> None:
         super().__init__(timeout=1, norm=False, collect_constraints_with="queue")
@@ -33,7 +61,7 @@ class _DummyRunner(runners.BaseRunner):
 
 
 def test_base_runner_run_tasks_logs_and_cleans_payload(caplog) -> None:
-    runner = _DummyRunner(result=(0, SimpleNamespace(is_timeout=False)))
+    runner = _DummyRunner(result=(0, SimpleNamespace(is_timeout=False, input_name="case_4", save_dir="/tmp/case_4")))
     payload = {"idx": 4, "popped_log_attack_mode": "queue_solver1s", "solve_order_stack": False}
 
     with caplog.at_level(logging.INFO, logger="ct.runner"):
@@ -42,6 +70,26 @@ def test_base_runner_run_tasks_logs_and_cleans_payload(caplog) -> None:
     assert payload == {}
     assert "[PAYLOAD-START]" in caplog.text
     assert "[PAYLOAD-END]" in caplog.text
+    assert "input_name=case_4" in caplog.text
+
+
+def test_base_runner_run_tasks_logs_terminal_error_without_reraising(caplog, tmp_path: Path) -> None:
+    runner = _DummyRunner(
+        result=_result_recorder(
+            tmp_path / "case_error",
+            status="error",
+            error_type="constraint_transfer_failure",
+        )
+    )
+    payload = {"idx": 4, "popped_log_attack_mode": "queue_solver1s", "solve_order_stack": False}
+
+    with caplog.at_level(logging.ERROR, logger="ct.runner"):
+        runner.run_tasks([payload])
+
+    assert payload == {}
+    assert "[PAYLOAD-ERROR]" in caplog.text
+    assert "[PAYLOAD-END]" not in caplog.text
+    assert "save_dir=" in caplog.text
 
 
 def test_base_runner_run_tasks_reraises_after_logging(caplog) -> None:
@@ -216,6 +264,167 @@ def test_queue_runner_stops_when_should_not_continue(monkeypatch, tmp_path: Path
     )
 
     assert len(calls) == 1
+
+
+def test_queue_runner_retries_transfer_failure_until_success(monkeypatch, tmp_path: Path) -> None:
+    save_dir = tmp_path / "case_retry_success"
+    _write_stats(save_dir / "stats.json")
+    runner = runners.QueueRunner(timeout=5, norm=False, error_retry_limit=2)
+    calls = []
+    updates = []
+    results = [
+        _result_recorder(
+            save_dir,
+            status="error",
+            error_type="constraint_transfer_failure",
+        ),
+        _result_recorder(
+            save_dir,
+            attack_label="adv",
+        ),
+    ]
+    monkeypatch.setattr(
+        runner,
+        "_execute_attack",
+        lambda payload: calls.append(dict(payload)) or results.pop(0),
+    )
+    monkeypatch.setattr(
+        runners,
+        "update_ton_progress_stats",
+        lambda stats_path, **kwargs: updates.append((Path(stats_path), kwargs)) or True,
+    )
+
+    result = runner._run_single(
+        {
+            "idx": 0,
+            "ton_plans": [
+                {"ton": 1, "con_dict": {"v_0_0": 1}, "save_exp": {"input_name": "case_0"}},
+                {"ton": 2, "con_dict": {"v_0_1": 1}, "save_exp": {"input_name": "case_0"}},
+            ],
+        }
+    )
+
+    assert result[1].attack_label == "adv"
+    assert len(calls) == 2
+    assert calls[0]["con_dict"] == {"v_0_0": 1}
+    assert calls[1]["con_dict"] == {"v_0_0": 1}
+    assert len(updates) == 1
+    assert updates[0][1]["status"] == "stop"
+    assert updates[0][1]["reason"] == "adv_found"
+
+
+def test_queue_runner_stops_after_transfer_retry_limit(monkeypatch, tmp_path: Path) -> None:
+    save_dir = tmp_path / "case_retry_limit"
+    _write_stats(save_dir / "stats.json")
+    runner = runners.QueueRunner(timeout=5, norm=False, error_retry_limit=2)
+    calls = []
+    updates = []
+    monkeypatch.setattr(
+        runner,
+        "_execute_attack",
+        lambda payload: calls.append(dict(payload))
+        or _result_recorder(
+            save_dir,
+            status="error",
+            error_type="constraint_transfer_failure",
+        ),
+    )
+    monkeypatch.setattr(
+        runners,
+        "update_ton_progress_stats",
+        lambda stats_path, **kwargs: updates.append((Path(stats_path), kwargs)) or True,
+    )
+
+    result = runner._run_single(
+        {
+            "idx": 0,
+            "ton_plans": [
+                {"ton": 1, "con_dict": {"v_0_0": 1}, "save_exp": {"input_name": "case_0"}},
+                {"ton": 2, "con_dict": {"v_0_1": 1}, "save_exp": {"input_name": "case_0"}},
+            ],
+        }
+    )
+
+    assert result[1].extra_meta["status"] == "error"
+    assert len(calls) == 3
+    assert [call["con_dict"] for call in calls] == [{"v_0_0": 1}, {"v_0_0": 1}, {"v_0_0": 1}]
+    assert len(updates) == 1
+    assert updates[0][1]["status"] == "stop"
+    assert updates[0][1]["reason"] == "error_constraint_transfer_failure"
+
+
+def test_queue_runner_does_not_retry_non_transfer_errors(monkeypatch, tmp_path: Path) -> None:
+    save_dir = tmp_path / "case_non_retryable_error"
+    _write_stats(save_dir / "stats.json")
+    runner = runners.QueueRunner(timeout=5, norm=False, error_retry_limit=2)
+    calls = []
+    updates = []
+    monkeypatch.setattr(
+        runner,
+        "_execute_attack",
+        lambda payload: calls.append(dict(payload))
+        or _result_recorder(
+            save_dir,
+            status="error",
+            error_type="solver_crash",
+        ),
+    )
+    monkeypatch.setattr(
+        runners,
+        "update_ton_progress_stats",
+        lambda stats_path, **kwargs: updates.append((Path(stats_path), kwargs)) or True,
+    )
+
+    result = runner._run_single(
+        {
+            "idx": 0,
+            "ton_plans": [
+                {"ton": 1, "con_dict": {"v_0_0": 1}, "save_exp": {"input_name": "case_0"}},
+                {"ton": 2, "con_dict": {"v_0_1": 1}, "save_exp": {"input_name": "case_0"}},
+            ],
+        }
+    )
+
+    assert result[1].extra_meta["error_type"] == "solver_crash"
+    assert len(calls) == 1
+    assert len(updates) == 1
+    assert updates[0][1]["reason"] == "error_solver_crash"
+
+
+def test_queue_runner_zero_retry_limit_disables_transfer_retry(monkeypatch, tmp_path: Path) -> None:
+    save_dir = tmp_path / "case_zero_retry"
+    _write_stats(save_dir / "stats.json")
+    runner = runners.QueueRunner(timeout=5, norm=False, error_retry_limit=0)
+    calls = []
+    updates = []
+    monkeypatch.setattr(
+        runner,
+        "_execute_attack",
+        lambda payload: calls.append(dict(payload))
+        or _result_recorder(
+            save_dir,
+            status="error",
+            error_type="constraint_transfer_failure",
+        ),
+    )
+    monkeypatch.setattr(
+        runners,
+        "update_ton_progress_stats",
+        lambda stats_path, **kwargs: updates.append((Path(stats_path), kwargs)) or True,
+    )
+
+    runner._run_single(
+        {
+            "idx": 0,
+            "ton_plans": [
+                {"ton": 1, "con_dict": {"v_0_0": 1}, "save_exp": {"input_name": "case_0"}},
+            ],
+        }
+    )
+
+    assert len(calls) == 1
+    assert len(updates) == 1
+    assert updates[0][1]["reason"] == "error_constraint_transfer_failure"
 
 
 def test_write_ton_sequence_ignores_missing_stats_file(monkeypatch, tmp_path: Path) -> None:
