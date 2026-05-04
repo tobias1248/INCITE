@@ -36,6 +36,13 @@ def _parse_positive_float(value: str) -> float:
     return parsed
 
 
+def _parse_non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be >= 0.")
+    return parsed
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments for experiment launcher."""
     parser = argparse.ArgumentParser(
@@ -190,6 +197,15 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--log-file",
         help="Optional path to append structured logs in addition to stdout.",
+    )
+    parser.add_argument(
+        "--error-retry-limit",
+        type=_parse_non_negative_int,
+        default=2,
+        help=(
+            "Retry limit for constraint_transfer_failure on the same ton stage "
+            "(default: 2)."
+        ),
     )
     args = parser.parse_args(argv)
     if args.attack_mode != "queue" and args.score_alpha is None:

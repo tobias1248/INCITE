@@ -11,6 +11,7 @@ import os
 import pickle
 import sys
 import time
+import traceback
 from libct.path import PathToConstraint
 from libct.solver import Solver, _ensure_smtlib2_logger
 from libct.position import summarize_indices, summarize_position
@@ -38,6 +39,10 @@ sys.setrecursionlimit(1000000)
 module = None
 execute = None
 recorder = None
+
+
+class ConstraintTransferError(RuntimeError):
+    """Raised when child process constraints cannot be transferred safely."""
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -171,6 +176,348 @@ class ExplorationEngine:
             self.symbolic_enabled = False
             if self.symbolic_disabled_at_path_len is None:
                 self.symbolic_disabled_at_path_len = current_height
+
+    def _mark_constraint_transfer_failure(self, reason: str) -> None:
+        self._mark_runtime_error(
+            "constraint_transfer_failure",
+            reason,
+            phase="transfer",
+        )
+
+    def _mark_runtime_error(
+        self,
+        error_type: str,
+        reason: str,
+        *,
+        phase: Optional[str] = None,
+        child_pid: Optional[int] = None,
+        event_type: Optional[str] = None,
+    ) -> None:
+        if recorder is None:
+            return
+        mark_error = getattr(recorder, "mark_error", None)
+        if callable(mark_error):
+            mark_error(
+                error_type,
+                reason,
+                phase=phase,
+                child_pid=child_pid,
+                event_type=event_type,
+            )
+            return
+        extra_meta = getattr(recorder, "extra_meta", None)
+        if extra_meta is None:
+            extra_meta = {}
+            recorder.extra_meta = extra_meta
+        extra_meta["status"] = "error"
+        extra_meta["error_type"] = error_type
+        extra_meta["error_reason"] = reason
+        if phase is not None:
+            extra_meta["error_phase"] = phase
+        if child_pid is not None:
+            extra_meta["child_pid"] = child_pid
+        if event_type is not None:
+            extra_meta["child_event_type"] = event_type
+
+    def _record_child_event(
+        self,
+        event_type: str,
+        message: str,
+        *,
+        phase: str,
+        child_pid: Optional[int],
+    ) -> None:
+        if recorder is not None:
+            mark_event = getattr(recorder, "mark_child_event", None)
+            if callable(mark_event):
+                mark_event(
+                    event_type,
+                    message,
+                    phase=phase,
+                    child_pid=child_pid,
+                )
+            else:
+                extra_meta = getattr(recorder, "extra_meta", None)
+                if extra_meta is None:
+                    extra_meta = {}
+                    recorder.extra_meta = extra_meta
+                extra_meta["child_event_type"] = event_type
+                extra_meta["child_event_message"] = message
+                extra_meta["child_event_phase"] = phase
+                if child_pid is not None:
+                    extra_meta["child_pid"] = child_pid
+        log.warning(
+            "[CHILD-EVENT] idx=%s pid=%s phase=%s event_type=%s input_name=%s save_dir=%s message=%s",
+            self.idx,
+            child_pid,
+            phase,
+            event_type,
+            self.input_name,
+            self.save_dir,
+            message,
+        )
+
+    def _write_diagnostic_file(self, filename: str, contents: Optional[str]) -> None:
+        if not self.save_dir or not contents:
+            return
+        os.makedirs(self.save_dir, exist_ok=True)
+        with open(os.path.join(self.save_dir, filename), "w", encoding="utf-8") as handle:
+            handle.write(contents)
+
+    def _build_child_shared_state(self, updated_args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return {
+            "updated_args": updated_args,
+            "var_to_types": self.var_to_types,
+            "concolic_name_list": self.concolic_name_list,
+            "concolic_flag_dict": self.concolic_flag_dict,
+        }
+
+    def _build_child_ok_envelope(
+        self,
+        *,
+        pid: int,
+        updated_args: Dict[str, Any],
+        result: Any,
+        constraint_payload: Any,
+    ) -> Dict[str, Any]:
+        envelope = {
+            "kind": "ok",
+            "pid": pid,
+            "phase": "execute",
+            "result": result,
+            "constraint_payload": constraint_payload,
+            "message": "child execution completed successfully",
+        }
+        envelope.update(self._build_child_shared_state(updated_args))
+        return envelope
+
+    def _build_child_event_envelope(
+        self,
+        *,
+        pid: int,
+        updated_args: Optional[Dict[str, Any]],
+        result: Any,
+        event_type: str,
+        message: str,
+        error_class: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        envelope = {
+            "kind": "child_event",
+            "pid": pid,
+            "phase": "execute",
+            "result": result,
+            "event_type": event_type,
+            "message": message,
+        }
+        if error_class is not None:
+            envelope["error_class"] = error_class
+        envelope.update(self._build_child_shared_state(updated_args))
+        return envelope
+
+    def _build_child_error_envelope(
+        self,
+        *,
+        pid: int,
+        updated_args: Optional[Dict[str, Any]],
+        error_type: str,
+        phase: str,
+        message: str,
+        error_class: Optional[str] = None,
+        traceback_text: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        envelope = {
+            "kind": "child_error",
+            "pid": pid,
+            "phase": phase,
+            "result": self.Exception,
+            "error_type": error_type,
+            "message": message,
+        }
+        if error_class is not None:
+            envelope["error_class"] = error_class
+        if traceback_text is not None:
+            envelope["traceback"] = traceback_text
+        envelope.update(self._build_child_shared_state(updated_args))
+        return envelope
+
+    def _validate_child_envelope(self, envelope: Any) -> Dict[str, Any]:
+        if not isinstance(envelope, dict):
+            raise ValueError(f"child returned non-dict envelope: {type(envelope).__name__}")
+        kind = envelope.get("kind")
+        if kind not in {"ok", "child_event", "child_error"}:
+            raise ValueError(f"child returned unknown envelope kind: {kind!r}")
+        if "pid" not in envelope:
+            raise ValueError("child envelope missing pid")
+        if "phase" not in envelope:
+            raise ValueError("child envelope missing phase")
+        if "result" not in envelope:
+            raise ValueError("child envelope missing result")
+        if kind == "ok" and "constraint_payload" not in envelope:
+            raise ValueError("ok envelope missing constraint_payload")
+        if kind == "child_event" and "event_type" not in envelope:
+            raise ValueError("child_event envelope missing event_type")
+        if kind == "child_error" and "error_type" not in envelope:
+            raise ValueError("child_error envelope missing error_type")
+        return envelope
+
+    def _apply_child_shared_state(self, all_args: Dict[str, Any], envelope: Dict[str, Any]) -> None:
+        updated_args = envelope.get("updated_args")
+        if isinstance(updated_args, dict):
+            all_args.clear()
+            all_args.update(updated_args)
+        self.var_to_types = envelope.get("var_to_types", self.var_to_types)
+        self.concolic_name_list = envelope.get("concolic_name_list", self.concolic_name_list)
+        self.concolic_flag_dict = envelope.get("concolic_flag_dict", self.concolic_flag_dict)
+
+    def _raise_transport_failure(
+        self,
+        reason: str,
+        *,
+        phase: str,
+        child_pid: Optional[int] = None,
+        details: Optional[str] = None,
+        exc: Optional[BaseException] = None,
+    ) -> None:
+        log.error(
+            "[PARENT-RECV-ERROR] idx=%s pid=%s phase=%s error_type=constraint_transfer_failure input_name=%s save_dir=%s message=%s",
+            self.idx,
+            child_pid,
+            phase,
+            self.input_name,
+            self.save_dir,
+            reason,
+        )
+        self._mark_runtime_error(
+            "constraint_transfer_failure",
+            reason,
+            phase=phase,
+            child_pid=child_pid,
+        )
+        if details:
+            self._write_diagnostic_file("transfer_error_traceback.txt", details)
+        if exc is None:
+            raise ConstraintTransferError(reason)
+        raise ConstraintTransferError(reason) from exc
+
+    def _receive_child_envelope(
+        self,
+        conn: Any,
+        process: multiprocessing.Process,
+        timeout_seconds: int,
+    ) -> Dict[str, Any]:
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            if conn.poll(0.05):
+                break
+            if not process.is_alive():
+                reason = f"child exited before sending a valid envelope (exitcode={process.exitcode})"
+                self._raise_transport_failure(
+                    reason,
+                    phase="transport",
+                    child_pid=process.pid,
+                    details=reason,
+                )
+            if time.monotonic() >= deadline:
+                reason = f"timed out waiting for child envelope after {timeout_seconds}s"
+                self._raise_transport_failure(
+                    reason,
+                    phase="transport",
+                    child_pid=process.pid,
+                    details=reason,
+                )
+
+        try:
+            envelope = conn.recv()
+        except (EOFError, OSError, ValueError) as exc:
+            reason = f"failed to receive child envelope: {exc.__class__.__name__}: {exc}"
+            self._raise_transport_failure(
+                reason,
+                phase="transport",
+                child_pid=process.pid,
+                details=traceback.format_exc(),
+                exc=exc,
+            )
+
+        try:
+            return self._validate_child_envelope(envelope)
+        except ValueError as exc:
+            reason = str(exc)
+            self._raise_transport_failure(
+                reason,
+                phase="protocol",
+                child_pid=envelope.get("pid") if isinstance(envelope, dict) else process.pid,
+                details=repr(envelope),
+                exc=exc,
+            )
+
+    def _handle_child_envelope(self, all_args: Dict[str, Any], envelope: Dict[str, Any]) -> Any:
+        self._apply_child_shared_state(all_args, envelope)
+        kind = envelope["kind"]
+        child_pid = envelope.get("pid")
+        phase = str(envelope.get("phase", "execute"))
+        message = str(envelope.get("message", ""))
+
+        if kind == "ok":
+            self._apply_constraint_transfer_payload(envelope["constraint_payload"])
+            return envelope["result"]
+
+        if kind == "child_event":
+            self._record_child_event(
+                str(envelope["event_type"]),
+                message,
+                phase=phase,
+                child_pid=child_pid,
+            )
+            return envelope["result"]
+
+        error_type = str(envelope["error_type"])
+        log.error(
+            "[CHILD-ERROR] idx=%s pid=%s phase=%s error_type=%s input_name=%s save_dir=%s message=%s",
+            self.idx,
+            child_pid,
+            phase,
+            error_type,
+            self.input_name,
+            self.save_dir,
+            message,
+        )
+        traceback_text = envelope.get("traceback")
+        if traceback_text:
+            filename = (
+                "transfer_error_traceback.txt"
+                if error_type == "constraint_transfer_failure"
+                else "child_error_traceback.txt"
+            )
+            self._write_diagnostic_file(filename, traceback_text)
+        self._mark_runtime_error(
+            error_type,
+            message,
+            phase=phase,
+            child_pid=child_pid,
+        )
+        if error_type == "constraint_transfer_failure":
+            raise ConstraintTransferError(message)
+        raise RuntimeError(message)
+
+    def _apply_constraint_transfer_payload(self, payload: Any) -> None:
+        if payload is self.Unpicklable:
+            reason = "child process returned an unpicklable constraint/path payload"
+            log.error("Constraint transfer failed: %s", reason)
+            self._mark_constraint_transfer_failure(reason)
+            raise ConstraintTransferError(reason)
+
+        symbolic_disabled_at_path_len = None
+        if isinstance(payload, tuple) and len(payload) == 4:
+            (
+                Constraint.global_constraints,
+                self.constraints_to_solve,
+                self.path,
+                symbolic_disabled_at_path_len,
+            ) = payload
+        else:
+            Constraint.global_constraints, self.constraints_to_solve, self.path = payload
+        if symbolic_disabled_at_path_len is not None:
+            self.symbolic_disabled_at_path_len = symbolic_disabled_at_path_len
 
     def _execution_loop(self, max_iterations: int, all_args, concolic_dict, *, deadline: Optional[float] = None) -> bool:
         recorder.start()
@@ -542,126 +889,129 @@ class ExplorationEngine:
         # return s # continue iteration only if the target file / function coverage is not full yet.
 
     def _one_execution_concolic(self, all_args: dict, concolic_dict: dict):
-        r1, s1 = multiprocessing.Pipe()
         r2, s2 = multiprocessing.Pipe()
-        r3, s3 = multiprocessing.Pipe()
-        r0, s0 = multiprocessing.Pipe()
 
         def child_process():
             # very important to prevent the later primitive mode from using concolic objects imported here...
             sys.dont_write_bytecode = True
-            prepare()
-            self.path.__init__()
-            self._reset_symbolic_guard()
-            # log.info("Inputs: " + str(all_args))
-            if self.can_use_concolic_wrapper:
-                import libct.wrapper
-            else:
-                import libct
-
-            # module = get_module_from_rootdir_and_modpath(self.root, self.modpath)
-            # execute = get_function_from_module_and_funcname(module, self.funcname)
-
-            # primitive input arguments "all_args" may be modified here.
-            ccc_args, ccc_kwargs = self._get_concolic_arguments(
-                execute, all_args, concolic_dict)
-
-            s1.send((all_args, self.var_to_types,
-                    self.concolic_name_list, self.concolic_flag_dict))
-            result = self.Exception
+            child_pid = os.getpid()
+            updated_args = None
+            envelope = None
             try:
-                
-                result = libct.utils.unwrap(func_timeout.func_timeout(
-                    self.single_timeout, execute, args=ccc_args, kwargs=ccc_kwargs))
-        
-                log.info(f"Return: {result}")
-            except func_timeout.FunctionTimedOut:
-                result = self.Timeout
-                # ; traceback.print_exc()
-                log.error(
-                    f"Timeout (soft) for: {all_args} >> ./pyct.py -r '{self.root}' '{self.modpath}' -s {self.funcname} {{}} --lib '{self.lib}' --include_exception")
-                if self.statsdir:
-                    with open(self.statsdir + '/exception.txt', 'a') as f:
-                        f.write(
-                            f"Timeout (soft) for: {all_args} >> ./pyct.py -r '{self.root}' '{self.modpath}' -s {self.funcname} {{}} --lib '{self.lib}' --include_exception\n")
-            except Exception as e:
-                log.exception(
-                    f"Exception for: {all_args} >> ./pyct '{self.root}' '{self.modpath}' -s {self.funcname} {{}} -m 20 --lib '{self.lib}' --include_exception",
-                )
-                if self.statsdir:
-                    with open(self.statsdir + '/exception.txt', 'a') as f:
-                        f.write(
-                            f"Exception for: {all_args} >> ./pyct '{self.root}' '{self.modpath}' -s {self.funcname} {{}} -m 20 --lib '{self.lib}' --include_exception\n")
-                        f.write(f"{e}\n")
-            ###################################### Communication Section ######################################
-            # just a notification to the parent process that we're going to send data
-            s0.send(0)
-            try:
-                s2.send(result)
-                
-                
-            except:
-                s2.send(self.Unpicklable)
+                prepare()
+                self.path.__init__()
+                self._reset_symbolic_guard()
+                if self.can_use_concolic_wrapper:
+                    import libct.wrapper
+                else:
+                    import libct
 
-            try:
-                s3.send(
-                    (
-                        Constraint.global_constraints,
-                        self.constraints_to_solve,
-                        self.path,
-                        self.symbolic_disabled_at_path_len,
+                ccc_args, ccc_kwargs = self._get_concolic_arguments(
+                    execute, all_args, concolic_dict)
+                updated_args = dict(all_args)
+                result = self.Exception
+                try:
+                    result = libct.utils.unwrap(
+                        func_timeout.func_timeout(
+                            self.single_timeout,
+                            execute,
+                            args=ccc_args,
+                            kwargs=ccc_kwargs,
+                        )
                     )
+                    log.info(f"Return: {result}")
+                    envelope = self._build_child_ok_envelope(
+                        pid=child_pid,
+                        updated_args=updated_args,
+                        result=result,
+                        constraint_payload=(
+                            Constraint.global_constraints,
+                            self.constraints_to_solve,
+                            self.path,
+                            self.symbolic_disabled_at_path_len,
+                        ),
+                    )
+                except func_timeout.FunctionTimedOut:
+                    result = self.Timeout
+                    message = (
+                        f"Timeout (soft) for: {all_args} >> ./pyct.py -r '{self.root}' "
+                        f"'{self.modpath}' -s {self.funcname} {{}} --lib '{self.lib}' "
+                        "--include_exception"
+                    )
+                    log.error(message)
+                    if self.statsdir:
+                        with open(self.statsdir + '/exception.txt', 'a') as f:
+                            f.write(message + "\n")
+                    envelope = self._build_child_event_envelope(
+                        pid=child_pid,
+                        updated_args=updated_args,
+                        result=result,
+                        event_type="soft_timeout",
+                        message=message,
+                    )
+                except Exception as e:
+                    message = (
+                        f"Exception for: {all_args} >> ./pyct '{self.root}' "
+                        f"'{self.modpath}' -s {self.funcname} {{}} -m 20 --lib "
+                        f"'{self.lib}' --include_exception"
+                    )
+                    log.exception(message)
+                    if self.statsdir:
+                        with open(self.statsdir + '/exception.txt', 'a') as f:
+                            f.write(message + "\n")
+                            f.write(f"{e}\n")
+                    envelope = self._build_child_event_envelope(
+                        pid=child_pid,
+                        updated_args=updated_args,
+                        result=self.Exception,
+                        event_type="target_exception",
+                        message=str(e) or message,
+                        error_class=e.__class__.__name__,
+                    )
+            except Exception as exc:
+                traceback_text = traceback.format_exc()
+                envelope = self._build_child_error_envelope(
+                    pid=child_pid,
+                    updated_args=updated_args,
+                    error_type="child_unexpected_error",
+                    phase="execute",
+                    message=str(exc) or exc.__class__.__name__,
+                    error_class=exc.__class__.__name__,
+                    traceback_text=traceback_text,
                 )
-            except Exception:
-                log.exception(
-                    "Failed to send constraints back to parent process due to unpicklable objects",
+
+            try:
+                s2.send(envelope)
+            except Exception as exc:
+                fallback = self._build_child_error_envelope(
+                    pid=child_pid,
+                    updated_args=updated_args,
+                    error_type="constraint_transfer_failure",
+                    phase="transfer",
+                    message=(
+                        "failed to send child envelope to parent: "
+                        f"{exc.__class__.__name__}: {exc}"
+                    ),
+                    error_class=exc.__class__.__name__,
+                    traceback_text=traceback.format_exc(),
                 )
-                # may fail if they contain some unpicklable objects
-                s3.send(self.Unpicklable)
+                try:
+                    s2.send(fallback)
+                except Exception:
+                    pass
 
         process = multiprocessing.Process(target=child_process)
         process.start()
-        (all_args2, self.var_to_types, self.concolic_name_list, self.concolic_flag_dict) =\
-            r1.recv()
-        r1.close()
-        s1.close()
-        all_args.clear()
-        all_args.update(all_args2)  # update the parameter directly
 
-        if not r0.poll(self.single_timeout + 5):
-            result = self.Timeout
-            
-            log.error(
-                f"Timeout (hard) for: {all_args} >> ./pyct.py -r '{self.root}' '{self.modpath}' -s {self.funcname} {{}} --lib '{self.lib}' --include_exception")
-            if self.statsdir:
-                with open(self.statsdir + '/exception.txt', 'a') as f:
-                    f.write(
-                        f"Timeout (hard) for: {all_args} >> ./pyct.py -r '{self.root}' '{self.modpath}' -s {self.funcname} {{}} --lib '{self.lib}' --include_exception\n")
-        else:
-            result = r2.recv()
-
-            if (t := r3.recv()) is not self.Unpicklable:
-                symbolic_disabled_at_path_len = None
-                if isinstance(t, tuple) and len(t) == 4:
-                    Constraint.global_constraints, self.constraints_to_solve, self.path, symbolic_disabled_at_path_len = t
-                else:
-                    Constraint.global_constraints, self.constraints_to_solve, self.path = t
-                if symbolic_disabled_at_path_len is not None:
-                    self.symbolic_disabled_at_path_len = symbolic_disabled_at_path_len
-            else:
-                log.warning(
-                    "Constraints payload contains unpicklable objects; skipping constraint transfer",
-                )
-                self.constraints_to_solve = create_constraint_searcher(self.constraints_collection_type)
-
-        r2.close()
-        s2.close()
-        r3.close()
-        s3.close()
-        r0.close()
-        s0.close()
-        if process.is_alive():
-            process.kill()
+        try:
+            envelope = self._receive_child_envelope(r2, process, self.single_timeout + 5)
+            result = self._handle_child_envelope(all_args, envelope)
+        finally:
+            r2.close()
+            s2.close()
+            if process.is_alive():
+                process.kill()
+            process.join(timeout=0.1)
         return result
 
     def _one_execution_primitive(self, primitive_inputs):

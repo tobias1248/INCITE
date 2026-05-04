@@ -126,6 +126,25 @@ class ConcolicTestRecorder:
     def no_ctr_to_solve(self):
         self.solve_all_ctr = True
 
+    def mark_error(self, error_type, reason, *, phase=None, child_pid=None, event_type=None):
+        self.extra_meta["status"] = "error"
+        self.extra_meta["error_type"] = error_type
+        self.extra_meta["error_reason"] = reason
+        if phase is not None:
+            self.extra_meta["error_phase"] = phase
+        if child_pid is not None:
+            self.extra_meta["child_pid"] = child_pid
+        if event_type is not None:
+            self.extra_meta["child_event_type"] = event_type
+
+    def mark_child_event(self, event_type, message, *, phase=None, child_pid=None):
+        self.extra_meta["child_event_type"] = event_type
+        self.extra_meta["child_event_message"] = message
+        if phase is not None:
+            self.extra_meta["child_event_phase"] = phase
+        if child_pid is not None:
+            self.extra_meta["child_pid"] = child_pid
+
         
     def first_execution_end(self):
         # the iteration 0 has no constraint to solve

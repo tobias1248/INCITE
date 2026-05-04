@@ -7,7 +7,17 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from tasks.paths import get_save_dir_from_save_exp
 
 
+def _derive_error_outcome(status: Any, error_type: Any) -> Optional[Tuple[bool, str]]:
+    if status != "error":
+        return None
+    suffix = str(error_type or "unknown").strip().replace(" ", "_")
+    return False, f"error_{suffix}"
+
+
 def derive_ton_outcome(recorder: Any) -> Tuple[bool, str]:
+    extra_meta = getattr(recorder, "extra_meta", {}) or {}
+    if (error_outcome := _derive_error_outcome(extra_meta.get("status"), extra_meta.get("error_type"))) is not None:
+        return error_outcome
     attack_label = getattr(recorder, "attack_label", None)
     solved_all = getattr(recorder, "solve_all_ctr", False)
     is_timeout = getattr(recorder, "is_timeout", False)
@@ -69,10 +79,11 @@ def update_ton_progress_stats(
 
 def stats_indicate_completion(payload: Dict[str, Any]) -> bool:
     meta = payload.get("meta") or {}
+    status = meta.get("status")
     attack_label = payload.get("attack_label", meta.get("attack_label"))
     is_finished = bool(meta.get("is_finish"))
     is_timeout = bool(meta.get("is_timeout"))
-    return bool(attack_label is not None or is_finished or is_timeout)
+    return bool(attack_label is not None or is_finished or is_timeout or status == "error")
 
 
 def load_stats_payload(stats_path: Path) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -111,6 +122,8 @@ def extract_last_ton(stats: Dict[str, Any]) -> Optional[int]:
 
 def derive_stage_outcome_payload(stats: Dict[str, Any]) -> Tuple[bool, str]:
     meta = stats.get("meta") or {}
+    if (error_outcome := _derive_error_outcome(meta.get("status"), meta.get("error_type"))) is not None:
+        return error_outcome
     attack_label = meta.get("attack_label")
     solved_all = bool(meta.get("solve_all_ctr"))
     is_timeout = bool(meta.get("is_timeout"))
@@ -137,7 +150,7 @@ def should_run_ton(
     if not stats:
         return ton_value == ton_sequence[0]
     meta = stats.get("meta") or {}
-    if meta.get("attack_label") is not None:
+    if meta.get("attack_label") is not None or meta.get("status") == "error":
         return False
     last_ton = extract_last_ton(stats)
     if last_ton is None:
