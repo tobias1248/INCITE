@@ -18,7 +18,9 @@ Use this skill when the request is about verification.
 1. Start with the smallest test or command that can fail for the changed behavior.
 2. Prefer unit tests with `monkeypatch`, `tmp_path`, or small payload fixtures.
 3. For CLI or pipeline changes, add a bounded smoke run with small `--first-n`, `--timeout`, and `--solver-run-timeout` when the environment supports it.
-4. Report exact failure commands and observed errors.
+4. Prefer a dedicated test commit when new regression coverage is non-trivial, instead of mixing it into the behavior commit.
+5. Keep test commits tight enough to review independently; when possible, stay under roughly 1000 changed lines per commit.
+6. Report exact failure commands and observed errors.
 
 ## Preferred Commands
 
