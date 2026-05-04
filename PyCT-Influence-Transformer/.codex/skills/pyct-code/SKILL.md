@@ -18,7 +18,9 @@ Use this skill when the request is mainly about changing application code.
 1. Read the affected module and nearby tests first.
 2. Change the narrowest coherent slice.
 3. Add or update only the minimum regression coverage that is directly required by the change.
-4. Hand broader verification to `test` and risk scanning to `review`.
+4. Keep behavior changes and test-only changes in separate commits when both are substantial.
+5. Keep each local commit small enough to review and revert cleanly; when possible, stay under roughly 1000 changed lines per commit.
+6. Hand broader verification to `test` and risk scanning to `review`.
 
 ## Repo Constraints
 
