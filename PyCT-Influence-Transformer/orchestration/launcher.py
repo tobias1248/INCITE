@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import queue as py_queue
 import signal
 import time
+import traceback
 from multiprocessing import Event, JoinableQueue, Process
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from orchestration.progress import (
     collect_stage_cases,
@@ -25,8 +27,66 @@ from tasks.builders.fashion_mnist import (
     fashion_mnist_transformer_shap,
 )
 from tasks.builders.mnist import mnist_transformer_random, mnist_transformer_shap
+from tasks.paths import get_save_dir_from_save_exp
 
 logger = logging.getLogger("ct.cli")
+
+
+def _resolve_task_save_dir(task: Dict[str, Any], attack_mode: str) -> Optional[Path]:
+    save_exp = task.get("save_exp") or {}
+    model_name = task.get("model_name")
+    if not save_exp or not model_name:
+        return None
+    resolved_attack_mode = save_exp.get(
+        "attack_mode",
+        task.get("popped_log_attack_mode", attack_mode),
+    )
+    return Path(
+        get_save_dir_from_save_exp(
+            save_exp,
+            model_name,
+            resolved_attack_mode,
+            only_first_forward=bool(save_exp.get("only_first_forward", False)),
+        )
+    )
+
+
+def _write_worker_failure_stats(task: Dict[str, Any], attack_mode: str, reason: str) -> None:
+    if not isinstance(task, dict):
+        return
+    save_dir = _resolve_task_save_dir(task, attack_mode)
+    if save_dir is None:
+        return
+    save_dir.mkdir(parents=True, exist_ok=True)
+    stats_path = save_dir / "stats.json"
+    if stats_path.is_file():
+        return
+    save_exp = task.get("save_exp") or {}
+    payload = {
+        "meta": {
+            "input_name": save_exp.get("input_name"),
+            "attack_label": None,
+            "is_finish": False,
+            "is_timeout": False,
+            "solve_all_ctr": False,
+            "status": "error",
+            "error_type": "worker_execution_failure",
+            "error_phase": "launcher",
+            "error_reason": reason,
+            "ton": save_exp.get("ton"),
+            "ton_next": save_exp.get("ton_next"),
+        },
+        "summary": {},
+        "solver": {},
+        "constraints": {},
+        "constraint_complexity": None,
+        "iters_summary": {},
+    }
+    stats_path.write_text(json.dumps(payload), encoding="utf-8")
+    (save_dir / "worker_execution_failure_traceback.txt").write_text(
+        reason,
+        encoding="utf-8",
+    )
 
 
 def _resolve_experiment_layout(attack_mode: str, ton_values) -> str:
@@ -43,6 +103,7 @@ def _worker(
     constraint_build_timeout: bool,
     constraint_build_timeout_seconds: int,
     solver_run_timeout,
+    error_retry_limit: int,
     norm_01: bool,
     attack_mode: str,
     pixel_source: str,
@@ -67,6 +128,8 @@ def _worker(
                 base_seed=base_seed,
             )
         elif attack_mode == "queue":
+            # Retry lives in the runner because the runner owns re-executing
+            # one TON payload; progress only classifies the returned outcome.
             runner = QueueRunner(
                 timeout=timeout,
                 constraint_build_timeout=constraint_build_timeout,
@@ -74,14 +137,18 @@ def _worker(
                 solver_run_timeout=solver_run_timeout,
                 norm=norm_01,
                 collect_constraints_with="queue",
+                error_retry_limit=error_retry_limit,
             )
         else:
+            # Retry lives in the runner because the runner owns re-executing
+            # one TON payload; progress only classifies the returned outcome.
             runner = ShapRunner(
                 timeout=timeout,
                 constraint_build_timeout=constraint_build_timeout,
                 constraint_build_timeout_seconds=constraint_build_timeout_seconds,
                 solver_run_timeout=solver_run_timeout,
                 norm=norm_01,
+                error_retry_limit=error_retry_limit,
             )
 
         while not shutdown_event.is_set():
@@ -93,14 +160,32 @@ def _worker(
                 task_queue.task_done()
                 break
             try:
+                task_snapshot = dict(task) if isinstance(task, dict) else task
                 runner.run_tasks([task])
-            except Exception:
-                logger.exception(
-                    "[WORKER-TASK-ERROR] pid=%s idx=%s attack=%s",
-                    worker_pid,
-                    task.get("idx") if isinstance(task, dict) else "unknown",
-                    attack_mode,
+            except Exception as exc:
+                save_dir = (
+                    _resolve_task_save_dir(task_snapshot, attack_mode)
+                    if isinstance(task_snapshot, dict)
+                    else None
                 )
+                input_name = (
+                    (task_snapshot.get("save_exp") or {}).get("input_name")
+                    if isinstance(task_snapshot, dict)
+                    else None
+                )
+                reason = "".join(
+                    traceback.format_exception(type(exc), exc, exc.__traceback__)
+                )
+                logger.exception(
+                    "[WORKER-TASK-ERROR] pid=%s idx=%s attack=%s input_name=%s save_dir=%s",
+                    worker_pid,
+                    task_snapshot.get("idx") if isinstance(task_snapshot, dict) else "unknown",
+                    attack_mode,
+                    input_name,
+                    save_dir,
+                )
+                if isinstance(task_snapshot, dict):
+                    _write_worker_failure_stats(task_snapshot, attack_mode, reason)
             finally:
                 task_queue.task_done()
     except KeyboardInterrupt:
@@ -143,6 +228,8 @@ def run_launcher(args: Any) -> None:
         raise ValueError("--timeout must be >= 1 second")
     if args.constraint_build_timeout_seconds < 1:
         raise ValueError("--constraint-build-timeout-seconds must be >= 1")
+    if args.error_retry_limit < 0:
+        raise ValueError("--error-retry-limit must be >= 0")
     if args.spawn_delay < 0:
         raise ValueError("--spawn-delay must be non-negative")
 
@@ -283,6 +370,7 @@ def run_launcher(args: Any) -> None:
                     args.constraint_build_timeout,
                     args.constraint_build_timeout_seconds,
                     args.solver_run_timeout if args.solver_run_timeout > 0 else None,
+                    args.error_retry_limit,
                     args.norm_01,
                     args.attack_mode,
                     args.pixel_source,

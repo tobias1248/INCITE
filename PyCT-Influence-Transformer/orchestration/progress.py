@@ -7,7 +7,17 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from tasks.paths import get_save_dir_from_save_exp
 
 
+def _derive_error_outcome(status: Any, error_type: Any) -> Optional[Tuple[bool, str]]:
+    if status != "error":
+        return None
+    suffix = str(error_type or "unknown").strip().replace(" ", "_")
+    return False, f"error_{suffix}"
+
+
 def derive_ton_outcome(recorder: Any) -> Tuple[bool, str]:
+    extra_meta = getattr(recorder, "extra_meta", {}) or {}
+    if (error_outcome := _derive_error_outcome(extra_meta.get("status"), extra_meta.get("error_type"))) is not None:
+        return error_outcome
     attack_label = getattr(recorder, "attack_label", None)
     solved_all = getattr(recorder, "solve_all_ctr", False)
     is_timeout = getattr(recorder, "is_timeout", False)
@@ -88,7 +98,10 @@ def stats_indicate_completion(payload: Dict[str, Any]) -> bool:
     meta = payload.get("meta") or {}
     is_finished = bool(meta.get("is_finish"))
     is_timeout = bool(meta.get("is_timeout"))
-    return bool(has_successful_attack(payload) or is_finished or is_timeout)
+    status = meta.get("status")
+    return bool(
+        has_successful_attack(payload) or is_finished or is_timeout or status == "error"
+    )
 
 
 def load_stats_payload(stats_path: Path) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -127,6 +140,8 @@ def extract_last_ton(stats: Dict[str, Any]) -> Optional[int]:
 
 def derive_stage_outcome_payload(stats: Dict[str, Any]) -> Tuple[bool, str]:
     meta = stats.get("meta") or {}
+    if (error_outcome := _derive_error_outcome(meta.get("status"), meta.get("error_type"))) is not None:
+        return error_outcome
     success = has_successful_attack(stats)
     solved_all = bool(meta.get("solve_all_ctr"))
     is_timeout = bool(meta.get("is_timeout"))
@@ -152,7 +167,8 @@ def should_run_ton(
     stats, _ = load_stats_payload(stats_path)
     if not stats:
         return ton_value == ton_sequence[0]
-    if has_successful_attack(stats):
+    meta = stats.get("meta") or {}
+    if has_successful_attack(stats) or meta.get("status") == "error":
         return False
     last_ton = extract_last_ton(stats)
     if last_ton is None:
@@ -169,7 +185,6 @@ def should_run_ton(
     if idx + 1 >= len(ton_sequence) or ton_sequence[idx + 1] != ton_value:
         return False
     return should_continue
-
 
 def should_run_payload(payload: Dict[str, Any], *, force_refresh: bool) -> bool:
     if force_refresh:

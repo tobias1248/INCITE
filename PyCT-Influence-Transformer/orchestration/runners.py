@@ -35,6 +35,7 @@ class BaseRunner:
     constraint_build_timeout: bool = True
     constraint_build_timeout_seconds: int = 30
     solver_run_timeout: Optional[int] = None
+    error_retry_limit: int = 2
 
     def run_tasks(self, tasks: Sequence[Dict[str, Any]]) -> None:
         for payload in tasks:
@@ -60,22 +61,92 @@ class BaseRunner:
     def _run_single(self, payload: Dict[str, Any]) -> None:
         raise NotImplementedError
 
-    def _log_payload_end(self, payload: Dict[str, Any], result: Any) -> None:
-        recorder = None
+    @staticmethod
+    def _get_result_recorder(result: Any) -> Any:
         if isinstance(result, tuple) and len(result) >= 2:
-            recorder = result[1]
-        if recorder is not None and getattr(recorder, "is_timeout", False):
+            return result[1]
+        return None
+
+    @staticmethod
+    def _get_recorder_error_meta(recorder: Any) -> Tuple[Optional[str], Optional[str]]:
+        if recorder is None:
+            return None, None
+        meta = getattr(recorder, "extra_meta", {}) or {}
+        return meta.get("status"), meta.get("error_type")
+
+    @staticmethod
+    def _get_result_context(payload: Dict[str, Any], recorder: Any) -> Tuple[Optional[str], Optional[str]]:
+        save_exp = payload.get("save_exp") or {}
+        input_name = getattr(recorder, "input_name", None) if recorder is not None else None
+        save_dir = getattr(recorder, "save_dir", None) if recorder is not None else None
+        if input_name is None:
+            input_name = save_exp.get("input_name")
+        return input_name, save_dir
+
+    def _is_retryable_transfer_error(self, recorder: Any) -> bool:
+        # "incomplete" means the run was valid but unfinished. "error" means
+        # the run itself was semantically invalid and may need targeted retry.
+        status, error_type = self._get_recorder_error_meta(recorder)
+        return status == "error" and error_type == "constraint_transfer_failure"
+
+    def _is_terminal_error(self, recorder: Any) -> bool:
+        status, _error_type = self._get_recorder_error_meta(recorder)
+        return status == "error"
+
+    def _execute_plan_with_retries(
+        self,
+        plan_payload: Dict[str, Any],
+        *,
+        payload_idx: Any,
+        ton_value: Any,
+    ) -> Any:
+        retry_count = 0
+        while True:
+            result = self._execute_attack(plan_payload)
+            recorder = self._get_result_recorder(result)
+            if not self._is_retryable_transfer_error(recorder) or retry_count >= self.error_retry_limit:
+                return result
+            retry_count += 1
+            input_name, save_dir = self._get_result_context(plan_payload, recorder)
             log.warning(
-                "[PAYLOAD-TIMEOUT] idx=%s attack=%s total_iter=%s",
+                "[PAYLOAD-RETRY] idx=%s ton=%s retry=%s/%s reason=constraint_transfer_failure input_name=%s save_dir=%s",
+                payload_idx,
+                ton_value,
+                retry_count,
+                self.error_retry_limit,
+                input_name,
+                save_dir,
+            )
+
+    def _log_payload_end(self, payload: Dict[str, Any], result: Any) -> None:
+        recorder = self._get_result_recorder(result)
+        input_name, save_dir = self._get_result_context(payload, recorder)
+        if recorder is not None and self._is_terminal_error(recorder):
+            _status, error_type = self._get_recorder_error_meta(recorder)
+            log.error(
+                "[PAYLOAD-ERROR] idx=%s attack=%s error_type=%s input_name=%s save_dir=%s",
+                payload.get("idx"),
+                payload.get("popped_log_attack_mode"),
+                error_type or "unknown",
+                input_name,
+                save_dir,
+            )
+        elif recorder is not None and getattr(recorder, "is_timeout", False):
+            log.warning(
+                "[PAYLOAD-TIMEOUT] idx=%s attack=%s total_iter=%s input_name=%s save_dir=%s",
                 payload.get("idx"),
                 payload.get("popped_log_attack_mode"),
                 getattr(recorder, "total_iter", "?"),
+                input_name,
+                save_dir,
             )
         else:
             log.info(
-                "[PAYLOAD-END] idx=%s attack=%s",
+                "[PAYLOAD-END] idx=%s attack=%s input_name=%s save_dir=%s",
                 payload.get("idx"),
                 payload.get("popped_log_attack_mode"),
+                input_name,
+                save_dir,
             )
 
     def _cleanup(self, payload: Dict[str, Any]) -> None:
@@ -141,6 +212,7 @@ class QueueRunner(BaseRunner):
         constraint_build_timeout_seconds: int = 30,
         solver_run_timeout: Optional[int] = None,
         collect_constraints_with: Literal["priority_queue", "queue"] = "queue",
+        error_retry_limit: int = 2,
     ) -> None:
         super().__init__(
             timeout=timeout,
@@ -149,13 +221,18 @@ class QueueRunner(BaseRunner):
             constraint_build_timeout=constraint_build_timeout,
             constraint_build_timeout_seconds=constraint_build_timeout_seconds,
             solver_run_timeout=solver_run_timeout,
+            error_retry_limit=error_retry_limit,
         )
         self.collect_constraints_with = collect_constraints_with
 
     def _run_single(self, payload: Dict[str, Any]) -> None:
         ton_plans = payload.pop("ton_plans", None)
         if not ton_plans:
-            return self._execute_attack(payload)
+            return self._execute_plan_with_retries(
+                payload,
+                payload_idx=payload.get("idx"),
+                ton_value=(payload.get("save_exp") or {}).get("ton"),
+            )
 
         base_payload = dict(payload)
         last_result = None
@@ -166,12 +243,16 @@ class QueueRunner(BaseRunner):
             plan_payload["con_dict"] = plan["con_dict"]
             plan_payload["save_exp"] = plan["save_exp"]
 
-            result = self._execute_attack(plan_payload)
+            # Retry stays at the runner layer because only the runner owns
+            # re-executing a single TON payload; progress only interprets results.
+            result = self._execute_plan_with_retries(
+                plan_payload,
+                payload_idx=base_payload.get("idx"),
+                ton_value=plan.get("ton"),
+            )
             last_result = result
 
-            recorder = None
-            if isinstance(result, tuple) and len(result) >= 2:
-                recorder = result[1]
+            recorder = self._get_result_recorder(result)
             if recorder is not None:
                 self._write_ton_sequence(recorder, ton_sequence, plan.get("ton"))
                 should_continue, reason = derive_ton_outcome(recorder)
@@ -195,6 +276,7 @@ class ShapRunner(BaseRunner):
         constraint_build_timeout: bool = True,
         constraint_build_timeout_seconds: int = 30,
         solver_run_timeout: Optional[int] = None,
+        error_retry_limit: int = 2,
     ) -> None:
         super().__init__(
             timeout=timeout or 0,
@@ -203,6 +285,7 @@ class ShapRunner(BaseRunner):
             constraint_build_timeout=constraint_build_timeout,
             constraint_build_timeout_seconds=constraint_build_timeout_seconds,
             solver_run_timeout=solver_run_timeout,
+            error_retry_limit=error_retry_limit,
         )
         self.collect_constraints_with = collect_constraints_with
         self.model_type = model_type
@@ -210,7 +293,11 @@ class ShapRunner(BaseRunner):
     def _run_single(self, payload: Dict[str, Any]) -> None:
         ton_plans = payload.pop("ton_plans", None)
         if not ton_plans:
-            return self._execute_attack(payload)
+            return self._execute_plan_with_retries(
+                payload,
+                payload_idx=payload.get("idx"),
+                ton_value=(payload.get("save_exp") or {}).get("ton"),
+            )
 
         base_payload = dict(payload)
         last_result = None
@@ -221,12 +308,16 @@ class ShapRunner(BaseRunner):
             plan_payload["con_dict"] = plan["con_dict"]
             plan_payload["save_exp"] = plan["save_exp"]
 
-            result = self._execute_attack(plan_payload)
+            # Retry stays at the runner layer because only the runner owns
+            # re-executing a single TON payload; progress only interprets results.
+            result = self._execute_plan_with_retries(
+                plan_payload,
+                payload_idx=base_payload.get("idx"),
+                ton_value=plan.get("ton"),
+            )
             last_result = result
 
-            recorder = None
-            if isinstance(result, tuple) and len(result) >= 2:
-                recorder = result[1]
+            recorder = self._get_result_recorder(result)
             if recorder is not None:
                 self._write_ton_sequence(recorder, ton_sequence, plan.get("ton"))
                 should_continue, reason = derive_ton_outcome(recorder)
@@ -329,6 +420,7 @@ def run_attack_with_shap(
     solver_run_timeout: Optional[int] = None,
     model_type: str = "transformer",
     collect_constraints_with: Literal["priority_queue", "queue"] = "priority_queue",
+    error_retry_limit: int = 2,
 ) -> None:
     ShapRunner(
         timeout=timeout,
@@ -338,6 +430,7 @@ def run_attack_with_shap(
         constraint_build_timeout=constraint_build_timeout,
         constraint_build_timeout_seconds=constraint_build_timeout_seconds,
         solver_run_timeout=solver_run_timeout,
+        error_retry_limit=error_retry_limit,
     ).run_tasks(args)
 
 
@@ -349,6 +442,7 @@ def run_attack_with_queue(
     constraint_build_timeout_seconds: int = 30,
     solver_run_timeout: Optional[int] = None,
     collect_constraints_with: Literal["priority_queue", "queue"] = "queue",
+    error_retry_limit: int = 2,
 ) -> None:
     QueueRunner(
         timeout=timeout,
@@ -357,6 +451,7 @@ def run_attack_with_queue(
         constraint_build_timeout_seconds=constraint_build_timeout_seconds,
         solver_run_timeout=solver_run_timeout,
         collect_constraints_with=collect_constraints_with,
+        error_retry_limit=error_retry_limit,
     ).run_tasks(args)
 
 
