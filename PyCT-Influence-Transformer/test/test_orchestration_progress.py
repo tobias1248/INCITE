@@ -9,6 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import orchestration.progress as progress
+from libct.record import ConcolicTestRecorder
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -30,6 +31,13 @@ def test_derive_ton_outcome_covers_all_main_statuses() -> None:
         False,
         "incomplete",
     )
+    assert progress.derive_ton_outcome(
+        type(
+            "R",
+            (),
+            {"attack_label": None, "solve_all_ctr": False, "is_timeout": False, "extra_meta": {"status": "error", "error_type": "constraint_transfer_failure"}},
+        )()
+    ) == (False, "error_constraint_transfer_failure")
 
 
 def test_load_stats_payload_reports_missing_and_invalid(tmp_path: Path) -> None:
@@ -62,6 +70,23 @@ def test_stats_indicate_completion_recognizes_success_finish_and_timeout() -> No
     assert progress.stats_indicate_completion({"meta": {"is_finish": True}}) is True
     assert progress.stats_indicate_completion({"meta": {"is_timeout": True}}) is True
     assert progress.stats_indicate_completion({"meta": {}}) is False
+
+
+def test_error_stats_are_terminal_and_keep_error_reason() -> None:
+    recorder = ConcolicTestRecorder(None, "case_0")
+    recorder.mark_error("constraint_transfer_failure", "could not transfer constraints")
+
+    stats = recorder.output_stats_dict()
+
+    assert stats["meta"]["status"] == "error"
+    assert stats["meta"]["error_type"] == "constraint_transfer_failure"
+    assert stats["meta"]["error_reason"] == "could not transfer constraints"
+    assert stats["meta"]["attack_label"] is None
+    assert stats["meta"]["is_finish"] is False
+    assert stats["meta"]["is_timeout"] is False
+    assert stats["meta"]["solve_all_ctr"] is False
+    assert progress.stats_indicate_completion(stats) is True
+    assert progress.derive_stage_outcome_payload(stats) == (False, "error_constraint_transfer_failure")
 
 
 def test_update_ton_progress_stats_rewrites_legacy_keys(tmp_path: Path) -> None:
@@ -153,6 +178,24 @@ def test_should_run_ton_retries_same_ton_when_incomplete(tmp_path: Path) -> None
     case = {"save_dir": str(case_dir)}
 
     assert progress.should_run_ton(case, 2, (1, 2, 3), force_refresh=False) is True
+
+
+def test_should_run_ton_stops_after_terminal_error(tmp_path: Path) -> None:
+    case_dir = tmp_path / "case_error"
+    _write_json(
+        case_dir / "stats.json",
+        {
+            "meta": {
+                "ton_progress": {"current": 2},
+                "status": "error",
+                "error_type": "constraint_transfer_failure",
+            }
+        },
+    )
+    case = {"save_dir": str(case_dir)}
+
+    assert progress.should_run_ton(case, 2, (1, 2, 3), force_refresh=False) is False
+    assert progress.should_run_ton(case, 3, (1, 2, 3), force_refresh=False) is False
 
 
 def test_should_run_payload_skips_finished_stats(monkeypatch, tmp_path: Path) -> None:

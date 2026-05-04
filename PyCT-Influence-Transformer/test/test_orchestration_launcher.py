@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import logging
@@ -85,6 +86,7 @@ def _make_args(**overrides):
         constraint_build_timeout=True,
         constraint_build_timeout_seconds=15,
         solver_run_timeout=1,
+        error_retry_limit=2,
         score_alpha=None,
         symbolic_path_threshold=2000,
         ternary_simplification=False,
@@ -172,6 +174,7 @@ def test_run_launcher_selects_queue_builder_and_sets_env(monkeypatch) -> None:
         ("num_process", 0, "--num-process must be >= 1"),
         ("first_n", 0, "--first-n must be >= 1"),
         ("timeout", 0, "--timeout must be >= 1 second"),
+        ("error_retry_limit", -1, "--error-retry-limit must be >= 0"),
         ("spawn_delay", -0.1, "--spawn-delay must be non-negative"),
     ],
 )
@@ -406,7 +409,7 @@ def test_worker_exits_immediately_when_shutdown_requested(monkeypatch, caplog) -
     monkeypatch.setattr(launcher, "ShapRunner", lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected")))
 
     with caplog.at_level(logging.INFO, logger="ct.cli"):
-        launcher._worker(queue, 3, True, 15, 1, False, "queue", "random", 2024, event)
+        launcher._worker(queue, 3, True, 15, 1, 2, False, "queue", "random", 2024, event)
 
     assert "[WORKER-SHUTDOWN]" in caplog.text
     assert "[WORKER-EXIT]" in caplog.text
@@ -428,7 +431,7 @@ def test_worker_uses_queue_runner_and_handles_empty_queue(monkeypatch) -> None:
     monkeypatch.setattr(launcher.os, "getpid", lambda: 2222)
     monkeypatch.setattr(launcher, "QueueRunner", _FakeRunner)
 
-    launcher._worker(queue, 5, True, 15, 2, False, "queue", "random", 2024, _FakeEvent())
+    launcher._worker(queue, 5, True, 15, 2, 2, False, "queue", "random", 2024, _FakeEvent())
 
     assert created == [
         {
@@ -436,6 +439,7 @@ def test_worker_uses_queue_runner_and_handles_empty_queue(monkeypatch) -> None:
             "constraint_build_timeout": True,
             "constraint_build_timeout_seconds": 15,
             "solver_run_timeout": 2,
+            "error_retry_limit": 2,
             "norm": False,
             "collect_constraints_with": "queue",
         }
@@ -444,9 +448,20 @@ def test_worker_uses_queue_runner_and_handles_empty_queue(monkeypatch) -> None:
     assert queue.task_done_count == 2
 
 
-def test_worker_logs_task_errors_and_continues(monkeypatch, caplog) -> None:
+def test_worker_logs_task_errors_and_continues(monkeypatch, caplog, tmp_path: Path) -> None:
     calls = []
-    queue = _WorkerQueue([{"idx": 1}, None])
+    queue = _WorkerQueue(
+        [
+            {
+                "idx": 1,
+                "model_name": "demo",
+                "save_exp": {"input_name": "case_1", "ton": 2, "ton_next": 4},
+                "popped_log_attack_mode": "shap_solver2s",
+            },
+            None,
+        ]
+    )
+    save_dir = tmp_path / "worker_case_1"
 
     class _FakeRunner:
         def __init__(self, **kwargs) -> None:
@@ -459,12 +474,28 @@ def test_worker_logs_task_errors_and_continues(monkeypatch, caplog) -> None:
     monkeypatch.setattr(launcher.signal, "signal", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(launcher.os, "getpid", lambda: 5555)
     monkeypatch.setattr(launcher, "ShapRunner", _FakeRunner)
+    monkeypatch.setattr(launcher, "_resolve_task_save_dir", lambda task, attack_mode: save_dir)
 
     with caplog.at_level(logging.ERROR, logger="ct.cli"):
-        launcher._worker(queue, 5, True, 15, 2, False, "shap", "random", 2024, _FakeEvent())
+        launcher._worker(queue, 5, True, 15, 2, 2, False, "shap", "random", 2024, _FakeEvent())
 
-    assert calls == [{"idx": 1}]
+    assert calls == [
+        {
+            "idx": 1,
+            "model_name": "demo",
+            "save_exp": {"input_name": "case_1", "ton": 2, "ton_next": 4},
+            "popped_log_attack_mode": "shap_solver2s",
+        }
+    ]
     assert "[WORKER-TASK-ERROR]" in caplog.text
+    assert "input_name=case_1" in caplog.text
+    stats = json.loads((save_dir / "stats.json").read_text(encoding="utf-8"))
+    assert stats["meta"]["status"] == "error"
+    assert stats["meta"]["error_type"] == "worker_execution_failure"
+    assert stats["meta"]["error_phase"] == "launcher"
+    assert stats["meta"]["input_name"] == "case_1"
+    assert stats["meta"]["ton"] == 2
+    assert (save_dir / "worker_execution_failure_traceback.txt").is_file()
     assert queue.task_done_count == 2
 
 
@@ -481,7 +512,7 @@ def test_worker_uses_random_assign_runner_and_handles_interrupt(monkeypatch, cap
     monkeypatch.setattr(launcher, "RandomAssignRunner", _FakeRunner)
 
     with caplog.at_level(logging.INFO, logger="ct.cli"):
-        launcher._worker(queue, 6, False, 12, None, True, "random-assign", "shap", 99, _FakeEvent())
+        launcher._worker(queue, 6, False, 12, None, 2, True, "random-assign", "shap", 99, _FakeEvent())
 
     assert created == [
         {
