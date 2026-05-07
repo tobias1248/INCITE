@@ -180,6 +180,21 @@ def test_parse_args_accepts_custom_ternary_threshold_scale() -> None:
     assert args.ternary_threshold_scale == pytest.approx(1.5)
 
 
+def test_parse_args_accepts_zero_ternary_threshold_scale() -> None:
+    args = parse_args(
+        [
+            "--attack-mode",
+            "queue",
+            "--ternary-simplification",
+            "--ternary-threshold-scale",
+            "0",
+        ]
+    )
+
+    assert args.ternary_simplification is True
+    assert args.ternary_threshold_scale == pytest.approx(0.0)
+
+
 def test_parse_args_accepts_zero_error_retry_limit() -> None:
     args = parse_args(
         [
@@ -193,8 +208,8 @@ def test_parse_args_accepts_zero_error_retry_limit() -> None:
     assert args.error_retry_limit == 0
 
 
-@pytest.mark.parametrize("value", ["0", "-0.1"])
-def test_parse_args_rejects_non_positive_ternary_threshold_scale(value: str) -> None:
+@pytest.mark.parametrize("value", ["-0.1"])
+def test_parse_args_rejects_negative_ternary_threshold_scale(value: str) -> None:
     with pytest.raises(SystemExit):
         parse_args(
             [

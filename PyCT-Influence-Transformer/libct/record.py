@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import os
 import json
+import shutil
 from pathlib import Path
 
 
@@ -235,6 +236,136 @@ class ConcolicTestRecorder:
             "reason": None,
         }
 
+    @staticmethod
+    def _summarize_flattened(values):
+        flattened = []
+        for value in values or []:
+            if isinstance(value, list):
+                flattened.extend(v for v in value if isinstance(v, (int, float)))
+            elif isinstance(value, (int, float)):
+                flattened.append(value)
+        return ConcolicTestRecorder._summarize_numeric(flattened)
+
+    @staticmethod
+    def _build_attempt_metric_groups(entries):
+        if not isinstance(entries, list):
+            return None
+
+        def _entries_for_status(group_name):
+            if group_name == "all":
+                return entries
+            return [entry for entry in entries if entry.get("status") == group_name]
+
+        grouped = {}
+        for group_name in ("all", "sat", "unsat"):
+            group_entries = _entries_for_status(group_name)
+            grouped[group_name] = {
+                "formula_build_time_s": ConcolicTestRecorder._summarize_numeric(
+                    [
+                        entry.get("formula_build_time_s")
+                        for entry in group_entries
+                        if isinstance(entry.get("formula_build_time_s"), (int, float))
+                    ]
+                ),
+                "solver_subprocess_time_s": ConcolicTestRecorder._summarize_numeric(
+                    [
+                        entry.get("solver_subprocess_time_s")
+                        for entry in group_entries
+                        if isinstance(entry.get("solver_subprocess_time_s"), (int, float))
+                    ]
+                ),
+                "solve_total_time_s": ConcolicTestRecorder._summarize_numeric(
+                    [
+                        entry.get("solve_total_time_s")
+                        for entry in group_entries
+                        if isinstance(entry.get("solve_total_time_s"), (int, float))
+                    ]
+                ),
+                "formula_byte": ConcolicTestRecorder._summarize_numeric(
+                    [
+                        entry.get("byte")
+                        for entry in group_entries
+                        if isinstance(entry.get("byte"), (int, float))
+                    ]
+                ),
+                "assert_count": ConcolicTestRecorder._summarize_numeric(
+                    [
+                        entry.get("assert_num")
+                        for entry in group_entries
+                        if isinstance(entry.get("assert_num"), (int, float))
+                    ]
+                ),
+                "assert_len": ConcolicTestRecorder._summarize_flattened(
+                    [entry.get("assert_len") for entry in group_entries]
+                ),
+            }
+        return grouped
+
+    @staticmethod
+    def _strip_detail_entry(entry):
+        if not isinstance(entry, dict):
+            return entry
+        sanitized = dict(entry)
+        sanitized.pop("smt_formula", None)
+        return sanitized
+
+    def _write_solver_iter1_top3_artifacts(self, constraint_complexity):
+        if not self.save_dir or not isinstance(constraint_complexity, dict):
+            return
+
+        detail_entries = constraint_complexity.get("detail")
+        if not isinstance(detail_entries, list):
+            return
+
+        save_dir = Path(self.save_dir)
+        jsonl_path = save_dir / "solver_iter1_top3.jsonl"
+        smt_dir = save_dir / "solver_iter1_top3_smt"
+
+        if jsonl_path.exists():
+            jsonl_path.unlink()
+        if smt_dir.exists():
+            shutil.rmtree(smt_dir)
+
+        retained = []
+        for entry in detail_entries:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("iter") != 1:
+                continue
+            if entry.get("status") not in ("sat", "unsat"):
+                continue
+            formula = entry.get("smt_formula")
+            if not isinstance(formula, str):
+                continue
+            retained.append(entry)
+            if len(retained) >= 3:
+                break
+
+        if not retained:
+            return
+
+        smt_dir.mkdir(parents=True, exist_ok=True)
+        with jsonl_path.open("w", encoding="utf-8") as handle:
+            for index, entry in enumerate(retained, start=1):
+                status = entry["status"]
+                smt_filename = f"{index:02d}_{status}.smt2"
+                smt_path = smt_dir / smt_filename
+                smt_path.write_text(entry["smt_formula"], encoding="utf-8")
+                payload = {
+                    "iter": entry.get("iter"),
+                    "attempt_index": entry.get("attempt_index"),
+                    "status": status,
+                    "formula_build_time_s": entry.get("formula_build_time_s"),
+                    "solver_subprocess_time_s": entry.get("solver_subprocess_time_s"),
+                    "solve_total_time_s": entry.get("solve_total_time_s"),
+                    "formula_byte": entry.get("byte"),
+                    "assert_count": entry.get("assert_num"),
+                    "assert_len": entry.get("assert_len"),
+                    "smt_path": str(Path("solver_iter1_top3_smt") / smt_filename),
+                }
+                json.dump(payload, handle, default=_json_default)
+                handle.write("\n")
+
     def output_stats_dict(self, constraint_complexity=None):
         status = "incomplete"
         if self.attack_label is not None:
@@ -319,7 +450,10 @@ class ConcolicTestRecorder:
                     complexity_summary[key] = summary_stats
             entries = constraint_complexity.get("detail")
             if isinstance(entries, list) and entries:
-                complexity_summary["entries"] = entries
+                complexity_summary["entries"] = [
+                    self._strip_detail_entry(entry) for entry in entries
+                ]
+                complexity_summary["attempt_summary"] = self._build_attempt_metric_groups(entries)
 
         res = {
             "meta": meta,
@@ -339,6 +473,7 @@ class ConcolicTestRecorder:
             with open(os.path.join(self.save_dir, "stats.json"), 'w') as f:
                 # json.dump(stats_dict, f, indent="\t") # 較容易讀懂但浪費儲存空間
                 json.dump(stats_dict, f, default=_json_default) # 最節省儲存空間但不容易讀懂
+            self._write_solver_iter1_top3_artifacts(constraint_complexity)
             
             img_name = f"adv_{self.original_label}_to_{self.attack_label}.jpg"
             self.save_adversarial_input_as_image(os.path.join(self.save_dir, img_name))

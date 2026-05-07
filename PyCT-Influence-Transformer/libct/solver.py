@@ -175,6 +175,8 @@ class Solver:
         )
         log_path = cls._resolve_constraint_log_path(engine, idx)
         path_len = getattr(constraint, "height", None)
+        current_iter = cls.iter
+        current_attempt_index = cls.iter_count
 
         def _record_constraint_complexity(status, formulas, build_elapsed, solver_elapsed):
             for key in (
@@ -226,16 +228,24 @@ class Solver:
                 cls.ctr_size['total_time'].append(total_time)
 
             detail = {
+                "iter": current_iter,
+                "attempt_index": current_attempt_index,
                 "status": status,
                 "path_len": path_len,
                 "assert_num": assert_count,
                 "byte": file_byte,
+                "assert_len": assert_lens,
                 "total_time": total_time,
+                "formula_build_time_s": build_elapsed,
+                "solver_subprocess_time_s": solver_elapsed,
+                "solve_total_time_s": total_time,
             }
             if build_elapsed is not None:
                 detail["build_time"] = build_elapsed
             if solver_elapsed is not None:
                 detail["solver_time"] = solver_elapsed
+            if formulas is not None:
+                detail["smt_formula"] = formulas
             cls.ctr_size['detail'].append(detail)
         #limit_constraint_time_start
         build_elapsed = None
