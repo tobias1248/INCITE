@@ -57,6 +57,9 @@ class SolverLoggingTests(unittest.TestCase):
             "byte": [],
             "assert_num": [],
             "assert_len": [],
+            "build_time": [],
+            "total_time": [],
+            "detail": [],
         }
 
     def test_find_model_from_constraint_logs_status(self) -> None:
@@ -89,6 +92,16 @@ class SolverLoggingTests(unittest.TestCase):
             any("SMT solver status" in message for message in captured.output),
             msg="Expected solver status log entry to be emitted.",
         )
+        detail = solver.Solver.ctr_size["detail"][0]
+        self.assertEqual(detail["iter"], 1)
+        self.assertEqual(detail["attempt_index"], 1)
+        self.assertEqual(detail["status"], "sat")
+        self.assertEqual(detail["assert_num"], 0)
+        self.assertEqual(detail["assert_len"], [])
+        self.assertEqual(detail["smt_formula"], "(check-sat)\n")
+        self.assertIn("formula_build_time_s", detail)
+        self.assertIn("solver_subprocess_time_s", detail)
+        self.assertIn("solve_total_time_s", detail)
 
     def test_expr_validation_returns_engine_on_sat(self) -> None:
         sentinel_engine = object()

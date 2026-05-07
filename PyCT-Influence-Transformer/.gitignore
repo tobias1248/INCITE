@@ -42,3 +42,9 @@ agent/
 
 # ref documentation
 reference_docs/
+
+# exp_storage
+exp_storage
+
+# exp_scripts
+scripts/
