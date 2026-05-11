@@ -1,6 +1,5 @@
 from __future__ import annotations
 import coverage
-import func_timeout
 import gc
 import inspect
 import logging
@@ -18,6 +17,7 @@ from libct.record import ConcolicTestRecorder
 from libct.executor import LegacyConcolicExecutor
 from libct.executor.child_protocol import ChildProtocol, ConstraintTransferError
 from libct.executor.concolic import ConcolicExecutionRunner, prepare_child_environment
+from libct.executor.primitive import PrimitiveExecutionRunner
 from libct.searcher import Searcher, create_constraint_searcher
 from libct.state import ConstraintWorkItem
 import cProfile
@@ -145,6 +145,7 @@ class ExplorationEngine:
         self._execution_executor = LegacyConcolicExecutor(self)
         self._child_protocol = ChildProtocol(self)
         self._concolic_runner = ConcolicExecutionRunner(self)
+        self._primitive_runner = PrimitiveExecutionRunner(self)
 
     def _reset_symbolic_guard(self) -> None:
         self.symbolic_enabled = True
@@ -167,6 +168,9 @@ class ExplorationEngine:
     def _get_execute(self):
         return execute
 
+    def _get_module(self):
+        return module
+
     def _get_child_protocol(self) -> ChildProtocol:
         protocol = getattr(self, "_child_protocol", None)
         if protocol is None:
@@ -179,6 +183,13 @@ class ExplorationEngine:
         if runner is None:
             runner = ConcolicExecutionRunner(self)
             self._concolic_runner = runner
+        return runner
+
+    def _get_primitive_runner(self) -> PrimitiveExecutionRunner:
+        runner = getattr(self, "_primitive_runner", None)
+        if runner is None:
+            runner = PrimitiveExecutionRunner(self)
+            self._primitive_runner = runner
         return runner
 
     def _mark_constraint_transfer_failure(self, reason: str) -> None:
@@ -687,76 +698,7 @@ class ExplorationEngine:
         return self._get_concolic_runner().run(all_args, concolic_dict)
 
     def _one_execution_primitive(self, primitive_inputs):
-        """Execute the target without symbolic wrappers to collect coverage."""
-        r1, s1 = multiprocessing.Pipe()
-        r2, s2 = multiprocessing.Pipe()
-        r0, s0 = multiprocessing.Pipe()
-
-        def child_process():
-            sys.dont_write_bytecode = True  # same reason mentioned in the concolic mode
-            self.coverage.start()
-            # module = get_module_from_rootdir_and_modpath(self.root, self.modpath)
-            # execute = get_function_from_module_and_funcname(module, self.funcname)
-            # Note inspect.getsourcelines(module)[1] always returns 0, which is not the fact.
-            s1.send(set(self.coverage.analysis(self.target_file)[1]) & set(
-                range(1, 1+len(inspect.getsourcelines(module)[0]))))
-            s1.send(set(self.coverage.analysis(self.target_file)[1]) & set(range(inspect.getsourcelines(
-                execute)[1], inspect.getsourcelines(execute)[1] + len(inspect.getsourcelines(execute)[0]))))
-            pri_args, pri_kwargs = self._complete_primitive_arguments(
-                execute, primitive_inputs)
-            answer = self.Exception
-            try:
-                answer = func_timeout.func_timeout(
-                    self.single_timeout, execute, args=pri_args, kwargs=pri_kwargs)
-            except func_timeout.FunctionTimedOut:
-                answer = self.Timeout
-            except:
-                pass
-            self.coverage.stop()
-            self.coverage_data.update(self.coverage.get_data())
-            for file in self.coverage_data.measured_files():  # "file" is absolute here.
-                _, _, missing_lines, _ = self.coverage.analysis(file)
-                if file not in self.coverage_accumulated_missing_lines:
-                    self.coverage_accumulated_missing_lines[file] = set(
-                        missing_lines)
-                else:
-                    self.coverage_accumulated_missing_lines[file] &= set(
-                        missing_lines)
-            ###################################### Communication Section ######################################
-            # just a notification to the parent process that we're going to send data
-            s0.send(0)
-            try:
-                s1.send(answer)
-            except:
-                answer = self.Unpicklable
-                s1.send(answer)
-            if self.include_exception or (answer is not self.Exception):
-                s2.send(
-                    (self.coverage_data, self.coverage_accumulated_missing_lines))
-            else:
-                s2.send(self.Exception)
-        process = multiprocessing.Process(target=child_process)
-        process.start()
-        self.module_lines_range = r1.recv()
-        self.function_lines_range = r1.recv()
-        if not r0.poll(self.single_timeout + 5):
-            answer = self.Timeout
-        else:
-            answer = r1.recv()
-            if (t := r2.recv()) is not self.Exception:
-                (self.coverage_data, self.coverage_accumulated_missing_lines) = t
-        if self.target_file not in self.coverage_accumulated_missing_lines:
-            self.coverage_accumulated_missing_lines[self.target_file] = self.module_lines_range
-        self.in_out.append((primitive_inputs.copy(), answer))
-        r1.close()
-        s1.close()
-        r2.close()
-        s2.close()
-        r0.close()
-        s0.close()
-        if process.is_alive():
-            process.kill()
-        return answer
+        return self._get_primitive_runner().run(primitive_inputs)
 
     @classmethod
     def _complete_primitive_arguments(cls, func, all_args):
