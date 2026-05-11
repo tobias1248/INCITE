@@ -4,12 +4,12 @@
 
 This milestone is accepted as a compatibility-preserving modularization before the final KLEE-style engine rewrite.
 
-- [ ] `libct/state/` exposes `ExecutionState`, `StateManager`, and `ConstraintWorkItem`.
-- [ ] `libct/searcher/` owns stack, queue, priority, and random constraint worklist behavior.
-- [ ] `libct/executor/` exposes a legacy executor adapter used by `ExplorationEngine`.
-- [ ] `priority_queue` keeps the existing score formula and pop return shape.
-- [ ] Existing CLI arguments, output paths, `stats.json`, and `stats_history.jsonl` remain unchanged.
-- [ ] Required validation: full pytest suite and CLI help smoke checks.
+- [x] `libct/state/` exposes `ExecutionState`, `StateManager`, and `ConstraintWorkItem`.
+- [x] `libct/searcher/` owns stack, queue, priority, and random constraint worklist behavior.
+- [x] `libct/executor/` exposes a legacy executor adapter used by `ExplorationEngine`.
+- [x] `priority_queue` keeps the existing score formula and pop return shape for the compatibility path.
+- [x] Existing CLI entrypoints and primary output paths remain available; solver attempt observability is now additive through bounded `solver_iter1_top3` artifacts and slimmed `stats.json` entries.
+- [x] Required validation: full pytest suite and CLI help smoke checks passed on 2026-05-07.
 - [ ] Environment-dependent validation: one tiny queue-mode attack and one tiny SHAP-mode attack when local cache/model/artifacts/solver are available.
 
 The final target of `libct/explore.py < 300 行` remains a later engine rewrite acceptance criterion, not a blocker for this compatibility batch.
@@ -220,7 +220,7 @@ uv run radon cc libct/explore.py libct/searcher/ libct/state/ libct/executor/ -s
 - [ ] `CHANGELOG.md` 已更新（新增重構說明）
 - [ ] `README.md` 中的架構圖已更新
 - [ ] 新模塊的 `__init__.py` 導出正確的公共 API
-- [ ] `refactoring-docs/` 所有文檔已審閱
+- [ ] `refactoring_docs/` 所有文檔已審閱
 
 ---
 

@@ -122,9 +122,9 @@ Official ICSE 2027 submission and artifact deadlines should be confirmed from th
 
 Documentation-only changes should be verified with file and search checks:
 
-- Confirm `refactoring-docs/00-ROADMAP.md` exists and starts with the H1 title in this file.
-- Confirm `refactoring-docs/00-OVERVIEW.md` lists `00-ROADMAP.md` as the first quick-navigation row.
-- Run `rg "00-ROADMAP|PyPI|ICSE 2027" refactoring-docs` to confirm the roadmap and index are discoverable.
+- Confirm `refactoring_docs/00-ROADMAP.md` exists and starts with the H1 title in this file.
+- Confirm `refactoring_docs/00-OVERVIEW.md` lists `00-ROADMAP.md` as the first quick-navigation row.
+- Run `rg "00-ROADMAP|PyPI|ICSE 2027" refactoring_docs` to confirm the roadmap and index are discoverable.
 
 For implementation batches, expand validation according to risk:
 
@@ -135,7 +135,7 @@ For implementation batches, expand validation according to risk:
 
 ## Assumptions
 
-- `refactoring-docs/` is the correct home for the long-term roadmap.
+- `refactoring_docs/` is the correct home for the long-term roadmap.
 - Existing `01-` through `08-` document names stay unchanged so existing relative links and external references remain valid.
 - `00-OVERVIEW.md` remains the KLEE-inspired refactoring guide, while `00-ROADMAP.md` becomes the highest-level engineering and publication roadmap.
 - `ARCH_STATUS.md` remains a root-level current-state snapshot.
