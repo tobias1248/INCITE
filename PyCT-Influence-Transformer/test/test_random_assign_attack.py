@@ -11,9 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import statistic
+from reporting import experiment_stats
 from libct.random_assign_attack import RandomAssignResult, write_experiment_artifacts
-from utils.experiment_task_specs import get_save_dir_from_save_exp
+from tasks.paths import get_save_dir_from_save_exp
 
 
 def test_write_experiment_artifacts_omits_attack_label_on_failed_random_assign(
@@ -61,4 +61,4 @@ def test_statistic_prefers_explicit_success_flag_over_attack_label() -> None:
     meta = {"success": False, "attack_label": 3}
     data = {}
 
-    assert statistic._derive_success(meta, data) is False
+    assert experiment_stats._derive_success(meta, data) is False
