@@ -16,6 +16,7 @@
 | [06-MODULE-ENGINE.md](./06-MODULE-ENGINE.md) | ExplorationEngine 模塊指南 | ✅ |
 | [07-INTEGRATION-CHECKLIST.md](./07-INTEGRATION-CHECKLIST.md) | 集成與驗證清單 | ✅ |
 | [08-KLEE-REFERENCE.md](./08-KLEE-REFERENCE.md) | KLEE 原始代碼參考 | ✅ |
+| [09-OPEN-ISSUES.md](./09-OPEN-ISSUES.md) | 重構過程中發現的待解問題 | 🟡 |
 
 ---
 
@@ -74,6 +75,7 @@
 | Engine 如何協調？ | [06-MODULE-ENGINE.md](./06-MODULE-ENGINE.md) |
 | 測試清單是什麼？ | [07-INTEGRATION-CHECKLIST.md](./07-INTEGRATION-CHECKLIST.md) |
 | KLEE 如何啟發設計？ | [08-KLEE-REFERENCE.md](./08-KLEE-REFERENCE.md) |
+| 目前有哪些待解問題？ | [09-OPEN-ISSUES.md](./09-OPEN-ISSUES.md) |
 
 ---
 
