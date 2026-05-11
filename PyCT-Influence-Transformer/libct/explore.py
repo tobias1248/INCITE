@@ -1,5 +1,4 @@
 from __future__ import annotations
-import builtins
 import coverage
 import func_timeout
 import gc
@@ -11,7 +10,6 @@ import os
 import pickle
 import sys
 import time
-import traceback
 from libct.path import PathToConstraint
 from libct.solver import Solver, _ensure_smtlib2_logger
 from libct.position import summarize_indices, summarize_position
@@ -19,6 +17,7 @@ from libct.utils import ConcolicObject, unwrap, get_in_dict_shape
 from libct.record import ConcolicTestRecorder
 from libct.executor import LegacyConcolicExecutor
 from libct.executor.child_protocol import ChildProtocol, ConstraintTransferError
+from libct.executor.concolic import ConcolicExecutionRunner, prepare_child_environment
 from libct.searcher import Searcher, create_constraint_searcher
 from libct.state import ConstraintWorkItem
 import cProfile
@@ -50,21 +49,7 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 def prepare():
-    #################################################################
-    # Since the source code in https://github.com/python/cpython/blob/e822e37946f27c09953bb5733acf3b07c2db690f/Modules/socketmodule.c#L6485
-    # only accepts "unwrapped" input arguments, we simply do it here.
-    #################################################################
-    import socket
-    _socket_getaddrinfo = socket.getaddrinfo
-
-    def socket_getaddrinfo(*args, **kwargs):
-        return _socket_getaddrinfo(*map(unwrap, args), **{k: unwrap(v) for (k, v) in kwargs.items()})
-    socket.getaddrinfo = socket_getaddrinfo
-    #####################################################################
-    # The builtin len(...) function will automatically unwrap our result,
-    # so we want to avoid this by doing the following line.
-    #####################################################################
-    builtins.len = lambda x: x.__len__()
+    prepare_child_environment()
 
 
 class ExplorationEngine:
@@ -159,6 +144,7 @@ class ExplorationEngine:
         self.original_args = None  # used to limit variable range
         self._execution_executor = LegacyConcolicExecutor(self)
         self._child_protocol = ChildProtocol(self)
+        self._concolic_runner = ConcolicExecutionRunner(self)
 
     def _reset_symbolic_guard(self) -> None:
         self.symbolic_enabled = True
@@ -178,12 +164,22 @@ class ExplorationEngine:
     def _get_recorder(self):
         return recorder
 
+    def _get_execute(self):
+        return execute
+
     def _get_child_protocol(self) -> ChildProtocol:
         protocol = getattr(self, "_child_protocol", None)
         if protocol is None:
             protocol = ChildProtocol(self)
             self._child_protocol = protocol
         return protocol
+
+    def _get_concolic_runner(self) -> ConcolicExecutionRunner:
+        runner = getattr(self, "_concolic_runner", None)
+        if runner is None:
+            runner = ConcolicExecutionRunner(self)
+            self._concolic_runner = runner
+        return runner
 
     def _mark_constraint_transfer_failure(self, reason: str) -> None:
         self._get_child_protocol().mark_constraint_transfer_failure(reason)
@@ -688,130 +684,7 @@ class ExplorationEngine:
         # return s # continue iteration only if the target file / function coverage is not full yet.
 
     def _one_execution_concolic(self, all_args: dict, concolic_dict: dict):
-        r2, s2 = multiprocessing.Pipe()
-
-        def child_process():
-            # very important to prevent the later primitive mode from using concolic objects imported here...
-            sys.dont_write_bytecode = True
-            child_pid = os.getpid()
-            updated_args = None
-            envelope = None
-            try:
-                prepare()
-                self.path.__init__()
-                self._reset_symbolic_guard()
-                if self.can_use_concolic_wrapper:
-                    import libct.wrapper
-                else:
-                    import libct
-
-                ccc_args, ccc_kwargs = self._get_concolic_arguments(
-                    execute, all_args, concolic_dict)
-                updated_args = dict(all_args)
-                result = self.Exception
-                try:
-                    result = libct.utils.unwrap(
-                        func_timeout.func_timeout(
-                            self.single_timeout,
-                            execute,
-                            args=ccc_args,
-                            kwargs=ccc_kwargs,
-                        )
-                    )
-                    log.info(f"Return: {result}")
-                    envelope = self._build_child_ok_envelope(
-                        pid=child_pid,
-                        updated_args=updated_args,
-                        result=result,
-                        constraint_payload=(
-                            Constraint.global_constraints,
-                            self.constraints_to_solve,
-                            self.path,
-                            self.symbolic_disabled_at_path_len,
-                        ),
-                    )
-                except func_timeout.FunctionTimedOut:
-                    result = self.Timeout
-                    message = (
-                        f"Timeout (soft) for: {all_args} >> ./pyct.py -r '{self.root}' "
-                        f"'{self.modpath}' -s {self.funcname} {{}} --lib '{self.lib}' "
-                        "--include_exception"
-                    )
-                    log.error(message)
-                    if self.statsdir:
-                        with open(self.statsdir + '/exception.txt', 'a') as f:
-                            f.write(message + "\n")
-                    envelope = self._build_child_event_envelope(
-                        pid=child_pid,
-                        updated_args=updated_args,
-                        result=result,
-                        event_type="soft_timeout",
-                        message=message,
-                    )
-                except Exception as e:
-                    message = (
-                        f"Exception for: {all_args} >> ./pyct '{self.root}' "
-                        f"'{self.modpath}' -s {self.funcname} {{}} -m 20 --lib "
-                        f"'{self.lib}' --include_exception"
-                    )
-                    log.exception(message)
-                    if self.statsdir:
-                        with open(self.statsdir + '/exception.txt', 'a') as f:
-                            f.write(message + "\n")
-                            f.write(f"{e}\n")
-                    envelope = self._build_child_event_envelope(
-                        pid=child_pid,
-                        updated_args=updated_args,
-                        result=self.Exception,
-                        event_type="target_exception",
-                        message=str(e) or message,
-                        error_class=e.__class__.__name__,
-                    )
-            except Exception as exc:
-                traceback_text = traceback.format_exc()
-                envelope = self._build_child_error_envelope(
-                    pid=child_pid,
-                    updated_args=updated_args,
-                    error_type="child_unexpected_error",
-                    phase="execute",
-                    message=str(exc) or exc.__class__.__name__,
-                    error_class=exc.__class__.__name__,
-                    traceback_text=traceback_text,
-                )
-
-            try:
-                s2.send(envelope)
-            except Exception as exc:
-                fallback = self._build_child_error_envelope(
-                    pid=child_pid,
-                    updated_args=updated_args,
-                    error_type="constraint_transfer_failure",
-                    phase="transfer",
-                    message=(
-                        "failed to send child envelope to parent: "
-                        f"{exc.__class__.__name__}: {exc}"
-                    ),
-                    error_class=exc.__class__.__name__,
-                    traceback_text=traceback.format_exc(),
-                )
-                try:
-                    s2.send(fallback)
-                except Exception:
-                    pass
-
-        process = multiprocessing.Process(target=child_process)
-        process.start()
-
-        try:
-            envelope = self._receive_child_envelope(r2, process, self.single_timeout + 5)
-            result = self._handle_child_envelope(all_args, envelope)
-        finally:
-            r2.close()
-            s2.close()
-            if process.is_alive():
-                process.kill()
-            process.join(timeout=0.1)
-        return result
+        return self._get_concolic_runner().run(all_args, concolic_dict)
 
     def _one_execution_primitive(self, primitive_inputs):
         """Execute the target without symbolic wrappers to collect coverage."""
