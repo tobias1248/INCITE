@@ -35,6 +35,7 @@ class BaseRunner:
     constraint_build_timeout: bool = True
     constraint_build_timeout_seconds: int = 30
     solver_run_timeout: Optional[int] = None
+    sat_batch_size: int = 1
     error_retry_limit: int = 2
 
     def run_tasks(self, tasks: Sequence[Dict[str, Any]]) -> None:
@@ -167,6 +168,7 @@ class BaseRunner:
             constraint_build_timeout_seconds=self.constraint_build_timeout_seconds,
             collect_constraints_with=self.collect_constraints_with,
             solver_run_timeout=self.solver_run_timeout,
+            sat_batch_size=self.sat_batch_size,
         )
 
     @staticmethod
@@ -211,6 +213,7 @@ class QueueRunner(BaseRunner):
         constraint_build_timeout: bool = True,
         constraint_build_timeout_seconds: int = 30,
         solver_run_timeout: Optional[int] = None,
+        sat_batch_size: int = 1,
         collect_constraints_with: Literal["priority_queue", "queue"] = "queue",
         error_retry_limit: int = 2,
     ) -> None:
@@ -221,6 +224,7 @@ class QueueRunner(BaseRunner):
             constraint_build_timeout=constraint_build_timeout,
             constraint_build_timeout_seconds=constraint_build_timeout_seconds,
             solver_run_timeout=solver_run_timeout,
+            sat_batch_size=sat_batch_size,
             error_retry_limit=error_retry_limit,
         )
         self.collect_constraints_with = collect_constraints_with
@@ -276,6 +280,7 @@ class ShapRunner(BaseRunner):
         constraint_build_timeout: bool = True,
         constraint_build_timeout_seconds: int = 30,
         solver_run_timeout: Optional[int] = None,
+        sat_batch_size: int = 1,
         error_retry_limit: int = 2,
     ) -> None:
         super().__init__(
@@ -285,6 +290,7 @@ class ShapRunner(BaseRunner):
             constraint_build_timeout=constraint_build_timeout,
             constraint_build_timeout_seconds=constraint_build_timeout_seconds,
             solver_run_timeout=solver_run_timeout,
+            sat_batch_size=sat_batch_size,
             error_retry_limit=error_retry_limit,
         )
         self.collect_constraints_with = collect_constraints_with
@@ -343,6 +349,7 @@ class RandomAssignRunner(BaseRunner):
         constraint_build_timeout: bool = True,
         constraint_build_timeout_seconds: int = 30,
         solver_run_timeout: Optional[int] = None,
+        sat_batch_size: int = 1,
     ) -> None:
         super().__init__(
             timeout=timeout or 0,
@@ -351,6 +358,7 @@ class RandomAssignRunner(BaseRunner):
             constraint_build_timeout=constraint_build_timeout,
             constraint_build_timeout_seconds=constraint_build_timeout_seconds,
             solver_run_timeout=solver_run_timeout,
+            sat_batch_size=sat_batch_size,
         )
         self.pixel_source = pixel_source
         self.base_seed = base_seed
@@ -418,6 +426,7 @@ def run_attack_with_shap(
     constraint_build_timeout: bool = True,
     constraint_build_timeout_seconds: int = 30,
     solver_run_timeout: Optional[int] = None,
+    sat_batch_size: int = 1,
     model_type: str = "transformer",
     collect_constraints_with: Literal["priority_queue", "queue"] = "priority_queue",
     error_retry_limit: int = 2,
@@ -430,6 +439,7 @@ def run_attack_with_shap(
         constraint_build_timeout=constraint_build_timeout,
         constraint_build_timeout_seconds=constraint_build_timeout_seconds,
         solver_run_timeout=solver_run_timeout,
+        sat_batch_size=sat_batch_size,
         error_retry_limit=error_retry_limit,
     ).run_tasks(args)
 
@@ -441,6 +451,7 @@ def run_attack_with_queue(
     constraint_build_timeout: bool = True,
     constraint_build_timeout_seconds: int = 30,
     solver_run_timeout: Optional[int] = None,
+    sat_batch_size: int = 1,
     collect_constraints_with: Literal["priority_queue", "queue"] = "queue",
     error_retry_limit: int = 2,
 ) -> None:
@@ -450,6 +461,7 @@ def run_attack_with_queue(
         constraint_build_timeout=constraint_build_timeout,
         constraint_build_timeout_seconds=constraint_build_timeout_seconds,
         solver_run_timeout=solver_run_timeout,
+        sat_batch_size=sat_batch_size,
         collect_constraints_with=collect_constraints_with,
         error_retry_limit=error_retry_limit,
     ).run_tasks(args)
@@ -462,6 +474,7 @@ def run_attack_with_random_assign(
     constraint_build_timeout: bool = True,
     constraint_build_timeout_seconds: int = 30,
     solver_run_timeout: Optional[int] = None,
+    sat_batch_size: int = 1,
     *,
     pixel_source: str,
     base_seed: int,
@@ -473,6 +486,7 @@ def run_attack_with_random_assign(
         constraint_build_timeout=constraint_build_timeout,
         constraint_build_timeout_seconds=constraint_build_timeout_seconds,
         solver_run_timeout=solver_run_timeout,
+        sat_batch_size=sat_batch_size,
         norm=norm,
         pixel_source=pixel_source,
         base_seed=base_seed,

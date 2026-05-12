@@ -88,6 +88,7 @@ class ExplorationEngine:
                 execute_: Callable,
                 validation_execute_: Optional[Callable] = None,
                 only_first_forward: bool,
+                sat_batch_size: int = 1,
                 shap_score_alpha: Optional[float] = None,
                 symbolic_path_threshold: Optional[int] = None):
         global module, execute
@@ -99,6 +100,9 @@ class ExplorationEngine:
         self.save_dir = save_dir
         self.input_name = input_name
         self.only_first_forward = only_first_forward
+        self.sat_batch_size = int(sat_batch_size)
+        if self.sat_batch_size < 1:
+            raise ValueError(f"sat_batch_size must be >= 1, got {self.sat_batch_size}")
         self.shap_score_alpha = (
             None if shap_score_alpha is None else float(shap_score_alpha)
         )
@@ -387,6 +391,7 @@ class ExplorationEngine:
 
             recorder.solve_constr_start()
             solve_constr_num = len(self.constraints_to_solve)
+            candidate_fifo = []
             found_adversarial = False
             while len(self.constraints_to_solve) > 0:
                 if _check_deadline():
@@ -403,13 +408,20 @@ class ExplorationEngine:
                     self, constraint, shap_value, position, self.idx, self.original_args)
                 if model is not None and not self.only_first_forward:
                     # sat
-                    all_args.update(model)  # from model to argument
-                    recorder.save_sat_input(all_args)
-                    if all_args not in tried_input_args:
-                        # sat and this input args have not used
-                        # .copy() is important!!
-                        tried_input_args.append(all_args.copy())
-                        found_adversarial = self._validate_sat_candidate(all_args)
+                    candidate = all_args.copy()
+                    candidate.update(model)  # from model to argument
+                    if candidate not in tried_input_args and candidate not in candidate_fifo:
+                        recorder.save_sat_input(candidate)
+                        candidate_fifo.append(candidate)
+                        tried_input_args.append(candidate.copy())
+                        if len(candidate_fifo) >= self.sat_batch_size:
+                            break
+
+            if not self.only_first_forward:
+                for candidate in candidate_fifo:
+                    found_adversarial = self._validate_sat_candidate(candidate)
+                    if found_adversarial:
+                        all_args.update(candidate)
                         break
 
             recorder.solve_constr_end()
@@ -429,7 +441,8 @@ class ExplorationEngine:
                 break
 
             # solve new input and use it to execute
-            if not self.only_first_forward:
+            if not self.only_first_forward and candidate_fifo:
+                all_args.update(candidate_fifo[0])
                 gen_constr_num = len(self.constraints_to_solve)
                 recorder.execution_start()
                 cont = self._one_execution(all_args, concolic_dict)
@@ -437,6 +450,8 @@ class ExplorationEngine:
                 gen_constr_num = len(
                     self.constraints_to_solve) - gen_constr_num
                 recorder.gen_constraint.append(gen_constr_num)
+            else:
+                recorder.gen_constraint.append(0)
 
             iterations += 1
             recorder.iter_end(Solver.stats, solve_constr_num)

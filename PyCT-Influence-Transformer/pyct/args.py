@@ -43,6 +43,13 @@ def _parse_non_negative_int(value: str) -> int:
     return parsed
 
 
+def _parse_positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("value must be >= 1.")
+    return parsed
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments for experiment launcher."""
     parser = argparse.ArgumentParser(
@@ -83,6 +90,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=int,
         default=60,
         help="Wall-clock timeout (seconds) per SMT solver invocation; 0 disables wrapper timeout.",
+    )
+    parser.add_argument(
+        "--sat-batch-size",
+        type=_parse_positive_int,
+        default=1,
+        help="Number of unique SAT candidates to collect before validation (default: 1).",
     )
     parser.add_argument(
         "--score-alpha",

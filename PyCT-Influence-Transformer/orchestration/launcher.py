@@ -103,6 +103,7 @@ def _worker(
     constraint_build_timeout: bool,
     constraint_build_timeout_seconds: int,
     solver_run_timeout,
+    sat_batch_size: int,
     error_retry_limit: int,
     norm_01: bool,
     attack_mode: str,
@@ -123,6 +124,7 @@ def _worker(
                 constraint_build_timeout=constraint_build_timeout,
                 constraint_build_timeout_seconds=constraint_build_timeout_seconds,
                 solver_run_timeout=solver_run_timeout,
+                sat_batch_size=sat_batch_size,
                 norm=norm_01,
                 pixel_source=pixel_source,
                 base_seed=base_seed,
@@ -135,6 +137,7 @@ def _worker(
                 constraint_build_timeout=constraint_build_timeout,
                 constraint_build_timeout_seconds=constraint_build_timeout_seconds,
                 solver_run_timeout=solver_run_timeout,
+                sat_batch_size=sat_batch_size,
                 norm=norm_01,
                 collect_constraints_with="queue",
                 error_retry_limit=error_retry_limit,
@@ -147,6 +150,7 @@ def _worker(
                 constraint_build_timeout=constraint_build_timeout,
                 constraint_build_timeout_seconds=constraint_build_timeout_seconds,
                 solver_run_timeout=solver_run_timeout,
+                sat_batch_size=sat_batch_size,
                 norm=norm_01,
                 error_retry_limit=error_retry_limit,
             )
@@ -262,6 +266,8 @@ def run_launcher(args: Any) -> None:
         attack_mode_parts.append(args.pixel_source)
     if args.solver_run_timeout and args.solver_run_timeout > 0:
         attack_mode_parts.append(f"solver{args.solver_run_timeout}s")
+    if args.sat_batch_size > 1:
+        attack_mode_parts.append(f"satbatch{args.sat_batch_size}")
     attack_mode_for_paths = "_".join(attack_mode_parts)
     force_refresh = args.force_refresh
     first_n_range = range(0, args.first_n)
@@ -370,6 +376,7 @@ def run_launcher(args: Any) -> None:
                     args.constraint_build_timeout,
                     args.constraint_build_timeout_seconds,
                     args.solver_run_timeout if args.solver_run_timeout > 0 else None,
+                    args.sat_batch_size,
                     args.error_retry_limit,
                     args.norm_01,
                     args.attack_mode,

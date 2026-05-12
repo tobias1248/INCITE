@@ -50,6 +50,7 @@ class ExplorerConfig:
     save_dir: Optional[str] = None
     input_name: Optional[str] = None
     only_first_forward: bool = False
+    sat_batch_size: int = 1
     shap_score_alpha: Optional[float] = None
     symbolic_path_threshold: Optional[int] = None
     ternary_simplification: bool = False
@@ -156,6 +157,7 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
         execute_=explorer_cfg.execute,
         validation_execute_=explorer_cfg.validation_execute,
         only_first_forward=explorer_cfg.only_first_forward,
+        sat_batch_size=explorer_cfg.sat_batch_size,
         shap_score_alpha=explorer_cfg.shap_score_alpha,
         symbolic_path_threshold=explorer_cfg.symbolic_path_threshold,
     )
@@ -168,6 +170,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         constraint_build_timeout_seconds: int = 30,
         solver_run_timeout: Optional[int] = 60,
         random_seed: Optional[int] = None,
+        sat_batch_size: int = 1,
         limit_change_range=None,
         only_first_forward=False,
         collect_constraints_with='priority_queue',
@@ -245,6 +248,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         save_dir=save_dir,
         input_name=input_name,
         only_first_forward=only_first_forward,
+        sat_batch_size=sat_batch_size,
         shap_score_alpha=score_alpha,
         symbolic_path_threshold=symbolic_path_threshold,
         ternary_simplification=ternary_simplification,
@@ -260,6 +264,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         "symbolic_path_threshold": symbolic_path_threshold,
         "ternary_simplification": bool(ternary_simplification),
         "ternary_threshold_scale": float(ternary_threshold_scale),
+        "sat_batch_size": int(sat_batch_size),
         "constraint_build_timeout": bool(constraint_build_timeout),
         "constraint_build_timeout_seconds": (
             int(constraint_build_timeout_seconds)
