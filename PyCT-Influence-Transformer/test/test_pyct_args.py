@@ -163,6 +163,20 @@ def test_parse_args_defaults_ternary_flags() -> None:
     assert args.ternary_simplification is False
     assert args.ternary_threshold_scale == pytest.approx(0.75)
     assert args.error_retry_limit == 2
+    assert args.sat_batch_size == 1
+
+
+def test_parse_args_accepts_custom_sat_batch_size() -> None:
+    args = parse_args(
+        [
+            "--attack-mode",
+            "queue",
+            "--sat-batch-size",
+            "8",
+        ]
+    )
+
+    assert args.sat_batch_size == 8
 
 
 def test_parse_args_accepts_custom_ternary_threshold_scale() -> None:
@@ -229,5 +243,18 @@ def test_parse_args_rejects_negative_error_retry_limit() -> None:
                 "queue",
                 "--error-retry-limit",
                 "-1",
+            ]
+        )
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_parse_args_rejects_non_positive_sat_batch_size(value: str) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "queue",
+                "--sat-batch-size",
+                value,
             ]
         )

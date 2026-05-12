@@ -160,6 +160,7 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
         symbolic_path_threshold=2000,
         ternary_simplification=True,
         ternary_threshold_scale=1.5,
+        sat_batch_size=4,
         solver_run_timeout=1,
         constraint_build_timeout=True,
         constraint_build_timeout_seconds=15,
@@ -190,6 +191,7 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
     ]
     assert captured["cfg"].execute == "search-predict"
     assert captured["cfg"].validation_execute == "validation-predict"
+    assert captured["cfg"].sat_batch_size == 4
     assert captured["extra_meta"] == {
         "model_name": "demo",
         "attack_mode": "queue_solver1s",
@@ -198,6 +200,7 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
         "symbolic_path_threshold": 2000,
         "ternary_simplification": True,
         "ternary_threshold_scale": 1.5,
+        "sat_batch_size": 4,
         "constraint_build_timeout": True,
         "constraint_build_timeout_seconds": 15,
         "ton": 1,
@@ -276,6 +279,7 @@ def test_run_uses_defaults_when_save_exp_and_optional_args_are_missing(monkeypat
         "symbolic_path_threshold": None,
         "ternary_simplification": False,
         "ternary_threshold_scale": 0.75,
+        "sat_batch_size": 1,
         "constraint_build_timeout": True,
         "constraint_build_timeout_seconds": 30,
     }

@@ -101,6 +101,7 @@ def _make_engine(validation_execute):
     engine.constraints_to_solve = deque([object()])
     engine.idx = 0
     engine.only_first_forward = False
+    engine.sat_batch_size = 1
     engine.symbolic_path_threshold = None
     engine.symbolic_enabled = True
     engine.symbolic_disabled_at_path_len = None
@@ -179,6 +180,109 @@ def test_execution_loop_uses_validation_predictor_for_labels(monkeypatch) -> Non
     assert recorder.original_label == 0
     assert recorder.attack_label == 1
     assert validation_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
+    assert search_calls == [{"v_0_0": 0.0}]
+
+
+def test_execution_loop_batches_sat_candidates_before_validation(monkeypatch) -> None:
+    recorder = _RecorderStub()
+    explore.recorder = recorder
+    explore.Solver.stats = {
+        "sat_number": 0,
+        "sat_time": 0,
+        "unsat_number": 0,
+        "unsat_time": 0,
+        "otherwise_number": 0,
+        "otherwise_time": 0,
+    }
+    events = []
+
+    def validation_execute(**data):
+        events.append(("validate", dict(data)))
+        return 0
+
+    engine = _make_engine(validation_execute)
+    engine.sat_batch_size = 2
+    engine.constraints_to_solve = deque(["c1", "c2", "c3"])
+
+    def fake_one_execution(all_args, concolic_dict):
+        events.append(("execute", dict(all_args)))
+        return True
+
+    solver_models = iter(
+        [
+            {"v_0_0": 1.0},
+            {"v_0_0": 2.0},
+            {"v_0_0": 3.0},
+        ]
+    )
+
+    def fake_find_model(*_args, **_kwargs):
+        events.append(("solve", _args[1]))
+        return next(solver_models)
+
+    monkeypatch.setattr(engine, "_one_execution", fake_one_execution)
+    monkeypatch.setattr(explore.Solver, "find_model_from_constraint", fake_find_model)
+
+    timed_out = engine._execution_loop(1, {"v_0_0": 0.0}, {})
+
+    assert timed_out is False
+    assert events == [
+        ("validate", {"v_0_0": 0.0}),
+        ("execute", {"v_0_0": 0.0}),
+        ("solve", "c1"),
+        ("solve", "c2"),
+        ("validate", {"v_0_0": 1.0}),
+        ("validate", {"v_0_0": 2.0}),
+        ("execute", {"v_0_0": 1.0}),
+    ]
+
+
+def test_execution_loop_validates_fifo_until_adversarial(monkeypatch) -> None:
+    recorder = _RecorderStub()
+    explore.recorder = recorder
+    explore.Solver.stats = {
+        "sat_number": 0,
+        "sat_time": 0,
+        "unsat_number": 0,
+        "unsat_time": 0,
+        "otherwise_number": 0,
+        "otherwise_time": 0,
+    }
+    validation_calls = []
+
+    def validation_execute(**data):
+        validation_calls.append(dict(data))
+        return 1 if data["v_0_0"] == 2.0 else 0
+
+    engine = _make_engine(validation_execute)
+    engine.sat_batch_size = 3
+    engine.constraints_to_solve = deque(["c1", "c2", "c3"])
+    search_calls = []
+
+    monkeypatch.setattr(engine, "_one_execution", lambda all_args, _concolic_dict: search_calls.append(dict(all_args)) or True)
+    solver_models = iter(
+        [
+            {"v_0_0": 1.0},
+            {"v_0_0": 2.0},
+            {"v_0_0": 3.0},
+        ]
+    )
+    monkeypatch.setattr(
+        explore.Solver,
+        "find_model_from_constraint",
+        lambda *_args, **_kwargs: next(solver_models),
+    )
+
+    timed_out = engine._execution_loop(0, {"v_0_0": 0.0}, {})
+
+    assert timed_out is False
+    assert validation_calls == [
+        {"v_0_0": 0.0},
+        {"v_0_0": 1.0},
+        {"v_0_0": 2.0},
+    ]
+    assert recorder.attack_label == 1
+    assert recorder.adversarial_input == {"v_0_0": 2.0}
     assert search_calls == [{"v_0_0": 0.0}]
 
 

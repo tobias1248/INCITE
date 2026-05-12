@@ -86,6 +86,7 @@ def _make_args(**overrides):
         constraint_build_timeout=True,
         constraint_build_timeout_seconds=15,
         solver_run_timeout=1,
+        sat_batch_size=1,
         error_retry_limit=2,
         score_alpha=None,
         symbolic_path_threshold=2000,
@@ -305,6 +306,24 @@ def test_run_launcher_adds_patchshap_suffix_for_cifar10(monkeypatch) -> None:
     ]
 
 
+def test_run_launcher_adds_sat_batch_suffix_only_when_non_default(monkeypatch) -> None:
+    calls = []
+    payload = {"idx": 0, "save_exp": {}, "con_dict": {}, "solve_order_stack": False}
+    _install_runtime_fakes(monkeypatch)
+    monkeypatch.setattr(launcher, "collect_stage_cases", lambda inputs: [])
+    monkeypatch.setattr(launcher, "should_run_payload", lambda payload, force_refresh: True)
+    monkeypatch.setattr(
+        launcher,
+        "mnist_transformer_shap",
+        lambda model_name, **kwargs: calls.append((model_name, kwargs)) or [dict(payload)],
+    )
+    monkeypatch.setattr(launcher, "mnist_transformer_random", lambda *args, **kwargs: [])
+
+    launcher.run_launcher(_make_args(sat_batch_size=4))
+
+    assert calls[0][1]["attack_mode"] == "queue_solver1s_satbatch4"
+
+
 def test_run_launcher_skips_payloads_when_progress_says_not_to_run(monkeypatch) -> None:
     payload = {"idx": 0, "save_exp": {}, "con_dict": {}, "solve_order_stack": False}
     _install_runtime_fakes(monkeypatch)
@@ -409,7 +428,7 @@ def test_worker_exits_immediately_when_shutdown_requested(monkeypatch, caplog) -
     monkeypatch.setattr(launcher, "ShapRunner", lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected")))
 
     with caplog.at_level(logging.INFO, logger="ct.cli"):
-        launcher._worker(queue, 3, True, 15, 1, 2, False, "queue", "random", 2024, event)
+        launcher._worker(queue, 3, True, 15, 1, 1, 2, False, "queue", "random", 2024, event)
 
     assert "[WORKER-SHUTDOWN]" in caplog.text
     assert "[WORKER-EXIT]" in caplog.text
@@ -431,7 +450,7 @@ def test_worker_uses_queue_runner_and_handles_empty_queue(monkeypatch) -> None:
     monkeypatch.setattr(launcher.os, "getpid", lambda: 2222)
     monkeypatch.setattr(launcher, "QueueRunner", _FakeRunner)
 
-    launcher._worker(queue, 5, True, 15, 2, 2, False, "queue", "random", 2024, _FakeEvent())
+    launcher._worker(queue, 5, True, 15, 2, 3, 2, False, "queue", "random", 2024, _FakeEvent())
 
     assert created == [
         {
@@ -439,6 +458,7 @@ def test_worker_uses_queue_runner_and_handles_empty_queue(monkeypatch) -> None:
             "constraint_build_timeout": True,
             "constraint_build_timeout_seconds": 15,
             "solver_run_timeout": 2,
+            "sat_batch_size": 3,
             "error_retry_limit": 2,
             "norm": False,
             "collect_constraints_with": "queue",
@@ -477,7 +497,7 @@ def test_worker_logs_task_errors_and_continues(monkeypatch, caplog, tmp_path: Pa
     monkeypatch.setattr(launcher, "_resolve_task_save_dir", lambda task, attack_mode: save_dir)
 
     with caplog.at_level(logging.ERROR, logger="ct.cli"):
-        launcher._worker(queue, 5, True, 15, 2, 2, False, "shap", "random", 2024, _FakeEvent())
+        launcher._worker(queue, 5, True, 15, 2, 1, 2, False, "shap", "random", 2024, _FakeEvent())
 
     assert calls == [
         {
@@ -512,7 +532,7 @@ def test_worker_uses_random_assign_runner_and_handles_interrupt(monkeypatch, cap
     monkeypatch.setattr(launcher, "RandomAssignRunner", _FakeRunner)
 
     with caplog.at_level(logging.INFO, logger="ct.cli"):
-        launcher._worker(queue, 6, False, 12, None, 2, True, "random-assign", "shap", 99, _FakeEvent())
+        launcher._worker(queue, 6, False, 12, None, 5, 2, True, "random-assign", "shap", 99, _FakeEvent())
 
     assert created == [
         {
@@ -520,6 +540,7 @@ def test_worker_uses_random_assign_runner_and_handles_interrupt(monkeypatch, cap
             "constraint_build_timeout": False,
             "constraint_build_timeout_seconds": 12,
             "solver_run_timeout": None,
+            "sat_batch_size": 5,
             "norm": True,
             "pixel_source": "shap",
             "base_seed": 99,
