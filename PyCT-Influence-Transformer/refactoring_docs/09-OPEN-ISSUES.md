@@ -21,6 +21,16 @@ Use this format for new entries:
 
 ## Open Issues
 
+### ISSUE-7: Ternary search path can trigger duplicate model execution per candidate
+
+- **Status**: Open
+- **Area**: Runtime
+- **Priority**: High
+- **Found during**: Post-refactor timing review of `total_time`, `solve_time`, and `forward_time` in `exp_storage`
+- **Problem**: In the current `ternary_simplification=true` flow, a SAT candidate can first be evaluated by `predict_validation` during the solve phase to check whether the label changed, and then be passed into `_one_execution()` where `execute_search` runs again to continue exploration and generate constraints. This means one candidate may incur two model-level executions in the same iteration, split across `solve_time` and `forward_time`.
+- **Impact**: Experiment timing is harder to interpret because `solve_time` includes validation inference while `forward_time` includes search execution. This also adds avoidable runtime overhead relative to the non-ternary path, where `execute` may already match validation semantics and could allow result reuse or a merged path.
+- **Suggested follow-up**: Treat this as a high-priority performance and accounting issue. First document the exact call paths and add per-phase counters or timings for validation-vs-search execution. Then evaluate whether the non-ternary path can safely reuse one execution result, and whether the ternary path can avoid redundant validation or restructure candidate handling without changing attack semantics.
+
 ### ISSUE-1: `child_event_message` can become too large
 
 - **Status**: Open
