@@ -158,6 +158,44 @@ def test_handle_ok_envelope_applies_shared_state_and_constraint_payload() -> Non
     assert engine.var_to_types == {"x_VAR": "Real"}
 
 
+def test_deferred_ok_envelope_returns_payload_without_applying_constraints() -> None:
+    engine = _EngineStub()
+    protocol = ChildProtocol(engine)
+    old_constraints = Constraint.global_constraints
+    old_queue = engine.constraints_to_solve
+    old_path = engine.path
+    old_symbolic_disabled = engine.symbolic_disabled_at_path_len
+    new_constraints = [object()]
+    new_queue = deque(["new"])
+    new_path = object()
+    all_args = {"x": 0}
+    payload = (new_constraints, new_queue, new_path, 4)
+    envelope = {
+        "kind": "ok",
+        "pid": 5,
+        "phase": "execute",
+        "updated_args": {"x": 2},
+        "result": "done",
+        "constraint_payload": payload,
+        "var_to_types": {"x_VAR": "Real"},
+        "concolic_name_list": ["x_VAR"],
+        "concolic_flag_dict": {"x_VAR": 1},
+    }
+
+    result, constraint_payload = protocol.handle_child_envelope_deferred_constraints(all_args, envelope)
+
+    assert result == "done"
+    assert constraint_payload is payload
+    assert all_args == {"x": 2}
+    assert engine.var_to_types == {"x_VAR": "Real"}
+    assert engine.concolic_name_list == ["x_VAR"]
+    assert engine.concolic_flag_dict == {"x_VAR": 1}
+    assert Constraint.global_constraints is old_constraints
+    assert engine.constraints_to_solve is old_queue
+    assert engine.path is old_path
+    assert engine.symbolic_disabled_at_path_len is old_symbolic_disabled
+
+
 def test_child_event_records_metadata_and_returns_result(caplog) -> None:
     recorder = _RecorderStub()
     engine = _EngineStub(recorder=recorder)
@@ -182,6 +220,40 @@ def test_child_event_records_metadata_and_returns_result(caplog) -> None:
     assert recorder.extra_meta["child_pid"] == 77
     assert "[CHILD-EVENT]" in caplog.text
     assert "input_name=case_7" in caplog.text
+
+
+def test_deferred_child_event_records_metadata_without_payload(caplog) -> None:
+    recorder = _RecorderStub()
+    engine = _EngineStub(recorder=recorder)
+    protocol = ChildProtocol(engine)
+    old_constraints = Constraint.global_constraints
+    old_queue = engine.constraints_to_solve
+    old_path = engine.path
+    all_args = {"x": 0}
+
+    with caplog.at_level("WARNING", logger="ct.explore"):
+        result, constraint_payload = protocol.handle_child_envelope_deferred_constraints(
+            all_args,
+            {
+                "kind": "child_event",
+                "pid": 77,
+                "phase": "execute",
+                "updated_args": {"x": 3},
+                "result": engine.Timeout,
+                "event_type": "soft_timeout",
+                "message": "timeout",
+            },
+        )
+
+    assert result is engine.Timeout
+    assert constraint_payload is None
+    assert all_args == {"x": 3}
+    assert recorder.extra_meta["child_event_type"] == "soft_timeout"
+    assert recorder.extra_meta["child_pid"] == 77
+    assert Constraint.global_constraints is old_constraints
+    assert engine.constraints_to_solve is old_queue
+    assert engine.path is old_path
+    assert "[CHILD-EVENT]" in caplog.text
 
 
 def test_child_error_writes_diagnostic_and_raises(tmp_path: Path) -> None:

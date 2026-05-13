@@ -91,6 +91,35 @@ def test_concolic_runner_parent_receives_handles_and_cleans_up(monkeypatch) -> N
     assert send_conn.closed is True
 
 
+def test_concolic_runner_run_deferred_receives_without_handling(monkeypatch) -> None:
+    read_conn = _Conn()
+    send_conn = _Conn()
+    processes = []
+
+    monkeypatch.setattr(concolic.multiprocessing, "Pipe", lambda: (read_conn, send_conn))
+
+    def fake_process(*, target: Any, args: tuple[Any, ...]) -> _Process:
+        process = _Process(target=target, args=args, alive=True)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(concolic.multiprocessing, "Process", fake_process)
+
+    engine = _ParentEngine()
+    all_args = {"x": 1}
+    envelope = ConcolicExecutionRunner(engine).run_deferred(all_args, {"x": 1})
+
+    assert envelope == {"kind": "ok", "pid": 1234, "phase": "execute", "result": "raw"}
+    assert all_args == {"x": 1}
+    assert engine.received == [(read_conn, processes[0], 12)]
+    assert engine.handled == []
+    assert processes[0].started is True
+    assert processes[0].killed is True
+    assert processes[0].join_timeouts == [0.1]
+    assert read_conn.closed is True
+    assert send_conn.closed is True
+
+
 def test_exploration_engine_concolic_wrapper_lazily_delegates() -> None:
     class _Runner:
         def __init__(self) -> None:
