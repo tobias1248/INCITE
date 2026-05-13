@@ -190,6 +190,7 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
     ]
     assert captured["cfg"].execute == "search-predict"
     assert captured["cfg"].validation_execute == "validation-predict"
+    assert captured["cfg"].reuse_search_result_for_validation is False
     assert captured["extra_meta"] == {
         "model_name": "demo",
         "attack_mode": "queue_solver1s",
@@ -268,6 +269,7 @@ def test_run_uses_defaults_when_save_exp_and_optional_args_are_missing(monkeypat
     ]
     assert captured["cfg"].execute == "validation-predict"
     assert captured["cfg"].validation_execute == "validation-predict"
+    assert captured["cfg"].reuse_search_result_for_validation is True
     assert captured["extra_meta"] == {
         "model_name": "demo",
         "attack_mode": "unknown",
