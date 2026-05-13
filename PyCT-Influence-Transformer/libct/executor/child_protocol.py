@@ -4,7 +4,7 @@ import logging
 import os
 import time
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from libct.constraint import Constraint
 
@@ -330,6 +330,40 @@ class ChildProtocol:
             )
             return envelope["result"]
 
+        self._raise_child_error(envelope, child_pid, phase, message)
+
+    def handle_child_envelope_deferred_constraints(
+        self,
+        all_args: Dict[str, Any],
+        envelope: Dict[str, Any],
+    ) -> Tuple[Any, Optional[Any]]:
+        self.apply_child_shared_state(all_args, envelope)
+        kind = envelope["kind"]
+        child_pid = envelope.get("pid")
+        phase = str(envelope.get("phase", "execute"))
+        message = str(envelope.get("message", ""))
+
+        if kind == "ok":
+            return envelope["result"], envelope["constraint_payload"]
+
+        if kind == "child_event":
+            self.record_child_event(
+                str(envelope["event_type"]),
+                message,
+                phase=phase,
+                child_pid=child_pid,
+            )
+            return envelope["result"], None
+
+        self._raise_child_error(envelope, child_pid, phase, message)
+
+    def _raise_child_error(
+        self,
+        envelope: Dict[str, Any],
+        child_pid: Optional[int],
+        phase: str,
+        message: str,
+    ) -> None:
         error_type = str(envelope["error_type"])
         log.error(
             "[CHILD-ERROR] idx=%s pid=%s phase=%s error_type=%s input_name=%s save_dir=%s message=%s",

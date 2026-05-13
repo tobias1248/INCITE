@@ -43,6 +43,10 @@ class ConcolicExecutionRunner:
         self._engine = engine
 
     def run(self, all_args: Dict[str, Any], concolic_dict: Dict[str, Any]) -> Any:
+        envelope = self.run_deferred(all_args, concolic_dict)
+        return self._engine._handle_child_envelope(all_args, envelope)
+
+    def run_deferred(self, all_args: Dict[str, Any], concolic_dict: Dict[str, Any]) -> Dict[str, Any]:
         r2, s2 = multiprocessing.Pipe()
 
         process = multiprocessing.Process(
@@ -57,14 +61,13 @@ class ConcolicExecutionRunner:
                 process,
                 self._engine.single_timeout + 5,
             )
-            result = self._engine._handle_child_envelope(all_args, envelope)
         finally:
             r2.close()
             s2.close()
             if process.is_alive():
                 process.kill()
             process.join(timeout=0.1)
-        return result
+        return envelope
 
     def _child_process(self, send_conn: Any, all_args: Dict[str, Any], concolic_dict: Dict[str, Any]) -> None:
         # Very important to prevent the later primitive mode from using concolic objects imported here.

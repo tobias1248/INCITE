@@ -89,7 +89,8 @@ class ExplorationEngine:
                 validation_execute_: Optional[Callable] = None,
                 only_first_forward: bool,
                 shap_score_alpha: Optional[float] = None,
-                symbolic_path_threshold: Optional[int] = None):
+                symbolic_path_threshold: Optional[int] = None,
+                reuse_search_result_for_validation: bool = False):
         global module, execute
 
         module = module_
@@ -103,6 +104,7 @@ class ExplorationEngine:
             None if shap_score_alpha is None else float(shap_score_alpha)
         )
         self.symbolic_path_threshold = None if symbolic_path_threshold is None else int(symbolic_path_threshold)
+        self.reuse_search_result_for_validation = bool(reuse_search_result_for_validation)
         self.symbolic_enabled = True
         self.symbolic_disabled_at_path_len = None
         self.constraint_log_enabled = _env_flag("PYCT_ENABLE_CONSTRAINT_LOG", False)
@@ -322,6 +324,13 @@ class ExplorationEngine:
     def _handle_child_envelope(self, all_args: Dict[str, Any], envelope: Dict[str, Any]) -> Any:
         return self._get_child_protocol().handle_child_envelope(all_args, envelope)
 
+    def _handle_child_envelope_deferred_constraints(
+        self,
+        all_args: Dict[str, Any],
+        envelope: Dict[str, Any],
+    ) -> Tuple[Any, Optional[Any]]:
+        return self._get_child_protocol().handle_child_envelope_deferred_constraints(all_args, envelope)
+
     def _apply_constraint_transfer_payload(self, payload: Any) -> None:
         self._get_child_protocol().apply_constraint_transfer_payload(payload)
 
@@ -388,6 +397,8 @@ class ExplorationEngine:
             recorder.solve_constr_start()
             solve_constr_num = len(self.constraints_to_solve)
             found_adversarial = False
+            executed_sat_candidate = False
+            sat_candidate_for_execution = False
             while len(self.constraints_to_solve) > 0:
                 if _check_deadline():
                     timed_out = True
@@ -409,7 +420,10 @@ class ExplorationEngine:
                         # sat and this input args have not used
                         # .copy() is important!!
                         tried_input_args.append(all_args.copy())
-                        found_adversarial = self._validate_sat_candidate(all_args)
+                        if self._candidate_execution_can_validate():
+                            sat_candidate_for_execution = True
+                        else:
+                            found_adversarial = self._validate_sat_candidate(all_args)
                         break
 
             recorder.solve_constr_end()
@@ -428,8 +442,29 @@ class ExplorationEngine:
                 recorder.save_stats_dict()
                 break
 
+            if sat_candidate_for_execution:
+                gen_constr_num = len(self.constraints_to_solve)
+                recorder.execution_start()
+                result, constraint_payload = self._one_execution_deferred_constraints(all_args, concolic_dict)
+                recorder.execution_end()
+                executed_sat_candidate = True
+                found_adversarial = self._search_result_changes_label(all_args, result)
+                if found_adversarial:
+                    recorder.gen_constraint.append(0)
+                    iterations += 1
+                    recorder.iter_end(Solver.stats, solve_constr_num)
+                    self._update_symbolic_meta()
+                    recorder.save_stats_dict()
+                    break
+                if constraint_payload is not None:
+                    self._apply_constraint_transfer_payload(constraint_payload)
+                self.in_out.append((all_args.copy(), result))
+                self._record_result(all_args, result)
+                gen_constr_num = len(self.constraints_to_solve) - gen_constr_num
+                recorder.gen_constraint.append(gen_constr_num)
+
             # solve new input and use it to execute
-            if not self.only_first_forward:
+            if not self.only_first_forward and not executed_sat_candidate:
                 gen_constr_num = len(self.constraints_to_solve)
                 recorder.execution_start()
                 cont = self._one_execution(all_args, concolic_dict)
@@ -647,10 +682,36 @@ class ExplorationEngine:
             return True
         return False
 
+    def _search_result_changes_label(self, inputs: Dict[str, Any], result: Any) -> bool:
+        if result in (self.Timeout, self.Exception, self.Unpicklable):
+            return False
+        if recorder.original_label != result:
+            log.warning(
+                "[RESULT_CHANGE] Original result %s differs from search candidate %s",
+                recorder.original_label,
+                result,
+            )
+            recorder.find_adversarial_input(inputs, result)
+            return True
+        return False
+
     def _record_result(self, inputs: Dict[str, Any], result: Any) -> bool:
         """Retain search execution results without using them for attack validation."""
         self.previous_result = result
         return True
+
+    def _candidate_execution_can_validate(self) -> bool:
+        return bool(getattr(self, "reuse_search_result_for_validation", False)) and not bool(
+            getattr(self, "single_coverage", False)
+        )
+
+    def _one_execution_deferred_constraints(
+        self,
+        all_args: Dict[str, Any],
+        concolic_dict: Dict[str, Any],
+    ) -> Tuple[Any, Optional[Any]]:
+        envelope = self._one_execution_concolic_deferred(all_args, concolic_dict)
+        return self._handle_child_envelope_deferred_constraints(all_args, envelope)
 
     def _one_execution(self, all_args, concolic_dict):
         """Run one concolic+primitive execution pair to advance exploration."""
@@ -696,6 +757,9 @@ class ExplorationEngine:
 
     def _one_execution_concolic(self, all_args: dict, concolic_dict: dict):
         return self._get_concolic_runner().run(all_args, concolic_dict)
+
+    def _one_execution_concolic_deferred(self, all_args: dict, concolic_dict: dict):
+        return self._get_concolic_runner().run_deferred(all_args, concolic_dict)
 
     def _one_execution_primitive(self, primitive_inputs):
         return self._get_primitive_runner().run(primitive_inputs)

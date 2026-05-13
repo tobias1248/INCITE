@@ -54,6 +54,7 @@ class ExplorerConfig:
     symbolic_path_threshold: Optional[int] = None
     ternary_simplification: bool = False
     ternary_threshold_scale: float = 0.75
+    reuse_search_result_for_validation: bool = False
 
 
 def _resolve_model_artifacts(model_name: str) -> tuple[str, str, str]:
@@ -158,6 +159,7 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
         only_first_forward=explorer_cfg.only_first_forward,
         shap_score_alpha=explorer_cfg.shap_score_alpha,
         symbolic_path_threshold=explorer_cfg.symbolic_path_threshold,
+        reuse_search_result_for_validation=explorer_cfg.reuse_search_result_for_validation,
     )
 
 
@@ -249,6 +251,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         symbolic_path_threshold=symbolic_path_threshold,
         ternary_simplification=ternary_simplification,
         ternary_threshold_scale=ternary_threshold_scale,
+        reuse_search_result_for_validation=not bool(ternary_simplification),
     )
 
     engine = _build_explorer(explorer_cfg)
