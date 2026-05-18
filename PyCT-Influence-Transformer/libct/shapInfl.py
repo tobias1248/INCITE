@@ -818,6 +818,8 @@ class ShapValuesComparator:
         explainer_type: Literal["gradient", "kernel"] = "gradient",
         output_root: str = "shap_value_all_layer",
     ) -> None:
+        lookup_mode = str(os.environ.get("PYCT_SHAP_LOOKUP_MODE", "all")).strip().lower()
+        self._input_only_lookup = lookup_mode in {"input-only", "input_only", "inputonly"}
         cache_path = Path(output_root) / Path(model_path).stem / f"shap_value_{idx}.json"
         if shap_value_pre_calculated and cache_path.is_file():
             try:
@@ -876,18 +878,26 @@ class ShapValuesComparator:
 
     def _lookup(self, layer_number: int, indices: tuple[int, ...]) -> float:
         key = self.get_position_key(layer_number, indices)
-        if key in self.shap_values:
+        if key in self.shap_values and (
+            not self._input_only_lookup or layer_number == -1
+        ):
             return self.shap_values[key]
         alt_key = self.get_position_key(layer_number - 1, indices)
-        if alt_key in self.shap_values:
+        if alt_key in self.shap_values and (
+            not self._input_only_lookup or layer_number - 1 == -1
+        ):
             return self.shap_values[alt_key]
         if len(indices) > 1:
             spatial = indices[:-1]
             spatial_key = self.get_position_key(layer_number, spatial)
-            if spatial_key in self.shap_values:
+            if spatial_key in self.shap_values and (
+                not self._input_only_lookup or layer_number == -1
+            ):
                 return self.shap_values[spatial_key]
             spatial_alt_key = self.get_position_key(layer_number - 1, spatial)
-            if spatial_alt_key in self.shap_values:
+            if spatial_alt_key in self.shap_values and (
+                not self._input_only_lookup or layer_number - 1 == -1
+            ):
                 return self.shap_values[spatial_alt_key]
         return 0.0
 

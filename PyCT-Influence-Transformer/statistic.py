@@ -104,6 +104,14 @@ def _count_le(values: List[float], threshold: float) -> int:
     return sum(1 for v in values if v <= threshold)
 
 
+def _derive_success(meta: Dict[str, Any], data: Dict[str, Any]) -> bool:
+    raw_success = meta.get("success", data.get("success"))
+    if isinstance(raw_success, bool):
+        return raw_success
+    attack_label = meta.get("attack_label", data.get("attack_label"))
+    return attack_label is not None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Summarize stats.json metrics under a directory."
@@ -223,7 +231,6 @@ def main() -> int:
             continue
 
         meta = data.get("meta") or {}
-        attack_label = meta.get("attack_label", data.get("attack_label"))
         is_timeout = bool(meta.get("is_timeout", False))
         solve_all_ctr = bool(meta.get("solve_all_ctr", False))
         is_finish = bool(meta.get("is_finish", False))
@@ -231,7 +238,7 @@ def main() -> int:
         if raw_status is not None:
             _increment(status_counts, raw_status)
 
-        success = attack_label is not None
+        success = _derive_success(meta, data)
         exhausted = solve_all_ctr
         timeout = is_timeout
         incomplete = not success and not exhausted and not timeout
@@ -521,7 +528,6 @@ def main() -> int:
                             history_parse_errors += 1
                             continue
                         meta = data.get("meta") or {}
-                        attack_label = meta.get("attack_label", data.get("attack_label"))
                         is_timeout = bool(meta.get("is_timeout", False))
                         solve_all_ctr = bool(meta.get("solve_all_ctr", False))
                         is_finish = bool(meta.get("is_finish", False))
@@ -529,7 +535,7 @@ def main() -> int:
                         if status is not None:
                             _increment(history_status_counts, status)
 
-                        success = attack_label is not None
+                        success = _derive_success(meta, data)
                         exhausted = solve_all_ctr
                         timeout = is_timeout
                         incomplete = not success and not exhausted and not timeout

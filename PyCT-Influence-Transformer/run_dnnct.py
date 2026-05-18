@@ -142,6 +142,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         constraint_build_timeout: bool = True,
         constraint_build_timeout_seconds: int = 30,
         solver_run_timeout: Optional[int] = 60,
+        random_seed: Optional[int] = None,
         limit_change_range=None,
         only_first_forward=False,
         collect_constraints_with='priority_queue',
@@ -202,6 +203,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
             else None
         ),
     }
+    if random_seed is not None:
+        extra_meta["random_seed"] = int(random_seed)
     if save_exp:
         if "ton" in save_exp:
             extra_meta["ton"] = save_exp.get("ton")

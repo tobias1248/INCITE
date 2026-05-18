@@ -40,6 +40,23 @@ def _stats_indicate_completion(payload: Dict[str, Any]) -> bool:
     return bool(attack_label is not None or is_finished or is_timeout)
 
 
+def _extract_success_flag(payload: Dict[str, Any]) -> Optional[bool]:
+    meta = payload.get("meta") or {}
+    raw = payload.get("success", meta.get("success"))
+    if isinstance(raw, bool):
+        return raw
+    return None
+
+
+def _has_successful_attack(payload: Dict[str, Any]) -> bool:
+    explicit = _extract_success_flag(payload)
+    if explicit is not None:
+        return explicit
+    meta = payload.get("meta") or {}
+    attack_label = payload.get("attack_label", meta.get("attack_label"))
+    return attack_label is not None
+
+
 def _load_stats_payload(stats_path: Path) -> Tuple[Optional[Dict[str, Any]], str]:
     if not stats_path.is_file():
         return None, "missing_stats"
@@ -76,10 +93,10 @@ def _extract_last_ton(stats: Dict[str, Any]) -> Optional[int]:
 
 def _derive_stage_outcome_payload(stats: Dict[str, Any]) -> Tuple[bool, str]:
     meta = stats.get("meta") or {}
-    attack_label = meta.get("attack_label")
+    success = _has_successful_attack(stats)
     solved_all = bool(meta.get("solve_all_ctr"))
     is_timeout = bool(meta.get("is_timeout"))
-    if attack_label is not None:
+    if success:
         return False, "adv_found"
     if solved_all:
         return True, "solve_all_ctr"
@@ -101,8 +118,7 @@ def _should_run_ton(
     stats, _ = _load_stats_payload(stats_path)
     if not stats:
         return ton_value == ton_sequence[0]
-    meta = stats.get("meta") or {}
-    if meta.get("attack_label") is not None:
+    if _has_successful_attack(stats):
         return False
     last_ton = _extract_last_ton(stats)
     if last_ton is None:
@@ -306,10 +322,15 @@ def run_launcher(args: Any) -> None:
     os.environ["PYCT_ENABLE_CONSTRAINT_LOG"] = "1" if args.enable_constraint_log else "0"
 
     attack_mode_parts = [attack_mode]
+    attack_mode_suffix = os.environ.get("PYCT_ATTACK_MODE_SUFFIX", "").strip()
+    if attack_mode_suffix:
+        attack_mode_parts.append(attack_mode_suffix)
     if args.attack_mode == "shap" and args.pixel_selector == "patch-shap":
         attack_mode_parts.append("patchshap")
     if args.attack_mode == "shap" and args.pixel_selector == "token-shap":
         attack_mode_parts.append("tokenshap")
+    if args.attack_mode == "random-assign":
+        attack_mode_parts.append(args.pixel_source)
     if args.solver_run_timeout and args.solver_run_timeout > 0:
         attack_mode_parts.append(f"solver{args.solver_run_timeout}s")
     attack_mode_for_paths = "_".join(attack_mode_parts)
@@ -402,6 +423,8 @@ def run_launcher(args: Any) -> None:
     for payload in inputs:
         payload["score_alpha"] = args.score_alpha
         payload["symbolic_path_threshold"] = args.symbolic_path_threshold
+        if args.attack_mode in {"random", "random-assign"}:
+            payload["random_seed"] = args.random_seed
 
     logger.info(
         "Prepared %s input(s) for attack=%s ton_sequence=%s",
