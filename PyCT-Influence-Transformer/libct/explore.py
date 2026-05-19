@@ -338,9 +338,6 @@ class ExplorationEngine:
         recorder.start()
         Solver.norm = self.normalize
         Solver.limit_change_range = self.limit_change_range
-        recorder.original_label = self._predict_validation(all_args)
-        self.previous_result = recorder.original_label
-
         tried_input_args = [all_args.copy()]  # .copy() is important!!
         iterations = 0
         cont = True
@@ -356,7 +353,7 @@ class ExplorationEngine:
         log.info(f"=== Iterations: {iterations} ===")
         recorder.iter_start(Solver)
         recorder.execution_start()
-        self._one_execution(all_args, concolic_dict)
+        self._run_initial_execution(all_args, concolic_dict)
         recorder.execution_end()
         recorder.iter_end(Solver.stats, 0)
         recorder.gen_constraint.append(len(self.constraints_to_solve))
@@ -704,6 +701,44 @@ class ExplorationEngine:
         return bool(getattr(self, "reuse_search_result_for_validation", False)) and not bool(
             getattr(self, "single_coverage", False)
         )
+
+    def _is_valid_label_result(self, result: Any) -> bool:
+        if result is self.Timeout or result is self.Exception or result is self.Unpicklable:
+            return False
+        if result is None:
+            return False
+        if isinstance(result, (bool, np.bool_)):
+            return False
+        return isinstance(result, (int, np.integer))
+
+    def _run_initial_execution(self, all_args: Dict[str, Any], concolic_dict: Dict[str, Any]) -> None:
+        if not self._candidate_execution_can_validate():
+            recorder.original_label = self._predict_validation(all_args)
+            self.previous_result = recorder.original_label
+            self._one_execution(all_args, concolic_dict)
+            return
+
+        initial_args = all_args.copy()
+        result, constraint_payload = self._one_execution_deferred_constraints(all_args, concolic_dict)
+        if self._is_valid_label_result(result):
+            recorder.original_label = result
+            log.info(
+                "[INITIAL-REUSE] idx=%s reused initial search result for original label: %s",
+                self.idx,
+                result,
+            )
+        else:
+            recorder.original_label = self._predict_validation(initial_args)
+            log.warning(
+                "[INITIAL-FALLBACK] idx=%s initial search result was invalid for original label: %s",
+                self.idx,
+                result,
+            )
+
+        if constraint_payload is not None:
+            self._apply_constraint_transfer_payload(constraint_payload)
+        self.in_out.append((all_args.copy(), result))
+        self._record_result(all_args, result)
 
     def _one_execution_deferred_constraints(
         self,
