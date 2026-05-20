@@ -155,18 +155,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 def configure_logging(level: str, *, log_file: Optional[str] = None) -> None:
+    console_level = getattr(logging, level.upper(), logging.INFO)
     logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
+        level=console_level,
         format="%(message)s",
     )
-    log.setLevel(getattr(logging, level.upper(), logging.INFO))
+    log.setLevel(logging.DEBUG)
     logging.getLogger("ct.model").setLevel(logging.WARNING)
     logging.getLogger("tensorflow").setLevel(logging.WARNING)
     if log_file:
         Path(log_file).parent.mkdir(parents=True, exist_ok=True)
         handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
         handler.setFormatter(logging.Formatter("%(message)s"))
-        handler.setLevel(getattr(logging, level.upper(), logging.INFO))
+        handler.setLevel(logging.INFO)
         log.addHandler(handler)
 
 
