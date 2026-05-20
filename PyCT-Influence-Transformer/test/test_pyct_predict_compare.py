@@ -253,6 +253,19 @@ def test_log_file_records_compare_messages(tmp_path) -> None:
     assert "Result: PASS" in content
 
 
+def test_log_file_records_info_when_console_level_is_critical(tmp_path) -> None:
+    log_file = tmp_path / "predict-compare-critical.log"
+    compare_mod.configure_logging("CRITICAL", log_file=str(log_file))
+
+    result = compare_mod.compare_case(0, [0.1, 0.9], [0.1, 0.9])
+    compare_mod.log_case(result)
+    compare_mod.log_summary(compare_mod.summarize_results([result]))
+
+    content = log_file.read_text()
+    assert "[PASS] idx=0" in content
+    assert "Result: PASS" in content
+
+
 def test_run_batches_keras_predict_and_forwards_each_python_input(monkeypatch) -> None:
     inputs = np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
     keras_model = _FakeKerasModel([[0.1, 0.9], [0.8, 0.2]])
