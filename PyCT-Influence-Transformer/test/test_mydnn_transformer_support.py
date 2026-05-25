@@ -20,6 +20,23 @@ class _TensorLike:
         return self._value
 
 
+def _unit_mha_layer(*, sample_rank=None, attention_axes=None):
+    return mydnn.MultiHeadAttentionLayer(
+        num_heads=1,
+        key_dim_per_heads=1,
+        wq=_TensorLike(np.ones((1, 1, 1))),
+        bq=_TensorLike(np.zeros((1, 1))),
+        wk=_TensorLike(np.ones((1, 1, 1))),
+        bk=_TensorLike(np.zeros((1, 1))),
+        wv=_TensorLike(np.ones((1, 1, 1))),
+        bv=_TensorLike(np.zeros((1, 1))),
+        output_weights=_TensorLike(np.ones((1, 1, 1))),
+        output_bias=_TensorLike(np.zeros((1,))),
+        attention_axes=attention_axes,
+        sample_rank=sample_rank,
+    )
+
+
 class MyDNNTransformerSupportTests(unittest.TestCase):
     def test_activation_layer_supports_gelu(self) -> None:
         layer = mydnn.ActivationLayer("gelu")
@@ -242,6 +259,47 @@ class MyDNNTransformerSupportTests(unittest.TestCase):
         )
 
         self.assertEqual(np.array(output).shape, (2, 2, 1))
+
+    def test_mha_forward_caches_sequence_output(self) -> None:
+        layer = _unit_mha_layer(sample_rank=2)
+
+        output = layer.forward([[1.0], [2.0]])
+
+        self.assertTrue(np.allclose(layer.getOutput(), output, atol=1e-6))
+
+    def test_mha_forward_caches_spatial_output(self) -> None:
+        layer = _unit_mha_layer(sample_rank=3, attention_axes=(1, 2))
+
+        output = layer.forward(
+            [
+                [[1.0], [2.0]],
+                [[3.0], [4.0]],
+            ]
+        )
+
+        self.assertEqual(np.array(layer.getOutput()).shape, (2, 2, 1))
+        self.assertTrue(np.allclose(layer.getOutput(), output, atol=1e-6))
+
+    def test_mha_forward_caches_full_batch_output(self) -> None:
+        layer = _unit_mha_layer(sample_rank=2)
+
+        output = layer.forward(
+            [
+                [[1.0], [2.0]],
+                [[3.0], [4.0]],
+            ]
+        )
+
+        self.assertEqual(np.array(layer.getOutput()).shape, (2, 2, 1))
+        self.assertTrue(np.allclose(layer.getOutput(), output, atol=1e-6))
+
+    def test_nnmodel_get_layer_output_reads_mha_output(self) -> None:
+        layer = _unit_mha_layer(sample_rank=2)
+        output = layer.forward([[1.0], [2.0]])
+        model = mydnn.NNModel()
+        model.layers = [layer]
+
+        self.assertTrue(np.allclose(model.getLayOutput(0), output, atol=1e-6))
 
 
 if __name__ == "__main__":
