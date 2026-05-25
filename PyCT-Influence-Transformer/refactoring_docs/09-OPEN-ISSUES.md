@@ -74,3 +74,12 @@ Use this format for new entries:
 - **Problem**: Repository guidance says Python 3.9-compatible code, but some existing code uses newer syntax such as `float | None`.
 - **Impact**: Packaging or artifact users on Python 3.9 may fail before runtime tests execute.
 - **Suggested follow-up**: Decide whether the project targets Python 3.9 or a newer version. If Python 3.9 remains the target, replace newer syntax and add a compatibility check.
+
+### ISSUE-7: `predict_compare` first layer diff can identify amplification, not root cause
+
+- **Status**: Open
+- **Area**: Observability
+- **Found during**: ResNet18 CIFAR-10 predict comparison investigation
+- **Problem**: After fixing BatchNorm output cache contamination from in-place ReLU, the first failing ResNet18 case moved to `conv2d_3`. Isolating `conv2d_3` with the Keras `re_lu_2` output as input showed the myDNN Conv2D result stayed within the strict tolerance, while the full forward path crossed the threshold at `conv2d_3` because earlier small differences were amplified by convolution accumulation.
+- **Impact**: The current first-layer diff can be read as "this layer is semantically wrong" even when the layer is only the first point where accumulated numerical error exceeds `np.allclose(atol=1e-5, rtol=1e-5)`.
+- **Suggested follow-up**: Extend `predict_compare` diagnostics to log both input and output diff for the first failing layer, use scientific notation for small values, and include top-k absolute diff locations so semantic bugs can be separated from numerical amplification.
