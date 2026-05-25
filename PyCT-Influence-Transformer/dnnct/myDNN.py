@@ -406,6 +406,94 @@ class CenterCrop2DLayer:
     def getOutput(self):
         return self._output
 
+class RandomCropLayer:
+    """Inference-time equivalent for Keras RandomCrop.
+
+    Keras RandomCrop is random only when called with training=True. During
+    predict/inference it uses smart_resize semantics: centered aspect-ratio crop
+    followed by bilinear resize.
+    """
+
+    def __init__(self, target_h: int, target_w: int):
+        self.target_h = target_h
+        self.target_w = target_w
+        self._output = None
+
+    def forward(self, tensor_in):
+        if isinstance(tensor_in, np.ndarray):
+            tensor_in = tensor_in.tolist()
+        if self.target_h is None or self.target_w is None:
+            raise ValueError("RandomCropLayer requires target_h and target_w.")
+        target_h = int(self.target_h)
+        target_w = int(self.target_w)
+        if target_h <= 0 or target_w <= 0:
+            raise ValueError("RandomCropLayer target_h and target_w must be positive.")
+        input_shape = dim(tensor_in)
+        if len(input_shape) != 3:
+            raise ValueError("RandomCropLayer expects a 3D channel-last tensor.")
+        h, w, c = input_shape
+        if h <= 0 or w <= 0 or c <= 0:
+            raise ValueError("RandomCropLayer expects non-empty height, width, and channels.")
+
+        crop_h = min(h, int(float(w * target_h) / target_w))
+        crop_w = min(w, int(float(h * target_w) / target_h))
+        h_start = int(float(h - crop_h) / 2)
+        w_start = int(float(w - crop_w) / 2)
+        cropped = [
+            [list(tensor_in[i][j]) for j in range(w_start, w_start + crop_w)]
+            for i in range(h_start, h_start + crop_h)
+        ]
+        self._output = self._resize_bilinear(cropped, target_h, target_w)
+        return self._output
+
+    def _resize_bilinear(self, tensor_in, target_h: int, target_w: int):
+        input_h = len(tensor_in)
+        input_w = len(tensor_in[0])
+        channels = len(tensor_in[0][0])
+        tensor_out = []
+        scale_h = float(input_h) / float(target_h)
+        scale_w = float(input_w) / float(target_w)
+        for out_i in range(target_h):
+            in_i = (out_i + 0.5) * scale_h - 0.5
+            top_i = int(math.floor(in_i))
+            bottom_i = top_i + 1
+            i_lerp = in_i - top_i
+            if top_i < 0:
+                top_i = bottom_i = 0
+                i_lerp = 0.0
+            elif bottom_i >= input_h:
+                top_i = bottom_i = input_h - 1
+                i_lerp = 0.0
+
+            row = []
+            for out_j in range(target_w):
+                in_j = (out_j + 0.5) * scale_w - 0.5
+                left_j = int(math.floor(in_j))
+                right_j = left_j + 1
+                j_lerp = in_j - left_j
+                if left_j < 0:
+                    left_j = right_j = 0
+                    j_lerp = 0.0
+                elif right_j >= input_w:
+                    left_j = right_j = input_w - 1
+                    j_lerp = 0.0
+
+                pixel = []
+                for channel in range(channels):
+                    top_left = tensor_in[top_i][left_j][channel]
+                    top_right = tensor_in[top_i][right_j][channel]
+                    bottom_left = tensor_in[bottom_i][left_j][channel]
+                    bottom_right = tensor_in[bottom_i][right_j][channel]
+                    top = top_left * (1.0 - j_lerp) + top_right * j_lerp
+                    bottom = bottom_left * (1.0 - j_lerp) + bottom_right * j_lerp
+                    pixel.append(top * (1.0 - i_lerp) + bottom * i_lerp)
+                row.append(pixel)
+            tensor_out.append(row)
+        return tensor_out
+
+    def getOutput(self):
+        return self._output
+
 class DenseLayer:
     def __init__(
         self,
@@ -1061,22 +1149,29 @@ class MultiHeadAttentionLayer:
         self.BO = output_bias.numpy().tolist()
         self.attention_axes = tuple(attention_axes) if attention_axes is not None else None
         self.sample_rank = sample_rank
+        self._output = None
 
     def forward(self, input, mask=None):
         input_rank = len(dim(input))
         if self.sample_rank is not None:
             if input_rank == self.sample_rank:
-                return self.forwardSingle(input, mask)
+                self._output = self.forwardSingle(input, mask)
+                return self._output
             if input_rank == self.sample_rank + 1:
-                return self.forwardBatch(input, mask)
+                self._output = self.forwardBatch(input, mask)
+                return self._output
             raise ValueError(
                 f"Unexpected MultiHeadAttention input rank {input_rank}; "
                 f"expected {self.sample_rank} (single) or {self.sample_rank + 1} (batch)"
             )
-        return self.forwardSingle(input, mask)
+        self._output = self.forwardSingle(input, mask)
+        return self._output
 
     def forwardBatch(self, inputs, mask=None):
         return [self.forwardSingle(input, mask) for input in inputs]
+
+    def getOutput(self):
+        return self._output
 
     def forwardSingle(self, input, mask=None):
         canonical_input, meta = self._canonicalize_input(input)
@@ -1646,7 +1741,7 @@ class NNModel:
             self._register_cache_key(keras_name, key)
         elif isinstance(layer, RandomCrop):
             cfg = layer.get_config()
-            crop_layer = CenterCrop2DLayer(cfg.get("height"), cfg.get("width"))
+            crop_layer = RandomCropLayer(cfg.get("height"), cfg.get("width"))
             if resolved_inbounds:
                 crop_layer.input_from = resolved_inbounds
             key = self._append_layer(crop_layer)
