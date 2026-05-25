@@ -89,6 +89,11 @@ def test_parse_args_rejects_non_positive_counts() -> None:
         compare_mod.parse_args(["--model-name", "demo", "--samples", "0"])
 
 
+def test_parse_args_does_not_expose_log_level() -> None:
+    with pytest.raises(SystemExit):
+        compare_mod.parse_args(["--model-name", "demo", "--log-level", "INFO"])
+
+
 def test_generate_random_inputs_uses_samples_seed_and_model_shape() -> None:
     model = SimpleNamespace(input_shape=(None, 2, 3, 1))
 
@@ -242,7 +247,7 @@ def test_find_first_layer_diff_reports_first_non_close_layer() -> None:
 
 def test_log_file_records_compare_messages(tmp_path) -> None:
     log_file = tmp_path / "predict-compare.log"
-    compare_mod.configure_logging("INFO", log_file=str(log_file))
+    compare_mod.configure_logging(log_file=str(log_file))
 
     result = compare_mod.compare_case(0, [0.1, 0.9], [0.1, 0.9])
     compare_mod.log_case(result)
@@ -253,13 +258,30 @@ def test_log_file_records_compare_messages(tmp_path) -> None:
     assert "Result: PASS" in content
 
 
-def test_log_file_records_info_when_console_level_is_critical(tmp_path) -> None:
+def test_log_file_always_records_info(tmp_path) -> None:
     log_file = tmp_path / "predict-compare-critical.log"
-    compare_mod.configure_logging("CRITICAL", log_file=str(log_file))
+    compare_mod.configure_logging(log_file=str(log_file))
 
     result = compare_mod.compare_case(0, [0.1, 0.9], [0.1, 0.9])
     compare_mod.log_case(result)
     compare_mod.log_summary(compare_mod.summarize_results([result]))
+
+    content = log_file.read_text()
+    assert "[PASS] idx=0" in content
+    assert "Result: PASS" in content
+
+
+def test_console_is_always_quiet_for_info_logs(tmp_path, capsys) -> None:
+    log_file = tmp_path / "predict-compare-critical.log"
+    compare_mod.configure_logging(log_file=str(log_file))
+
+    result = compare_mod.compare_case(0, [0.1, 0.9], [0.1, 0.9])
+    compare_mod.log_case(result)
+    compare_mod.log_summary(compare_mod.summarize_results([result]))
+
+    captured = capsys.readouterr()
+    assert "[PASS] idx=0" not in captured.err
+    assert "Result: PASS" not in captured.err
 
     content = log_file.read_text()
     assert "[PASS] idx=0" in content
@@ -302,21 +324,28 @@ def test_run_fail_fast_stops_after_first_failed_case(monkeypatch) -> None:
     assert py_model.forward_calls == [[1.0, 2.0]]
 
 
-def test_main_logs_summary_and_returns_failure(monkeypatch, caplog) -> None:
+def test_main_writes_summary_to_file_and_returns_failure(monkeypatch, capsys, tmp_path) -> None:
     inputs = np.asarray([[1.0, 2.0]], dtype=np.float32)
     keras_model = _FakeKerasModel([[0.1, 0.9]])
     py_model = _FakePythonModel([[0.9, 0.1]])
+    log_file = tmp_path / "predict-compare.log"
 
     _install_fake_runtime(monkeypatch, keras_model, py_model)
     monkeypatch.setattr(compare_mod, "load_dataset_inputs", lambda dataset, first_n: inputs)
 
-    caplog.set_level("INFO", logger="ct.predict_compare")
-    exit_code = compare_mod.main(["--model-path", "model/demo.h5", "--first-n", "1"])
+    exit_code = compare_mod.main(
+        ["--model-path", "model/demo.h5", "--first-n", "1", "--log-file", str(log_file)]
+    )
 
+    captured = capsys.readouterr()
     assert exit_code == 1
-    assert "[FAIL] idx=0" in caplog.text
-    assert "Compared inputs: 1" in caplog.text
-    assert "Result: FAIL" in caplog.text
+    assert f"Writing predict comparison log: {log_file}" in captured.out
+    assert "[FAIL] idx=0" not in captured.err
+    assert "Compared inputs: 1" not in captured.err
+    content = log_file.read_text()
+    assert "[FAIL] idx=0" in content
+    assert "Compared inputs: 1" in content
+    assert "Result: FAIL" in content
 
 
 def _install_fake_runtime(monkeypatch, keras_model, py_model) -> None:

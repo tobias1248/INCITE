@@ -12,6 +12,11 @@ from typing import Any, List
 import numpy as np
 from unittest import mock
 
+try:
+    import keras as _keras_for_test  # noqa: F401
+except Exception:
+    pass
+
 if "keras" not in sys.modules:
     keras_module = types.ModuleType("keras")
     layers_module = types.ModuleType("keras.layers")
@@ -101,6 +106,55 @@ class MyDNNLoggingTests(unittest.TestCase):
                 np.allclose(row_out, row_exp),
                 msg=f"{row_out} != {row_exp}",
             )
+
+    def test_activation_layer_does_not_mutate_rank3_input(self) -> None:
+        layer = mydnn.ActivationLayer("relu")
+        tensor = [[[-1.0, 2.0], [3.0, -4.0]]]
+        original = [[list(pixel) for pixel in row] for row in tensor]
+
+        output = layer.forward(tensor)
+
+        self.assertEqual(tensor, original)
+        self.assertEqual(output, [[[0.0, 2.0], [3.0, 0.0]]])
+
+    def test_batch_norm_output_cache_survives_following_relu(self) -> None:
+        batch_norm = mydnn.BatchNormLayer(
+            gamma=[1.0],
+            beta=[0.0],
+            moving_mean=[0.0],
+            moving_var=[1.0],
+            epsilon=0.0,
+        )
+        relu = mydnn.ActivationLayer("relu")
+
+        batch_norm_output = batch_norm.forward([[-1.0], [2.0]])
+        relu_output = relu.forward(batch_norm_output)
+
+        self.assertEqual(batch_norm.getOutput(), [[-1.0], [2.0]])
+        self.assertEqual(relu_output, [[0.0], [2.0]])
+
+    def test_nnmodel_get_layer_output_keeps_batch_norm_before_relu(self) -> None:
+        batch_norm = mydnn.BatchNormLayer(
+            gamma=[1.0],
+            beta=[0.0],
+            moving_mean=[0.0],
+            moving_var=[1.0],
+            epsilon=0.0,
+        )
+        relu = mydnn.ActivationLayer("relu")
+        model = mydnn.NNModel()
+        model.layers = [batch_norm, relu]
+
+        with mock.patch("dnnct.myDNN.register_current_layer_number", lambda *_: None):
+            with mock.patch(
+                "dnnct.myDNN.to_Keras_layer_number",
+                side_effect=lambda idx: idx,
+            ):
+                output = model.forward([[-1.0], [2.0]])
+
+        self.assertEqual(output, [[0.0], [2.0]])
+        self.assertEqual(model.getLayOutput(0), [[-1.0], [2.0]])
+        self.assertEqual(model.getLayOutput(1), [[0.0], [2.0]])
 
     def test_nnmodel_forward_logs_layers(self) -> None:
         model = mydnn.NNModel()
