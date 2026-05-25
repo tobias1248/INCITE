@@ -17,7 +17,6 @@ RTOL = 1e-5
 DEFAULT_LOG_DIR = Path("predict_compare_log")
 DATASET_CHOICES = ("mnist", "fashion_mnist", "cifar10")
 INPUT_SOURCE_CHOICES = ("dataset", "random")
-LOG_LEVEL_CHOICES = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 log = logging.getLogger("ct.predict_compare")
 
@@ -130,12 +129,6 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Stop after the first failed comparison case.",
     )
     parser.add_argument(
-        "--log-level",
-        default="INFO",
-        choices=LOG_LEVEL_CHOICES,
-        help="Logging level for comparison output (default: INFO).",
-    )
-    parser.add_argument(
         "--log-file",
         help="Optional path to write comparison logs. Only predict_compare case and summary logs are recorded.",
     )
@@ -145,7 +138,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
     log_file = resolve_log_file(args)
-    configure_logging(args.log_level, log_file=str(log_file))
+    configure_logging(log_file=str(log_file))
     print(f"Writing predict comparison log: {log_file}")
     try:
         return run(args)
@@ -154,13 +147,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
 
-def configure_logging(level: str, *, log_file: Optional[str] = None) -> None:
-    console_level = getattr(logging, level.upper(), logging.INFO)
-    logging.basicConfig(
-        level=console_level,
-        format="%(message)s",
-    )
+def configure_logging(*, log_file: Optional[str] = None) -> None:
     log.setLevel(logging.DEBUG)
+    log.propagate = False
+    for handler in list(log.handlers):
+        log.removeHandler(handler)
+        handler.close()
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter("%(message)s"))
+    console_handler.setLevel(logging.CRITICAL)
+    log.addHandler(console_handler)
+
     logging.getLogger("ct.model").setLevel(logging.WARNING)
     logging.getLogger("tensorflow").setLevel(logging.WARNING)
     if log_file:

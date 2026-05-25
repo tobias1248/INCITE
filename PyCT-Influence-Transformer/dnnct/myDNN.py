@@ -269,7 +269,6 @@ class ActivationLayer:
         self._output = None
     def forward(self, tensor_in):
         out_shape = dim(tensor_in)
-        tensor_out = tensor_in
         log.debug("ActivationLayer type=%s input_shape=%s", self.type, out_shape)
         if len(out_shape)==1:
             # print('start 1: ', self.type, tensor_in)
@@ -284,23 +283,32 @@ class ActivationLayer:
                 #     tensor_out[idx] = math.exp(tensor_in[idx]) / denom
             else:
                 # print('start 1-0')
+                tensor_out = []
                 for idx in range(0, out_shape[0]):
                     # print('start 1-', idx, tensor_in[idx])
-                    tensor_out[idx] = actFunc(tensor_in[idx], self.type)
+                    tensor_out.append(actFunc(tensor_in[idx], self.type))
                     # print('end 1-', tensor_out[idx])
             # print('end 1')
         elif len(out_shape)==2:
             # print('start 2')
-            for i, j in product( range(0, out_shape[0]),
-                                range(0, out_shape[1])):
-                tensor_out[i][j] = actFunc(tensor_in[i][j], self.type)
+            tensor_out = []
+            for i in range(0, out_shape[0]):
+                row = []
+                for j in range(0, out_shape[1]):
+                    row.append(actFunc(tensor_in[i][j], self.type))
+                tensor_out.append(row)
             # print('end 2')
         elif len(out_shape)==3:
             # print('start 3')
-            for i, j, k in product( range(0, out_shape[0]),
-                                    range(0, out_shape[1]),
-                                    range(0, out_shape[2])):
-                tensor_out[i][j][k] = actFunc(tensor_in[i][j][k], self.type)
+            tensor_out = []
+            for i in range(0, out_shape[0]):
+                row = []
+                for j in range(0, out_shape[1]):
+                    pixel = []
+                    for k in range(0, out_shape[2]):
+                        pixel.append(actFunc(tensor_in[i][j][k], self.type))
+                    row.append(pixel)
+                tensor_out.append(row)
             # print('end 3')
         else:
             raise NotImplementedError()
