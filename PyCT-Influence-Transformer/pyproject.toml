@@ -43,6 +43,8 @@ pyct = "pyct.main:main"
 pyct-doctor = "pyct.doctor:main"
 pyct-shap = "pyct.shap:main"
 pyct-stats = "pyct.stats:main"
+pyct-adv-verify = "pyct.verify:main"
+pyct-pred-check = "pyct.pred_check:main"
 
 [project.urls]
 Homepage = "https://github.com/tobias1248/INCITE"

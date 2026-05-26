@@ -14,11 +14,11 @@ import numpy as np
 
 ATOL = 1e-5
 RTOL = 1e-5
-DEFAULT_LOG_DIR = Path("predict_compare_log")
+DEFAULT_LOG_DIR = Path("pred_check_log")
 DATASET_CHOICES = ("mnist", "fashion_mnist", "cifar10")
 INPUT_SOURCE_CHOICES = ("dataset", "random")
 
-log = logging.getLogger("ct.predict_compare")
+log = logging.getLogger("ct.pred_check")
 
 
 @dataclass(frozen=True)
@@ -83,7 +83,7 @@ class CompareSummary:
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Compare Keras .h5 predictions with the PyCT Python implementation."
+        description="Check Keras .h5 predictions against the PyCT Python implementation."
     )
     model_group = parser.add_mutually_exclusive_group(required=True)
     model_group.add_argument(
@@ -130,7 +130,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--log-file",
-        help="Optional path to write comparison logs. Only predict_compare case and summary logs are recorded.",
+        help="Optional path to write prediction check logs. Only pred_check case and summary logs are recorded.",
     )
     return parser.parse_args(argv)
 
@@ -139,11 +139,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
     log_file = resolve_log_file(args)
     configure_logging(log_file=str(log_file))
-    print(f"Writing predict comparison log: {log_file}")
+    print(f"Writing prediction check log: {log_file}")
     try:
         return run(args)
     except Exception as exc:
-        log.error("Prediction comparison failed: %s", exc)
+        log.error("Prediction check failed: %s", exc)
         return 1
 
 
