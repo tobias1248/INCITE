@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import pyct.predict_compare as compare_mod
+import reporting.pred_check as compare_mod
 
 
 class _FakeKerasModel:
@@ -58,7 +58,7 @@ def test_resolve_log_file_defaults_to_timestamp_and_model_name(monkeypatch) -> N
     args = compare_mod.parse_args(["--model-name", "demo-model"])
 
     assert compare_mod.resolve_log_file(args) == (
-        Path("predict_compare_log") / "20260519_143205_demo-model.log"
+        Path("pred_check_log") / "20260519_143205_demo-model.log"
     )
 
 
@@ -68,7 +68,7 @@ def test_resolve_log_file_defaults_to_model_path_stem(monkeypatch) -> None:
     args = compare_mod.parse_args(["--model-path", "/tmp/models/foo.h5"])
 
     assert compare_mod.resolve_log_file(args) == (
-        Path("predict_compare_log") / "20260519_143205_foo.log"
+        Path("pred_check_log") / "20260519_143205_foo.log"
     )
 
 
@@ -339,7 +339,7 @@ def test_main_writes_summary_to_file_and_returns_failure(monkeypatch, capsys, tm
 
     captured = capsys.readouterr()
     assert exit_code == 1
-    assert f"Writing predict comparison log: {log_file}" in captured.out
+    assert f"Writing prediction check log: {log_file}" in captured.out
     assert "[FAIL] idx=0" not in captured.err
     assert "Compared inputs: 1" not in captured.err
     content = log_file.read_text()
