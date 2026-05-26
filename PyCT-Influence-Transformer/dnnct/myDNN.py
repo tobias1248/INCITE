@@ -600,29 +600,41 @@ class Conv2DLayer:
         )
     def addActivation(self, activation):
         self.activation = activation
-    def _pad_input(self, tensor_in, pad_h, pad_w):
-        if pad_h <= 0 and pad_w <= 0:
+    @staticmethod
+    def _compute_same_padding(input_size, filter_size, stride):
+        output_size = int(math.ceil(float(input_size) / float(stride)))
+        total_padding = max((output_size - 1) * stride + filter_size - input_size, 0)
+        before = total_padding // 2
+        after = total_padding - before
+        return before, after
+    def _pad_input_explicit(self, tensor_in, top, bottom, left, right):
+        if top <= 0 and bottom <= 0 and left <= 0 and right <= 0:
             return tensor_in
         if isinstance(tensor_in, np.ndarray):
             tensor_in = tensor_in.tolist()
         h = len(tensor_in)
         w = len(tensor_in[0]) if h > 0 else 0
         c = len(tensor_in[0][0]) if w > 0 else 0
-        new_h = h + pad_h * 2
-        new_w = w + pad_w * 2
+        new_h = h + top + bottom
+        new_w = w + left + right
         tensor_out = [[[0.0 for _ in range(c)] for _ in range(new_w)] for _ in range(new_h)]
         for i in range(h):
             for j in range(w):
                 for k in range(c):
-                    tensor_out[i + pad_h][j + pad_w][k] = tensor_in[i][j][k]
+                    tensor_out[i + top][j + left][k] = tensor_in[i][j][k]
         return tensor_out
+    def _pad_input(self, tensor_in, pad_h, pad_w):
+        return self._pad_input_explicit(tensor_in, pad_h, pad_h, pad_w, pad_w)
     def forward(self, tensor_in):
         stride_h, stride_w = self.stride if isinstance(self.stride, tuple) else (self.stride, self.stride)
         filter_h, filter_w, _ = self.shape[1], self.shape[2], self.shape[3]
         if self.padding == 'same':
-            pad_h = (filter_h - 1) // 2
-            pad_w = (filter_w - 1) // 2
-            tensor_in = self._pad_input(tensor_in, pad_h, pad_w)
+            input_shape = dim(tensor_in)
+            top, bottom = self._compute_same_padding(input_shape[0], filter_h, stride_h)
+            left, right = self._compute_same_padding(input_shape[1], filter_w, stride_w)
+            tensor_in = self._pad_input_explicit(tensor_in, top, bottom, left, right)
+        elif self.padding != 'valid':
+            raise ValueError(f"Conv2DLayer only supports padding='valid' or 'same', got {self.padding!r}.")
         in_shape = dim(tensor_in)
         assert in_shape[2] == self.shape[3], "Conv2DLayer, channel length mismatching!"
         out_shape = [
