@@ -238,7 +238,7 @@ def test_run_launcher_selects_shap_builder_for_random_assign_with_shap_pixels(mo
                 "force": True,
                 "ton_values": (1,),
                 "exp_prefix": "random_assign_shap",
-                "attack_mode": "random-assign_solver1s",
+                "attack_mode": "random-assign_shap_solver1s",
             },
         )
     ]
@@ -268,7 +268,7 @@ def test_run_launcher_selects_random_builder_for_random_assign_with_random_pixel
                 "force": True,
                 "base_seed": 2024,
                 "exp_prefix": "random_assign_random",
-                "attack_mode": "random-assign_solver1s",
+                "attack_mode": "random-assign_random_solver1s",
             },
         )
     ]
