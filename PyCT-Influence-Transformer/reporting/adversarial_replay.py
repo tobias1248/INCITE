@@ -8,8 +8,6 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from modeling.keras_loader import load_model_with_compat
-
 
 @dataclass
 class ReplayCase:
@@ -83,6 +81,12 @@ def _batch_predict_labels(model: Any, arrays: Sequence[np.ndarray], batch_size: 
     return labels
 
 
+def _load_model(model_path: Path) -> Any:
+    from modeling.keras_loader import load_model_with_compat
+
+    return load_model_with_compat(str(model_path))
+
+
 def collect_replay_cases(experiment_root: Path) -> List[Tuple[Path, Dict[str, Any]]]:
     selected: List[Tuple[Path, Dict[str, Any]]] = []
     for case_dir in _iter_case_dirs(experiment_root):
@@ -121,7 +125,7 @@ def replay_adversarial_cases(
         raise FileNotFoundError(f"Model file not found: {resolved_model_path}")
 
     selected = collect_replay_cases(experiment_root)
-    model = load_model_with_compat(str(resolved_model_path))
+    model = _load_model(resolved_model_path)
 
     original_arrays: List[np.ndarray] = []
     adversarial_arrays: List[np.ndarray] = []
