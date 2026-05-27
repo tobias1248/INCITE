@@ -84,7 +84,7 @@ def test_replay_adversarial_cases_filters_success_cases_and_flags_mismatches(tmp
     model_path.parent.mkdir()
     model_path.write_text("placeholder", encoding="utf-8")
 
-    monkeypatch.setattr(adversarial_replay, "load_model_with_compat", lambda *_args, **_kwargs: FakeModel())
+    monkeypatch.setattr(adversarial_replay, "_load_model", lambda *_args, **_kwargs: FakeModel())
 
     resolved_model_path, records = adversarial_replay.replay_adversarial_cases(
         exp_root,
@@ -115,7 +115,7 @@ def test_main_json_output_and_fail_on_issues(tmp_path, monkeypatch, capsys) -> N
     model_path.parent.mkdir()
     model_path.write_text("placeholder", encoding="utf-8")
 
-    monkeypatch.setattr(adversarial_replay, "load_model_with_compat", lambda *_args, **_kwargs: FakeModel())
+    monkeypatch.setattr(adversarial_replay, "_load_model", lambda *_args, **_kwargs: FakeModel())
 
     rc = adversarial_replay.main(
         [
