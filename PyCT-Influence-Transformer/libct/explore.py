@@ -12,7 +12,7 @@ from libct.path import PathToConstraint
 from libct.solver import Solver, _ensure_smtlib2_logger
 from libct.utils import ConcolicObject, unwrap, get_in_dict_shape
 from libct.record import ConcolicTestRecorder
-from libct.executor import LegacyConcolicExecutor
+from libct.executor import CandidateExecutionRunner
 from libct.executor.child_protocol import ChildProtocol, ConstraintTransferError
 from libct.executor.concolic import ConcolicExecutionRunner, prepare_child_environment
 from libct.executor.primitive import PrimitiveExecutionRunner
@@ -139,7 +139,7 @@ class ExplorationEngine:
         self.concolic_flag_dict: dict[str, int] = {}  # NOTE for DNN testing
         self.previous_result = None
         self.original_args = None  # used to limit variable range
-        self._execution_executor = LegacyConcolicExecutor(self)
+        self._candidate_execution_runner = CandidateExecutionRunner(self)
         self._child_protocol = ChildProtocol(self)
         self._concolic_runner = ConcolicExecutionRunner(self)
         self._primitive_runner = PrimitiveExecutionRunner(self)
@@ -188,6 +188,13 @@ class ExplorationEngine:
         if runner is None:
             runner = PrimitiveExecutionRunner(self)
             self._primitive_runner = runner
+        return runner
+
+    def _get_candidate_execution_runner(self) -> CandidateExecutionRunner:
+        runner = getattr(self, "_candidate_execution_runner", None)
+        if runner is None:
+            runner = CandidateExecutionRunner(self)
+            self._candidate_execution_runner = runner
         return runner
 
     def _get_constraint_scheduler(self) -> ConstraintScheduler:
@@ -650,148 +657,41 @@ class ExplorationEngine:
         return iteration, recorder
 
     def _clone_primitive_inputs(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Return a deep-ish copy of inputs with every value unwrapped."""
-        def _sanitize(value: Any) -> Any:
-            if isinstance(value, dict):
-                return {k: _sanitize(v) for k, v in value.items()}
-            if isinstance(value, list):
-                return [_sanitize(v) for v in value]
-            if isinstance(value, tuple):
-                return tuple(_sanitize(v) for v in value)
-            return unwrap(value)
-
-        return {key: _sanitize(val) for key, val in inputs.items()}
+        return self._get_candidate_execution_runner().clone_primitive_inputs(inputs)
 
     def _predict_validation(self, inputs: Dict[str, Any]) -> Any:
-        primitive_inputs = self._clone_primitive_inputs(inputs)
-        val_args, val_kwargs = self._complete_primitive_arguments(
-            self.validation_execute,
-            primitive_inputs,
-        )
-        return self.validation_execute(*val_args, **val_kwargs)
+        return self._get_candidate_execution_runner().predict_validation(inputs)
 
     def _validate_sat_candidate(self, inputs: Dict[str, Any]) -> bool:
-        attack_label = self._predict_validation(inputs)
-        if recorder.original_label != attack_label:
-            log.warning(
-                "[RESULT_CHANGE] Original result %s differs from validated candidate %s",
-                recorder.original_label,
-                attack_label,
-            )
-            recorder.find_adversarial_input(inputs, attack_label)
-            return True
-        return False
+        return self._get_candidate_execution_runner().validate_sat_candidate(inputs)
 
     def _search_result_changes_label(self, inputs: Dict[str, Any], result: Any) -> bool:
-        if result in (self.Timeout, self.Exception, self.Unpicklable):
-            return False
-        if recorder.original_label != result:
-            log.warning(
-                "[RESULT_CHANGE] Original result %s differs from search candidate %s",
-                recorder.original_label,
-                result,
-            )
-            recorder.find_adversarial_input(inputs, result)
-            return True
-        return False
+        return self._get_candidate_execution_runner().search_result_changes_label(inputs, result)
 
     def _record_result(self, inputs: Dict[str, Any], result: Any) -> bool:
-        """Retain search execution results without using them for attack validation."""
-        self.previous_result = result
-        return True
+        return self._get_candidate_execution_runner().record_result(inputs, result)
 
     def _candidate_execution_can_validate(self) -> bool:
-        return bool(getattr(self, "reuse_search_result_for_validation", False)) and not bool(
-            getattr(self, "single_coverage", False)
-        )
+        return self._get_candidate_execution_runner().candidate_execution_can_validate()
 
     def _is_valid_label_result(self, result: Any) -> bool:
-        if result is self.Timeout or result is self.Exception or result is self.Unpicklable:
-            return False
-        if result is None:
-            return False
-        if isinstance(result, (bool, np.bool_)):
-            return False
-        return isinstance(result, (int, np.integer))
+        return self._get_candidate_execution_runner().is_valid_label_result(result)
 
     def _run_initial_execution(self, all_args: Dict[str, Any], concolic_dict: Dict[str, Any]) -> None:
-        if not self._candidate_execution_can_validate():
-            recorder.original_label = self._predict_validation(all_args)
-            self.previous_result = recorder.original_label
-            self._one_execution(all_args, concolic_dict)
-            return
-
-        initial_args = all_args.copy()
-        result, constraint_payload = self._one_execution_deferred_constraints(all_args, concolic_dict)
-        if self._is_valid_label_result(result):
-            recorder.original_label = result
-            log.info(
-                "[INITIAL-REUSE] idx=%s reused initial search result for original label: %s",
-                self.idx,
-                result,
-            )
-        else:
-            recorder.original_label = self._predict_validation(initial_args)
-            log.warning(
-                "[INITIAL-FALLBACK] idx=%s initial search result was invalid for original label: %s",
-                self.idx,
-                result,
-            )
-
-        if constraint_payload is not None:
-            self._apply_constraint_transfer_payload(constraint_payload)
-        self.in_out.append((all_args.copy(), result))
-        self._record_result(all_args, result)
+        self._get_candidate_execution_runner().run_initial_execution(all_args, concolic_dict)
 
     def _one_execution_deferred_constraints(
         self,
         all_args: Dict[str, Any],
         concolic_dict: Dict[str, Any],
     ) -> Tuple[Any, Optional[Any]]:
-        envelope = self._one_execution_concolic_deferred(all_args, concolic_dict)
-        return self._handle_child_envelope_deferred_constraints(all_args, envelope)
+        return self._get_candidate_execution_runner().one_execution_deferred_constraints(
+            all_args,
+            concolic_dict,
+        )
 
     def _one_execution(self, all_args, concolic_dict):
-        """Run one concolic+primitive execution pair to advance exploration."""
-        execution_executor = getattr(self, "_execution_executor", None)
-        if execution_executor is None:
-            execution_executor = LegacyConcolicExecutor(self)
-            self._execution_executor = execution_executor
-        primitive_inputs = self._clone_primitive_inputs(all_args)
-        # primitive input arguments "all_args" may be modified here.
-        result = execution_executor.run_concolic(all_args, concolic_dict)
-        # We don't measure coverage in the primitive mode under the non-single coverage setting.
-        if not self.single_coverage:
-            # .copy() is important! Think why.
-            self.in_out.append((all_args.copy(), result))
-            return self._record_result(all_args, result)
-        # we must measure the coverage in the primitive mode since self.constraints_to_solve would become unpicklable if measured in the concolic mode
-        answer = execution_executor.run_primitive(primitive_inputs)
-
-        if self.Timeout not in (result, answer):
-            if result != answer:
-                log.warning(
-                    "Result mismatch detected (input=%s result=%s answer=%s)",
-                    all_args,
-                    result,
-                    answer,
-                )
-            assert result == answer
-        else:
-            log.warning("[SINGLE_TIMEOUT] Single execution hit timeout")
-
-        # Note only in the self.single_coverage mode does the program go here.
-        if self.file_as_total:
-            s = (self.module_lines_range -
-                self.deadcode) & self.coverage_accumulated_missing_lines[self.target_file]
-        else:
-            s = (self.function_lines_range -
-                self.deadcode) & self.coverage_accumulated_missing_lines[self.target_file]
-        log.info(
-            f"Not Covered Yet: {self.target_file} {sorted(s) if s else '{}'}")
-
-        return self._record_result(all_args, result)
-        # return s # continue iteration only if the target file / function coverage is not full yet.
+        return self._get_candidate_execution_runner().one_execution(all_args, concolic_dict)
 
     def _one_execution_concolic(self, all_args: dict, concolic_dict: dict):
         return self._get_concolic_runner().run(all_args, concolic_dict)
@@ -802,28 +702,8 @@ class ExplorationEngine:
     def _one_execution_primitive(self, primitive_inputs):
         return self._get_primitive_runner().run(primitive_inputs)
 
-    @classmethod
-    def _complete_primitive_arguments(cls, func, all_args):
-        prim_args = []
-        prim_kwargs = {}
-        for v in inspect.signature(func).parameters.values():
-            if v.kind in (inspect.Parameter.VAR_POSITIONAL, ):
-                continue  # ignore *args
-            elif v.kind in (inspect.Parameter.VAR_KEYWORD, ):
-                # only support 1 **kwargs and no other arguments.
-                assert len(inspect.signature(func).parameters.values()) == 1
-                prim_kwargs = all_args.copy()
-                break
-            else:
-                value = v.default if (
-                    t := all_args[v.name]) is cls.LazyLoading else t
-                if v.kind is inspect.Parameter.KEYWORD_ONLY:
-                    prim_kwargs[v.name] = value
-                # v.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
-                else:
-                    prim_args.append(value)
-
-        return prim_args, prim_kwargs
+    def _complete_primitive_arguments(self, func, all_args):
+        return self._get_candidate_execution_runner().complete_primitive_arguments(func, all_args)
 
     def _get_concolic_arguments(self, func, prim_args: dict[str, any], concolic_dict: dict):
         ccc_args = []
