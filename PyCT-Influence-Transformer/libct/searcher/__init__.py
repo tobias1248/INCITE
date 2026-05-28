@@ -1,4 +1,5 @@
 from libct.searcher.base import Searcher
+from libct.searcher.constraint_scheduler import ConstraintScheduler
 from libct.searcher.constraint_worklist import (
     PrioritySearcher,
     QueueSearcher,
@@ -8,6 +9,7 @@ from libct.searcher.constraint_worklist import (
 )
 
 __all__ = [
+    "ConstraintScheduler",
     "PrioritySearcher",
     "QueueSearcher",
     "RandomSearcher",

@@ -3,7 +3,6 @@ import coverage
 import gc
 import inspect
 import logging
-import math
 import multiprocessing
 import os
 import pickle
@@ -11,15 +10,13 @@ import sys
 import time
 from libct.path import PathToConstraint
 from libct.solver import Solver, _ensure_smtlib2_logger
-from libct.position import summarize_indices, summarize_position
 from libct.utils import ConcolicObject, unwrap, get_in_dict_shape
 from libct.record import ConcolicTestRecorder
 from libct.executor import LegacyConcolicExecutor
 from libct.executor.child_protocol import ChildProtocol, ConstraintTransferError
 from libct.executor.concolic import ConcolicExecutionRunner, prepare_child_environment
 from libct.executor.primitive import PrimitiveExecutionRunner
-from libct.searcher import Searcher, create_constraint_searcher
-from libct.state import ConstraintWorkItem
+from libct.searcher import ConstraintScheduler, create_constraint_searcher
 import cProfile
 import shap
 import numpy as np
@@ -28,8 +25,6 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 from types import ModuleType
 from libct.constraint import Constraint
 from explainability.shap_calculator import ShapValuesComparator
-import heapq
-from collections import deque
 
 
 log = logging.getLogger("ct.explore")
@@ -148,6 +143,7 @@ class ExplorationEngine:
         self._child_protocol = ChildProtocol(self)
         self._concolic_runner = ConcolicExecutionRunner(self)
         self._primitive_runner = PrimitiveExecutionRunner(self)
+        self._constraint_scheduler = ConstraintScheduler(self)
 
     def _reset_symbolic_guard(self) -> None:
         self.symbolic_enabled = True
@@ -193,6 +189,13 @@ class ExplorationEngine:
             runner = PrimitiveExecutionRunner(self)
             self._primitive_runner = runner
         return runner
+
+    def _get_constraint_scheduler(self) -> ConstraintScheduler:
+        scheduler = getattr(self, "_constraint_scheduler", None)
+        if scheduler is None:
+            scheduler = ConstraintScheduler(self)
+            self._constraint_scheduler = scheduler
+        return scheduler
 
     def _mark_constraint_transfer_failure(self, reason: str) -> None:
         self._get_child_protocol().mark_constraint_transfer_failure(reason)
@@ -959,85 +962,13 @@ class ExplorationEngine:
                 log.debug("Missing lines for %s: %s", file, sorted(lines))
     
     def push_constraint(self, constraint: Constraint, position):
-        shap_value = 0.0
-        if position is not None and hasattr(self, "comparator") and self.comparator is not None:
-            layer_number, indices = position
-            shap_value = self.comparator.get_shap_influence(layer_number, indices)
-        layer_number = None
-        index_summary = "None"
-        if isinstance(position, tuple) and len(position) == 2:
-            layer_number = position[0]
-            index_summary = summarize_indices(position[1])
-        path_len = getattr(constraint, "height", None)
-        if self.constraints_collection_type == 'priority_queue':
-            score, _assert_num = self._compute_priority_score(shap_value, constraint)
-            item = ConstraintWorkItem.from_constraint(
-                constraint,
-                position=position,
-                shap_value=shap_value,
-                score=score,
-            )
-            self._push_work_item(item)
-            if recorder is not None:
-                current_size = len(self.constraints_to_solve)
-                recorder.queue_last = current_size
-                if current_size > getattr(recorder, "queue_max", 0):
-                    recorder.queue_max = current_size
-            if self.constraint_log_enabled:
-                log.info(
-                    "[PUSH] idx=%s layer=%s position=%s shap=%.3e path_len=%s queue_size=%s",
-                    self.idx,
-                    layer_number,
-                    index_summary,
-                    abs(shap_value),
-                    path_len,
-                    len(self.constraints_to_solve),
-                )
-        else:
-            item = ConstraintWorkItem.from_constraint(
-                constraint,
-                position=position,
-                shap_value=shap_value,
-            )
-            self._push_work_item(item)
-            if recorder is not None:
-                current_size = len(self.constraints_to_solve)
-                recorder.queue_last = current_size
-                if current_size > getattr(recorder, "queue_max", 0):
-                    recorder.queue_max = current_size
-            if self.constraint_log_enabled:
-                log.info(
-                    "[PUSH] idx=%s queue=%s position=%s shap=%.3e path_len=%s total=%s",
-                    self.idx,
-                    self.constraints_collection_type,
-                    summarize_position(position),
-                    abs(shap_value),
-                    path_len,
-                    len(self.constraints_to_solve),
-                )
+        self._get_constraint_scheduler().push_constraint(constraint, position)
 
     def _compute_priority_score(self, shap_value: float, constraint: Constraint) -> tuple[float, int]:
-        if self.shap_score_alpha is None:
-            raise ValueError(
-                "shap_score_alpha is required when collect_constraints_with='priority_queue'; pass via --score-alpha"
-            )
-        path_len = int(getattr(constraint, "height", 0) or 0)
-        alpha = self.shap_score_alpha
-        score = (1 - alpha) * math.log10(abs(shap_value) + self.SHAP_SCORE_EPS)
-        score -= alpha * math.log10(path_len + 1)
-        return score, path_len
+        return self._get_constraint_scheduler()._compute_priority_score(shap_value, constraint)
 
-    def _push_work_item(self, item: ConstraintWorkItem) -> None:
-        worklist = self.constraints_to_solve
-        if isinstance(worklist, Searcher):
-            worklist.push(item)
-        elif self.constraints_collection_type == 'priority_queue':
-            heapq.heappush(
-                worklist,
-                (-item.score, item.constraint.id, item.position, item.constraint, item.shap_value),
-            )
-        else:
-            worklist.append(item.constraint)
+    def _push_work_item(self, item) -> None:
+        self._get_constraint_scheduler()._push_work_item(item)
 
     def _log_pop_event(
         self,
@@ -1049,98 +980,17 @@ class ExplorationEngine:
         shap_value: float | None = None,
         path_len: int | None = None,
     ) -> None:
-        if not getattr(self, "constraint_log_enabled", False):
-            return
-        attack_mode = getattr(self, "popped_log_attack_mode", "unknown")
-        sample_idx = getattr(self, "idx", "unknown")
-        if queue_mode == "priority":
-            log.info(
-                "[POP] idx=%s attack=%s queue=%s layer=%s position=%s shap=%s path_len=%s remaining=%d",
-                sample_idx,
-                attack_mode,
-                queue_mode,
-                layer,
-                summarize_indices(indices),
-                shap_value,
-                path_len,
-                remaining,
-            )
-        else:
-            log.info(
-                "[POP] idx=%s attack=%s queue=%s path_len=%s remaining=%d",
-                sample_idx,
-                attack_mode,
-                queue_mode,
-                path_len,
-                remaining,
-            )
+        self._get_constraint_scheduler()._log_pop_event(
+            queue_mode=queue_mode,
+            remaining=remaining,
+            layer=layer,
+            indices=indices,
+            shap_value=shap_value,
+            path_len=path_len,
+        )
 
     def pop_constraint(self) -> Constraint:
-        if isinstance(self.constraints_to_solve, Searcher):
-            item = self.constraints_to_solve.pop()
-            constraint = item.constraint
-            if self.constraints_collection_type == 'priority_queue':
-                position = item.position
-                layer_number = None
-                indices = None
-                if isinstance(position, tuple) and len(position) == 2:
-                    layer_number, indices = position
-                self._log_pop_event(
-                    queue_mode="priority",
-                    remaining=len(self.constraints_to_solve),
-                    layer=layer_number,
-                    indices=indices,
-                    shap_value=f"{abs(item.shap_value):.3e}",
-                    path_len=getattr(constraint, "height", None),
-                )
-                log.debug(
-                    "Popped constraint from queue (position=%s shap_value=%s constraint_id=%s)",
-                    summarize_position(position),
-                    item.shap_value,
-                    constraint.id,
-                )
-                return constraint, item.shap_value, position
-            queue_mode = "stack" if self.constraints_collection_type == 'stack' else "queue"
-            self._log_pop_event(
-                queue_mode=queue_mode,
-                remaining=len(self.constraints_to_solve),
-                path_len=getattr(constraint, "height", None),
-            )
-            return constraint
-        if self.constraints_collection_type =='stack':
-            constraint = self.constraints_to_solve.pop()
-            self._log_pop_event(
-                queue_mode="stack",
-                remaining=len(self.constraints_to_solve),
-                path_len=getattr(constraint, "height", None),
-            )
-            return constraint
-        elif self.constraints_collection_type == 'queue':
-            constraint = self.constraints_to_solve.popleft()
-            self._log_pop_event(
-                queue_mode="queue",
-                remaining=len(self.constraints_to_solve),
-                path_len=getattr(constraint, "height", None),
-            )
-            return constraint
-        elif self.constraints_collection_type == 'priority_queue':
-            score, constraint_id, position, constraint, shap_value = heapq.heappop(self.constraints_to_solve)
-            layer_number, indices = position
-            self._log_pop_event(
-                queue_mode="priority",
-                remaining=len(self.constraints_to_solve),
-                layer=layer_number,
-                indices=indices,
-                shap_value=f"{abs(shap_value):.3e}",
-                path_len=getattr(constraint, "height", None),
-            )
-            log.debug(
-                "Popped constraint from queue (position=%s shap_value=%s constraint_id=%s)",
-                summarize_position(position),
-                shap_value,
-                constraint_id,
-            )
-            return constraint, shap_value, position
+        return self._get_constraint_scheduler().pop_constraint()
 
 
 def clear_global_context():
