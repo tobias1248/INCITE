@@ -1,7 +1,6 @@
 from __future__ import annotations
 import coverage
 import gc
-import inspect
 import logging
 import multiprocessing
 import os
@@ -10,9 +9,9 @@ import sys
 import time
 from libct.path import PathToConstraint
 from libct.solver import Solver, _ensure_smtlib2_logger
-from libct.utils import ConcolicObject, unwrap, get_in_dict_shape
+from libct.utils import get_in_dict_shape
 from libct.record import ConcolicTestRecorder
-from libct.executor import CandidateExecutionRunner
+from libct.executor import CandidateExecutionRunner, ConcolicArgumentBuilder
 from libct.executor.child_protocol import ChildProtocol, ConstraintTransferError
 from libct.executor.concolic import ConcolicExecutionRunner, prepare_child_environment
 from libct.executor.primitive import PrimitiveExecutionRunner
@@ -140,6 +139,7 @@ class ExplorationEngine:
         self.previous_result = None
         self.original_args = None  # used to limit variable range
         self._candidate_execution_runner = CandidateExecutionRunner(self)
+        self._concolic_argument_builder = ConcolicArgumentBuilder(self)
         self._child_protocol = ChildProtocol(self)
         self._concolic_runner = ConcolicExecutionRunner(self)
         self._primitive_runner = PrimitiveExecutionRunner(self)
@@ -196,6 +196,13 @@ class ExplorationEngine:
             runner = CandidateExecutionRunner(self)
             self._candidate_execution_runner = runner
         return runner
+
+    def _get_concolic_argument_builder(self) -> ConcolicArgumentBuilder:
+        builder = getattr(self, "_concolic_argument_builder", None)
+        if builder is None:
+            builder = ConcolicArgumentBuilder(self)
+            self._concolic_argument_builder = builder
+        return builder
 
     def _get_constraint_scheduler(self) -> ConstraintScheduler:
         scheduler = getattr(self, "_constraint_scheduler", None)
@@ -706,88 +713,7 @@ class ExplorationEngine:
         return self._get_candidate_execution_runner().complete_primitive_arguments(func, all_args)
 
     def _get_concolic_arguments(self, func, prim_args: dict[str, any], concolic_dict: dict):
-        ccc_args = []
-        ccc_kwargs = {}
-        self.concolic_name_list = []
-
-        for v in inspect.signature(func).parameters.values():
-            if v.kind in (inspect.Parameter.VAR_POSITIONAL, ):
-                # do not support *args currently
-                prim_args.pop(v.name, None)
-                continue
-
-            elif v.kind in (inspect.Parameter.VAR_KEYWORD, ):
-                # only support 1 **kwargs and no other arguments.
-                assert len(inspect.signature(func).parameters.values()) == 1
-
-                for name, value in prim_args.items():
-                    ccc_obj_name: str = name + '_VAR'  # '_VAR' is used to avoid name collision
-                    self.concolic_flag_dict[ccc_obj_name] = 0
-                    if type(value) in (bool, float, int, str) and concolic_dict.get(name, 0):
-                        value = ConcolicObject(value, ccc_obj_name, self)
-                        self.concolic_name_list.append(ccc_obj_name)
-                        self.concolic_flag_dict[ccc_obj_name] = 1
-
-                    ccc_kwargs[name] = value
-
-                break
-            else:
-                if v.name in prim_args:
-                    value = prim_args[v.name]
-                else:
-                    has_value = False
-                    if (t := v.annotation) is not inspect._empty:
-                        try:
-                            value = t()
-                            # may raise TypeError: Cannot instantiate ...
-                            has_value = True
-                        except:
-                            pass
-                    if not has_value:
-                        if (t := v.default) is not inspect._empty:
-                            # default values may also be wrapped
-                            value = unwrap(t)
-                        else:
-                            value = ''
-                    prim_args[v.name] = value if type(value) in (
-                        bool, float, int, str) else self.LazyLoading
-
-                self.concolic_flag_dict[v.name+'_VAR'] = 0
-                if type(value) in (bool, float, int, str) and concolic_dict.get(v.name, 1):
-                    #print(v.name + " set to ConcolicObj")
-                    # '_VAR' is used to avoid name collision
-                    value = ConcolicObject(value, v.name + '_VAR', self)
-                    self.concolic_name_list.append(v.name + '_VAR')
-                    self.concolic_flag_dict[v.name+'_VAR'] = 1
-
-                if v.kind is inspect.Parameter.KEYWORD_ONLY:
-                    ccc_kwargs[v.name] = value
-                # v.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
-                else:
-                    ccc_args.append(value)
-
-        if not self.var_to_types:  # remain unchanged once determined
-            for (k, v) in prim_args.items():
-                k += '_VAR'  # '_VAR' is used to avoid name collision
-                if type(v) is bool:
-                    self.var_to_types[k] = 'Bool'
-                elif type(v) is float:
-                    self.var_to_types[k] = 'Real'
-                elif type(v) is int:
-                    self.var_to_types[k] = 'Int'
-                elif type(v) is str:
-                    self.var_to_types[k] = 'String'
-                else:
-                    pass  # for some default values that cannot be concolic-ized
-        log.info(
-            "[WRAP] idx=%s concolic=%s primitive=%s queue_type=%s",
-            self.idx,
-            len(self.concolic_name_list),
-            len(prim_args),
-            self.constraints_collection_type,
-        )
-
-        return ccc_args, ccc_kwargs
+        return self._get_concolic_argument_builder().build(func, prim_args, concolic_dict)
 
     def _can_use_concolic_wrapper(self, root, modpath):
         r, s = multiprocessing.Pipe()
