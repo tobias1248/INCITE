@@ -14,6 +14,47 @@ This milestone is accepted as a compatibility-preserving modularization before t
 
 The final target of `libct/explore.py < 300 行` remains a later engine rewrite acceptance criterion, not a blocker for this compatibility batch.
 
+## 2026-06-02 Compatibility Extraction Snapshot
+
+This branch has continued the compatibility modularization without changing the
+public `ExplorationEngine` entrypoint or CLI contract.
+
+- [x] `libct/searcher/constraint_scheduler.py` now owns legacy constraint push/pop,
+  priority score calculation, queue metadata updates, and compatibility pop
+  return shapes.
+- [x] `libct/executor/execution_pair.py` now owns SAT candidate validation,
+  initial execution reuse, search-result adversarial checks, and the legacy
+  concolic/primitive execution pair.
+- [x] `libct/executor/arguments.py` now owns concolic argument wrapping,
+  default argument materialization, `concolic_name_list`,
+  `concolic_flag_dict`, and `var_to_types` updates.
+- [x] `libct/explore.py` keeps compatibility wrapper methods for existing call
+  sites while delegating the implementation to the extracted modules.
+- [x] Focused compatibility tests cover the extracted scheduler, candidate
+  execution runner, and concolic argument builder.
+- [x] Full local test command passed on 2026-06-02:
+  `.venv/bin/python -m pytest -q test` (`344 passed`).
+- [x] Merge analysis against `dev` on 2026-06-02 found a fast-forward shape:
+  `dev...HEAD` was `0 6`, `git diff --check dev..HEAD` was clean, and
+  `git merge-tree` showed no conflict markers.
+- [ ] Environment-dependent validation remains open: one tiny queue-mode attack
+  and one tiny SHAP-mode attack when local cache/model/artifacts/solver are
+  available.
+
+Current size snapshot:
+
+| File | Lines | Status |
+|------|------:|--------|
+| `libct/explore.py` | 810 | Compatibility coordinator; still above final target |
+| `libct/searcher/constraint_scheduler.py` | 239 | Extracted compatibility scheduler |
+| `libct/executor/execution_pair.py` | 206 | Extracted candidate/execution-pair runner |
+| `libct/executor/arguments.py` | 112 | Extracted concolic argument builder |
+
+The next low-risk extraction target is the `explore()` setup/teardown path
+(`sys.path`, working-directory switching, coverage setup, deadline setup, and
+stats artifact finalization) into a runtime session/environment helper. Moving
+the main `_execution_loop()` remains a later, higher-risk step.
+
 ## Phase 1：單元測試
 
 ### Searcher 模塊測試

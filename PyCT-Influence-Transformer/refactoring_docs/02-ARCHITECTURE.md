@@ -180,6 +180,58 @@ libct/
 
 ---
 
+## Current Compatibility Implementation Snapshot（2026-06-02）
+
+The repository is currently in a compatibility modularization stage. The target
+architecture above remains the KLEE-inspired destination, but the current code
+intentionally keeps `libct.explore.ExplorationEngine` as the stable entrypoint
+while delegating selected legacy responsibilities to smaller modules.
+
+Current `libct/` runtime shape:
+
+```
+libct/
+├── explore.py                         # 810-line compatibility coordinator
+├── searcher/
+│   ├── base.py                        # constraint worklist interface today
+│   ├── constraint_worklist.py          # stack / queue / priority / random
+│   └── constraint_scheduler.py         # legacy push/pop facade
+├── executor/
+│   ├── base.py
+│   ├── legacy.py                      # adapter around existing engine methods
+│   ├── child_protocol.py              # child envelope and transfer protocol
+│   ├── concolic.py                    # concolic subprocess runner
+│   ├── primitive.py                   # primitive/coverage subprocess runner
+│   ├── execution_pair.py              # candidate validation + execution pair
+│   └── arguments.py                   # concolic argument builder
+└── state/
+    ├── execution_state.py
+    ├── manager.py
+    └── work_item.py                   # constraint-level work item
+```
+
+Important compatibility notes:
+
+- Search scheduling is still **constraint-level**, through `ConstraintWorkItem`,
+  not yet full path-level `ExecutionState` scheduling.
+- `libct/explore.py` keeps wrapper methods such as `push_constraint()`,
+  `pop_constraint()`, `_one_execution()`, and `_get_concolic_arguments()` so
+  existing call sites and tests retain their patch points.
+- `ChildProtocol`, `ConcolicExecutionRunner`, `PrimitiveExecutionRunner`,
+  `CandidateExecutionRunner`, `ConcolicArgumentBuilder`, and
+  `ConstraintScheduler` still depend on compatibility accessors on
+  `ExplorationEngine`.
+- The final `< 300 行` `ExplorationEngine` remains a later acceptance target.
+
+Next target boundary:
+
+- Extract `explore()` setup/teardown into a runtime session or environment
+  helper before moving `_execution_loop()`.
+- Preserve CLI and artifact output contracts while this compatibility shell is
+  still the public runtime entrypoint.
+
+---
+
 ## 初始化流程代碼
 
 ```python

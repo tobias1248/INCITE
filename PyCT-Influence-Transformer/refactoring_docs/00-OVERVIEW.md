@@ -30,13 +30,48 @@
 
 | 維度 | 現狀 | 目標 |
 |------|------|------|
-| **核心文件** | `libct/explore.py`（~800 行單體） | 4 個模塊，各 < 300 行 |
-| **搜索策略** | 硬編碼於 `ExplorationEngine` | `Searcher` 抽象基類 + 可插拔策略 |
-| **執行邏輯** | 混在探索循環中 | 獨立 `Executor` 類 |
+| **核心文件** | `libct/explore.py`（810 行 compatibility coordinator） | 4 個模塊，各 < 300 行 |
+| **搜索策略** | constraint-level worklist 已由 `ConstraintScheduler` / `Searcher` 承接 | path-level `Searcher` 抽象基類 + 可插拔策略 |
+| **執行邏輯** | concolic/primitive runner、candidate runner、argument builder 已抽出；main loop 仍在 `explore.py` | 獨立 `Executor` 類 |
 | **狀態管理** | 散落在多個方法中 | `ExecutionState` dataclass + `StateManager` |
-| **α 調度** | 內嵌在優先隊列邏輯 | `PrioritySearcher` 封裝 |
-| **可測試性** | 需要完整模型才能測試 | 每個模塊可獨立單元測試 |
+| **α 調度** | compatibility priority score 已由 `ConstraintScheduler` 封裝 | `PrioritySearcher` 封裝 |
+| **可測試性** | scheduler / executor adapters / argument builder 可單元測試；完整 loop 仍偏整合測試 | 每個模塊可獨立單元測試 |
 | **擴展性** | 新增策略需修改核心代碼 | 新增策略只需繼承 `Searcher` |
+
+## 目前 Compatibility Implementation Snapshot（2026-06-02）
+
+目前分支已完成一批 compatibility-preserving extraction。這不是最終
+KLEE-style path-level engine rewrite，而是先保留 `ExplorationEngine` 入口與
+CLI 行為，把最容易隔離的 legacy responsibilities 移出 `libct/explore.py`。
+
+已落地的模塊：
+
+- `libct/searcher/constraint_scheduler.py`
+  - legacy constraint push/pop
+  - priority score 計算
+  - queue metadata 與 pop logging
+  - 保留 priority pop 回傳 `(constraint, shap_value, position)` 的相容契約
+- `libct/executor/execution_pair.py`
+  - initial execution reuse
+  - SAT candidate validation
+  - search result label-change detection
+  - concolic + primitive execution pair coordination
+- `libct/executor/arguments.py`
+  - concolic argument wrapping
+  - default argument materialization
+  - `concolic_name_list` / `concolic_flag_dict` / `var_to_types` 更新
+
+仍留在 `libct/explore.py` 的主要職責：
+
+- `_execution_loop()` 主探索循環
+- `explore()` 的 process/environment setup 和 teardown
+- coverage reporting 和 final stats artifact writes
+- module-level `module` / `execute` / `recorder` compatibility globals
+
+最新本地驗證：`.venv/bin/python -m pytest -q test`，`344 passed`。
+
+Merge readiness：相對 `dev` 為 fast-forward 形態，`git diff --check dev..HEAD`
+無輸出，`git merge-tree` 未發現 conflict markers。
 
 ---
 
@@ -53,6 +88,8 @@
 - 定義 `Executor` 抽象基類
 - 實現 `SymbolicExecutor`（包裝現有符號執行邏輯）
 - 實現 `ConcreteExecutor`（覆蓋收集）
+- Compatibility extraction 已先落地 concolic runner、primitive runner、
+  candidate execution runner、concolic argument builder
 - **驗收**：Executor 可獨立運行，不依賴 `ExplorationEngine`
 
 ### Phase 3：重構 Engine + 集成（週 5-6）
@@ -124,7 +161,7 @@ A：現有 ~800 行單體 → 目標 4 個模塊各 < 300 行，總量可能增�
 
 | 指標 | 當前值 | 目標值 |
 |------|--------|--------|
-| 核心文件行數 | ~800 行 | 各模塊 < 300 行 |
+| 核心文件行數 | 810 行 | 各模塊 < 300 行 |
 | 單元測試覆蓋率 | < 30% | > 80% |
 | 新增搜索策略所需修改文件數 | 3+ 文件 | 1 文件（繼承 Searcher） |
 | 模塊間循環依賴數 | 多個 | 0 |

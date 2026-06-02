@@ -71,10 +71,20 @@ Use this format for new entries:
 
 - **Status**: Open
 - **Area**: Runtime
-- **Found during**: Phase 2A completion review
-- **Problem**: `libct/explore.py` still owns the main exploration loop, `explore()` setup/teardown, primitive coverage execution, argument wrapping, coverage reporting, and search compatibility wrappers.
-- **Impact**: The file remains difficult to reason about and is still far from the target coordinator/facade shape.
-- **Suggested follow-up**: Continue with Phase 2B primitive runner extraction, then Phase 2C execution-pair adapter, then Phase 3 runtime/session loop extraction.
+- **Found during**: Phase 2A completion review; updated after the 2026-06-02 compatibility extraction batch
+- **Problem**: `libct/explore.py` no longer owns the raw search scheduler,
+  candidate execution pair, or concolic argument wrapping, but it still owns the
+  main `_execution_loop()`, `explore()` setup/teardown, coverage reporting,
+  stats artifact finalization, and module-level runtime globals.
+- **Impact**: The file is smaller and more adapter-shaped, but it is still the
+  highest-risk runtime module. Moving the main loop before isolating setup,
+  teardown, recorder state, and solver/result accounting would make regression
+  failures hard to diagnose.
+- **Suggested follow-up**: Extract a runtime session/environment helper first
+  for `sys.path` mutation, working-directory switching, coverage setup, timeout
+  deadline setup, and final stats artifact writes. After that, split the main
+  loop into an explicit coordinator around solver attempts and candidate
+  execution.
 
 ### ISSUE-6: Python version contract is inconsistent
 
@@ -93,3 +103,18 @@ Use this format for new entries:
 - **Problem**: After fixing BatchNorm output cache contamination from in-place ReLU, the first failing ResNet18 case moved to `conv2d_3`. Isolating `conv2d_3` with the Keras `re_lu_2` output as input showed the myDNN Conv2D result stayed within the strict tolerance, while the full forward path crossed the threshold at `conv2d_3` because earlier small differences were amplified by convolution accumulation.
 - **Impact**: The current first-layer diff can be read as "this layer is semantically wrong" even when the layer is only the first point where accumulated numerical error exceeds `np.allclose(atol=1e-5, rtol=1e-5)`.
 - **Suggested follow-up**: Extend `predict_compare` diagnostics to log both input and output diff for the first failing layer, use scientific notation for small values, and include top-k absolute diff locations so semantic bugs can be separated from numerical amplification.
+
+### ISSUE-8: `explore()` setup and teardown still mix environment and artifact side effects
+
+- **Status**: Open
+- **Area**: Runtime
+- **Found during**: 2026-06-02 post-extraction review
+- **Problem**: `ExplorationEngine.explore()` still mutates process-wide state
+  (`sys.path`, current working directory), configures coverage, creates SHAP
+  comparator state, computes the global deadline, invokes the main loop, and
+  writes final `statsdir` artifacts in one method.
+- **Impact**: This makes the remaining coordinator hard to test in isolation
+  and keeps process-state cleanup coupled to exploration-loop behavior.
+- **Suggested follow-up**: Introduce a compatibility runtime session or
+  environment helper that owns setup/teardown with deterministic tests for
+  path restoration, cwd restoration, coverage setup, and final artifact writes.
