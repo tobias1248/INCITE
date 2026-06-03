@@ -1,7 +1,9 @@
 import argparse
+import json
 import os
+import statistics
 import time
-from typing import Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -63,6 +65,48 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def build_timing_summary(
+    artifacts: Sequence[Dict[str, Any]],
+    *,
+    model_name: str,
+    dataset: str,
+    explainer_type: str,
+    output_root: str,
+) -> Dict[str, Any]:
+    """Build a stable JSON-serializable SHAP timing summary."""
+    compute_times: List[float] = [
+        float(item.get("compute_seconds", 0.0))
+        for item in artifacts
+        if bool(item.get("computed", False))
+    ]
+    cached_count = sum(1 for item in artifacts if bool(item.get("was_cached", False)))
+    total_compute_seconds = float(sum(compute_times))
+    summary: Dict[str, Any] = {
+        "model": model_name,
+        "dataset": dataset,
+        "explainer_type": explainer_type,
+        "output_root": output_root,
+        "total_inputs": len(artifacts),
+        "computed": len(compute_times),
+        "cached": cached_count,
+        "total_compute_seconds": total_compute_seconds,
+        "mean_seconds": None,
+        "median_seconds": None,
+        "min_seconds": None,
+        "max_seconds": None,
+    }
+    if compute_times:
+        summary.update(
+            {
+                "mean_seconds": float(statistics.mean(compute_times)),
+                "median_seconds": float(statistics.median(compute_times)),
+                "min_seconds": float(min(compute_times)),
+                "max_seconds": float(max(compute_times)),
+            }
+        )
+    return summary
+
+
 def main(argv: Optional[Sequence[str]] = None) -> None:
     """CLI entry point for generating SHAP maps."""
     args = parse_args(argv)
@@ -102,6 +146,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         status = "SKIP" if info["was_cached"] else "CALC"
         print(f"[{status}] idx={info['idx']} -> {info['output_path']}")
 
+    summary = build_timing_summary(
+        artifacts,
+        model_name=args.model_name,
+        dataset=args.dataset,
+        explainer_type=args.explainer_type,
+        output_root=args.output_root,
+    )
+    print("[SHAP-SUMMARY-JSON] " + json.dumps(summary, sort_keys=True))
     print("SHAP calculations complete.")
 
 

@@ -4,8 +4,9 @@ import functools
 import json
 import logging
 import os
+import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Dict, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Literal, Optional, Tuple
 
 import numpy as np
 import shap
@@ -93,6 +94,11 @@ class ShapValuesCalculator:
             else len(self._model.layers) - 1
         )
         self._layerwise_enabled = isinstance(self._model, Sequential)
+        self.last_timing: Dict[str, Any] = self._build_timing_metadata(
+            computed=False,
+            was_cached=False,
+            compute_seconds=0.0,
+        )
 
     @property
     def model(self) -> Sequential | Model:
@@ -114,6 +120,11 @@ class ShapValuesCalculator:
     ) -> Dict[str, float]:
         """Return SHAP values, computing and persisting them when needed."""
         if self._shap_values is not None and not force_refresh:
+            self.last_timing = self._build_timing_metadata(
+                computed=False,
+                was_cached=False,
+                compute_seconds=0.0,
+            )
             return self._shap_values
 
         cache_exists = self.cache_path.is_file()
@@ -126,15 +137,42 @@ class ShapValuesCalculator:
         if should_load_cache:
             try:
                 self._shap_values = self._load_cache()
+                self.last_timing = self._build_timing_metadata(
+                    computed=False,
+                    was_cached=True,
+                    compute_seconds=0.0,
+                )
                 return self._shap_values
             except (json.JSONDecodeError, OSError):
                 # fall back to recomputing if cache is corrupt
                 pass
 
+        start = time.perf_counter()
         shap_values = self._compute_shap_values()
+        elapsed = time.perf_counter() - start
         self._save_cache(shap_values)
         self._shap_values = shap_values
+        self.last_timing = self._build_timing_metadata(
+            computed=True,
+            was_cached=False,
+            compute_seconds=elapsed,
+        )
         return shap_values
+
+    def _build_timing_metadata(
+        self,
+        *,
+        computed: bool,
+        was_cached: bool,
+        compute_seconds: float,
+    ) -> Dict[str, Any]:
+        return {
+            "idx": self.idx,
+            "computed": bool(computed),
+            "was_cached": bool(was_cached),
+            "compute_seconds": float(compute_seconds),
+            "output_path": str(self.cache_path),
+        }
 
     def _load_cache(self) -> Dict[str, float]:
         with self.cache_path.open("r", encoding="utf-8") as handle:

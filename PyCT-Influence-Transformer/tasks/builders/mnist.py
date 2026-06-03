@@ -233,7 +233,9 @@ def mnist_transformer_shap_calculate_all(
             {
                 "idx": idx,
                 "output_path": str(calculator.cache_path),
-                "was_cached": cache_exists and not force_refresh,
+                "was_cached": bool(calculator.last_timing["was_cached"]),
+                "computed": bool(calculator.last_timing["computed"]),
+                "compute_seconds": float(calculator.last_timing["compute_seconds"]),
             }
         )
 
