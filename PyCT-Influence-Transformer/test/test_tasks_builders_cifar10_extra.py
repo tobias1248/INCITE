@@ -34,9 +34,19 @@ class _DummyCalculator:
     def __init__(self, **kwargs) -> None:
         self.kwargs = kwargs
         self.cache_path = Path(kwargs['output_root']) / f"shap_value_{kwargs['idx']}.json"
+        self.last_timing = {
+            "computed": False,
+            "was_cached": False,
+            "compute_seconds": 0.0,
+        }
 
     def ensure(self, assume_cached: bool, force_refresh: bool) -> None:
         type(self).calls.append((self.kwargs['idx'], assume_cached, force_refresh))
+        self.last_timing = {
+            "computed": not assume_cached,
+            "was_cached": bool(assume_cached),
+            "compute_seconds": float(self.kwargs['idx']) + 0.75,
+        }
 
 
 def test_cifar10_transformer_random_uses_coordinate_provider(monkeypatch) -> None:
@@ -62,4 +72,6 @@ def test_cifar10_shap_calculate_all_runs_calculator(monkeypatch, tmp_path) -> No
     )
 
     assert [item['idx'] for item in artifacts] == [0, 1]
+    assert [item['computed'] for item in artifacts] == [True, True]
+    assert [item['compute_seconds'] for item in artifacts] == [0.75, 1.75]
     assert _DummyCalculator.calls == [(0, False, True), (1, False, True)]

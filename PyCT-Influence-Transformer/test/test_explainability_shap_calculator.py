@@ -80,6 +80,9 @@ def test_ensure_returns_in_memory_values_without_refresh(monkeypatch, tmp_path: 
     result = calculator.ensure()
 
     assert result == {"0_0": 1.0}
+    assert calculator.last_timing["computed"] is False
+    assert calculator.last_timing["was_cached"] is False
+    assert calculator.last_timing["compute_seconds"] == 0.0
 
 
 def test_ensure_loads_cache_when_present(monkeypatch, tmp_path: Path) -> None:
@@ -89,17 +92,27 @@ def test_ensure_loads_cache_when_present(monkeypatch, tmp_path: Path) -> None:
     result = calculator.ensure(assume_cached=True)
 
     assert result == {"0_0": 1.5}
+    assert calculator.last_timing["computed"] is False
+    assert calculator.last_timing["was_cached"] is True
+    assert calculator.last_timing["compute_seconds"] == 0.0
 
 
 def test_ensure_recomputes_when_cache_is_corrupt(monkeypatch, tmp_path: Path) -> None:
     calculator = _make_calculator(monkeypatch, tmp_path, _FakeSequential())
     calculator.cache_path.write_text("{bad json", encoding="utf-8")
     monkeypatch.setattr(calculator, "_compute_shap_values", lambda: {"0_1": 2.0})
+    ticks = iter([10.0, 12.5])
+    monkeypatch.setattr(shap_mod.time, "perf_counter", lambda: next(ticks))
 
     result = calculator.ensure()
 
     assert result == {"0_1": 2.0}
     assert json.loads(calculator.cache_path.read_text(encoding="utf-8")) == {"0_1": 2.0}
+    assert calculator.last_timing["idx"] == 3
+    assert calculator.last_timing["computed"] is True
+    assert calculator.last_timing["was_cached"] is False
+    assert calculator.last_timing["compute_seconds"] == 2.5
+    assert calculator.last_timing["output_path"] == str(calculator.cache_path)
 
 
 def test_save_cache_writes_meta_wrapper_when_meta_exists(monkeypatch, tmp_path: Path) -> None:

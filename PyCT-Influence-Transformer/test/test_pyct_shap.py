@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import importlib
+import json
 import sys
 from types import ModuleType
 
@@ -57,8 +58,17 @@ def _install_fake_builder_modules(monkeypatch, calls):
             return [
                 {
                     "idx": 0,
-                    "was_cached": kwargs.get("force_refresh", False),
+                    "was_cached": False,
+                    "computed": True,
+                    "compute_seconds": 2.0,
                     "output_path": f"{name}.json",
+                },
+                {
+                    "idx": 1,
+                    "was_cached": True,
+                    "computed": False,
+                    "compute_seconds": 0.0,
+                    "output_path": f"{name}_cached.json",
                 }
             ]
 
@@ -143,7 +153,22 @@ def test_main_sets_background_env_vars_before_dispatch(monkeypatch, capsys) -> N
     ]
     assert shap_mod.os.environ["PYCT_BG_PER_CLASS"] == "5"
     assert shap_mod.os.environ["PYCT_BG_SEED"] == "77"
-    assert "processed inputs: 1" in captured.out
+    assert "processed inputs: 2" in captured.out
+    summary = _extract_summary_json(captured.out)
+    assert summary == {
+        "cached": 1,
+        "computed": 1,
+        "dataset": "mnist",
+        "explainer_type": "gradient",
+        "max_seconds": 2.0,
+        "mean_seconds": 2.0,
+        "median_seconds": 2.0,
+        "min_seconds": 2.0,
+        "model": "demo",
+        "output_root": "shap_value_all_layer",
+        "total_compute_seconds": 2.0,
+        "total_inputs": 2,
+    }
 
 
 def test_main_dispatches_cifar10_handler_with_expected_kwargs(monkeypatch) -> None:
@@ -180,3 +205,32 @@ def test_main_dispatches_cifar10_handler_with_expected_kwargs(monkeypatch) -> No
             },
         )
     ]
+
+
+def _extract_summary_json(output: str) -> dict:
+    for line in output.splitlines():
+        if line.startswith("[SHAP-SUMMARY-JSON] "):
+            return json.loads(line.removeprefix("[SHAP-SUMMARY-JSON] "))
+    raise AssertionError("missing SHAP summary JSON line")
+
+
+def test_build_timing_summary_handles_all_cached_artifacts() -> None:
+    summary = shap_mod.build_timing_summary(
+        [
+            {"idx": 0, "was_cached": True, "computed": False, "compute_seconds": 0.0},
+            {"idx": 1, "was_cached": True, "computed": False, "compute_seconds": 0.0},
+        ],
+        model_name="demo",
+        dataset="mnist",
+        explainer_type="gradient",
+        output_root="shap_value_all_layer",
+    )
+
+    assert summary["total_inputs"] == 2
+    assert summary["computed"] == 0
+    assert summary["cached"] == 2
+    assert summary["total_compute_seconds"] == 0.0
+    assert summary["mean_seconds"] is None
+    assert summary["median_seconds"] is None
+    assert summary["min_seconds"] is None
+    assert summary["max_seconds"] is None
