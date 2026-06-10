@@ -23,6 +23,12 @@ class SaveExpConfig(TypedDict, total=False):
     symbolic_path_threshold: int
     ternary_simplification: bool
     ternary_threshold_scale: float
+    fallback: bool
+    fallback_type: str
+    fallback_trigger: str
+    fallback_source_attack_mode: str
+    fallback_source_ton: Optional[int]
+    fallback_source_ton_next: Optional[int]
 
 
 class TonPlan(TypedDict):
@@ -47,6 +53,7 @@ class TaskPayload(TypedDict, total=False):
     symbolic_path_threshold: Optional[int]
     ternary_simplification: bool
     ternary_threshold_scale: float
+    ternary_fallback: bool
 
 
 @dataclass(frozen=True)

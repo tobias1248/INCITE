@@ -167,6 +167,14 @@ def should_run_ton(
     stats, _ = load_stats_payload(stats_path)
     if not stats:
         return ton_value == ton_sequence[0]
+    return should_run_ton_from_stats(stats, ton_value, ton_sequence)
+
+
+def should_run_ton_from_stats(
+    stats: Dict[str, Any],
+    ton_value: int,
+    ton_sequence: Sequence[int],
+) -> bool:
     meta = stats.get("meta") or {}
     if has_successful_attack(stats) or meta.get("status") == "error":
         return False
@@ -246,6 +254,7 @@ __all__ = [
     "load_stats_payload",
     "should_run_payload",
     "should_run_ton",
+    "should_run_ton_from_stats",
     "stats_indicate_completion",
     "update_ton_progress_stats",
 ]

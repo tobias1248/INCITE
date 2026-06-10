@@ -17,7 +17,7 @@ from orchestration.progress import (
     extract_last_ton,
     load_stats_payload,
     should_run_payload,
-    should_run_ton,
+    should_run_ton_from_stats,
     update_ton_progress_stats,
 )
 from orchestration.runners import QueueRunner, RandomAssignRunner, ShapRunner
@@ -30,6 +30,7 @@ from tasks.builders.mnist import mnist_transformer_random, mnist_transformer_sha
 from tasks.paths import get_save_dir_from_save_exp
 
 logger = logging.getLogger("ct.cli")
+TERNARY_FALLBACK_SUFFIX = "ternaryfb"
 
 
 def _resolve_task_save_dir(task: Dict[str, Any], attack_mode: str) -> Optional[Path]:
@@ -49,6 +50,97 @@ def _resolve_task_save_dir(task: Dict[str, Any], attack_mode: str) -> Optional[P
             only_first_forward=bool(save_exp.get("only_first_forward", False)),
         )
     )
+
+
+def _fallback_attack_mode(source_attack_mode: str) -> str:
+    suffix = f"_{TERNARY_FALLBACK_SUFFIX}"
+    if source_attack_mode.endswith(suffix):
+        return source_attack_mode
+    return f"{source_attack_mode}{suffix}"
+
+
+def _resolve_case_fallback_stats_path(
+    case: Dict[str, Any],
+    *,
+    ternary_threshold_scale: float,
+) -> Optional[Path]:
+    base_payload = case.get("base_payload") or {}
+    model_name = base_payload.get("model_name")
+    plans = case.get("plans") or {}
+    if not model_name or not plans:
+        return None
+    first_plan = next(iter(plans.values()), None)
+    if not first_plan:
+        return None
+    save_exp = dict(first_plan.get("save_exp") or {})
+    source_attack_mode = save_exp.get(
+        "attack_mode",
+        base_payload.get("popped_log_attack_mode", "unknown"),
+    )
+    fallback_attack_mode = _fallback_attack_mode(str(source_attack_mode))
+    save_exp["attack_mode"] = fallback_attack_mode
+    save_dir = get_save_dir_from_save_exp(
+        save_exp,
+        model_name,
+        fallback_attack_mode,
+        only_first_forward=bool(save_exp.get("only_first_forward", False)),
+        ternary_simplification=True,
+        ternary_threshold_scale=ternary_threshold_scale,
+    )
+    return Path(save_dir) / "stats.json"
+
+
+def _load_effective_case_stats(
+    case: Dict[str, Any],
+    *,
+    ternary_fallback: bool,
+    ternary_threshold_scale: float,
+) -> tuple[Optional[Dict[str, Any]], Optional[Path], str]:
+    baseline_path = Path(case["save_dir"]) / "stats.json"
+    baseline_stats, baseline_reason = load_stats_payload(baseline_path)
+    if not ternary_fallback:
+        return baseline_stats, baseline_path, baseline_reason
+
+    fallback_path = _resolve_case_fallback_stats_path(
+        case,
+        ternary_threshold_scale=ternary_threshold_scale,
+    )
+    if fallback_path is None:
+        return baseline_stats, baseline_path, baseline_reason
+    fallback_stats, fallback_reason = load_stats_payload(fallback_path)
+    if not fallback_stats:
+        return baseline_stats, baseline_path, baseline_reason
+    if not baseline_stats:
+        return fallback_stats, fallback_path, fallback_reason
+
+    baseline_ton = extract_last_ton(baseline_stats)
+    fallback_ton = extract_last_ton(fallback_stats)
+    if fallback_ton is None:
+        return baseline_stats, baseline_path, baseline_reason
+    if baseline_ton is None or fallback_ton >= baseline_ton:
+        return fallback_stats, fallback_path, fallback_reason
+    return baseline_stats, baseline_path, baseline_reason
+
+
+def _should_run_ton_with_effective_stats(
+    case: Dict[str, Any],
+    ton_value: int,
+    ton_sequence,
+    *,
+    force_refresh: bool,
+    ternary_fallback: bool,
+    ternary_threshold_scale: float,
+) -> bool:
+    if force_refresh:
+        return True
+    stats, _stats_path, _reason = _load_effective_case_stats(
+        case,
+        ternary_fallback=ternary_fallback,
+        ternary_threshold_scale=ternary_threshold_scale,
+    )
+    if not stats:
+        return ton_value == ton_sequence[0]
+    return should_run_ton_from_stats(stats, ton_value, ton_sequence)
 
 
 def _write_worker_failure_stats(task: Dict[str, Any], attack_mode: str, reason: str) -> None:
@@ -104,6 +196,8 @@ def _worker(
     constraint_build_timeout_seconds: int,
     solver_run_timeout,
     error_retry_limit: int,
+    ternary_fallback: bool,
+    ternary_threshold_scale: float,
     norm_01: bool,
     attack_mode: str,
     pixel_source: str,
@@ -138,6 +232,8 @@ def _worker(
                 norm=norm_01,
                 collect_constraints_with="queue",
                 error_retry_limit=error_retry_limit,
+                ternary_fallback=ternary_fallback,
+                ternary_fallback_threshold_scale=ternary_threshold_scale,
             )
         else:
             # Retry lives in the runner because the runner owns re-executing
@@ -149,6 +245,8 @@ def _worker(
                 solver_run_timeout=solver_run_timeout,
                 norm=norm_01,
                 error_retry_limit=error_retry_limit,
+                ternary_fallback=ternary_fallback,
+                ternary_fallback_threshold_scale=ternary_threshold_scale,
             )
 
         while not shutdown_event.is_set():
@@ -232,6 +330,10 @@ def run_launcher(args: Any) -> None:
         raise ValueError("--error-retry-limit must be >= 0")
     if args.spawn_delay < 0:
         raise ValueError("--spawn-delay must be non-negative")
+    if args.ternary_fallback and args.ternary_simplification:
+        raise ValueError("--ternary-fallback cannot be combined with --ternary-simplification")
+    if args.ternary_fallback and args.attack_mode not in {"shap", "queue"}:
+        raise ValueError("--ternary-fallback requires --attack-mode shap or --attack-mode queue")
 
     attack_mode = _resolve_experiment_layout(args.attack_mode, args.pixel_search)
     os.environ["PYCT_TIMEOUT"] = str(args.timeout)
@@ -371,6 +473,8 @@ def run_launcher(args: Any) -> None:
                     args.constraint_build_timeout_seconds,
                     args.solver_run_timeout if args.solver_run_timeout > 0 else None,
                     args.error_retry_limit,
+                    args.ternary_fallback,
+                    args.ternary_threshold_scale,
                     args.norm_01,
                     args.attack_mode,
                     args.pixel_source,
@@ -425,7 +529,14 @@ def run_launcher(args: Any) -> None:
                     plan = case["plans"].get(ton_value)
                     if not plan:
                         continue
-                    if not should_run_ton(case, ton_value, ton_sequence, force_refresh=force_refresh):
+                    if not _should_run_ton_with_effective_stats(
+                        case,
+                        ton_value,
+                        ton_sequence,
+                        force_refresh=force_refresh,
+                        ternary_fallback=args.ternary_fallback,
+                        ternary_threshold_scale=args.ternary_threshold_scale,
+                    ):
                         continue
                     payload = dict(case["base_payload"])
                     payload["con_dict"] = plan["con_dict"]
@@ -441,8 +552,11 @@ def run_launcher(args: Any) -> None:
 
                 next_candidates = 0
                 for case in cases:
-                    stats_path = Path(case["save_dir"]) / "stats.json"
-                    stats, reason = load_stats_payload(stats_path)
+                    stats, stats_path, reason = _load_effective_case_stats(
+                        case,
+                        ternary_fallback=args.ternary_fallback,
+                        ternary_threshold_scale=args.ternary_threshold_scale,
+                    )
                     if not stats:
                         continue
                     last_ton = extract_last_ton(stats)
@@ -459,7 +573,14 @@ def run_launcher(args: Any) -> None:
                     )
                 if next_ton is not None:
                     for case in cases:
-                        if should_run_ton(case, next_ton, ton_sequence, force_refresh=force_refresh):
+                        if _should_run_ton_with_effective_stats(
+                            case,
+                            next_ton,
+                            ton_sequence,
+                            force_refresh=force_refresh,
+                            ternary_fallback=args.ternary_fallback,
+                            ternary_threshold_scale=args.ternary_threshold_scale,
+                        ):
                             next_candidates += 1
                 if next_ton is None or next_candidates == 0:
                     break

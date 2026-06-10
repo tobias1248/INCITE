@@ -277,6 +277,16 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
             extra_meta["ton"] = save_exp.get("ton")
         if "ton_next" in save_exp:
             extra_meta["ton_next"] = save_exp.get("ton_next")
+        for key in (
+            "fallback",
+            "fallback_type",
+            "fallback_trigger",
+            "fallback_source_attack_mode",
+            "fallback_source_ton",
+            "fallback_source_ton_next",
+        ):
+            if key in save_exp:
+                extra_meta[key] = save_exp.get(key)
     engine.extra_meta = extra_meta
 
     result: tuple[int, Any] = engine.explore(

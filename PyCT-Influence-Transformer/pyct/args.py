@@ -113,6 +113,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Non-negative scale for ternary delta: threshold_scale * mean(abs(W)) (default: 0.75).",
     )
     parser.add_argument(
+        "--ternary-fallback",
+        action="store_true",
+        help="Retry timeout cases with ternary simplification for shap/queue attacks.",
+    )
+    parser.add_argument(
         "--pixel-search",
         type=_parse_pixel_search,
         default=_parse_pixel_search(",".join(str(v) for v in _DEFAULT_PIXEL_SEARCH)),
@@ -210,6 +215,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.attack_mode != "queue" and args.score_alpha is None:
         parser.error("--score-alpha is required unless --attack-mode queue")
+    if args.ternary_fallback and args.ternary_simplification:
+        parser.error("--ternary-fallback cannot be combined with --ternary-simplification")
+    if args.ternary_fallback and args.attack_mode not in {"shap", "queue"}:
+        parser.error("--ternary-fallback requires --attack-mode shap or --attack-mode queue")
     if args.pixel_selector in {"patch-shap", "token-shap"}:
         if args.attack_mode != "shap":
             parser.error(f"--pixel-selector {args.pixel_selector} requires --attack-mode shap")

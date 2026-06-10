@@ -15,6 +15,7 @@ from libct.random_assign_attack import (
 from orchestration.progress import derive_ton_outcome, update_ton_progress_stats
 
 log = logging.getLogger("ct.runner")
+TERNARY_FALLBACK_SUFFIX = "ternaryfb"
 
 __all__ = [
     "QueueRunner",
@@ -36,6 +37,8 @@ class BaseRunner:
     constraint_build_timeout_seconds: int = 30
     solver_run_timeout: Optional[int] = None
     error_retry_limit: int = 2
+    ternary_fallback: bool = False
+    ternary_fallback_threshold_scale: float = 0.75
 
     def run_tasks(self, tasks: Sequence[Dict[str, Any]]) -> None:
         for payload in tasks:
@@ -117,6 +120,88 @@ class BaseRunner:
                 input_name,
                 save_dir,
             )
+
+    def _execute_plan_with_fallback(
+        self,
+        plan_payload: Dict[str, Any],
+        *,
+        payload_idx: Any,
+        ton_value: Any,
+    ) -> Any:
+        result = self._execute_plan_with_retries(
+            plan_payload,
+            payload_idx=payload_idx,
+            ton_value=ton_value,
+        )
+        recorder = self._get_result_recorder(result)
+        if not self._should_run_ternary_fallback(plan_payload, recorder):
+            return result
+
+        fallback_payload = self._build_ternary_fallback_payload(
+            plan_payload,
+            trigger="timeout",
+        )
+        input_name, save_dir = self._get_result_context(plan_payload, recorder)
+        log.warning(
+            "[PAYLOAD-FALLBACK] idx=%s ton=%s type=ternary trigger=timeout input_name=%s baseline_save_dir=%s",
+            payload_idx,
+            ton_value,
+            input_name,
+            save_dir,
+        )
+        return self._execute_plan_with_retries(
+            fallback_payload,
+            payload_idx=payload_idx,
+            ton_value=ton_value,
+        )
+
+    def _should_run_ternary_fallback(self, payload: Dict[str, Any], recorder: Any) -> bool:
+        if not self.ternary_fallback:
+            return False
+        if bool(payload.get("ternary_simplification")):
+            return False
+        if recorder is None:
+            return False
+        if getattr(recorder, "attack_label", None) is not None:
+            return False
+        return bool(getattr(recorder, "is_timeout", False))
+
+    def _build_ternary_fallback_payload(
+        self,
+        payload: Dict[str, Any],
+        *,
+        trigger: str,
+    ) -> Dict[str, Any]:
+        fallback_payload = dict(payload)
+        save_exp = dict(fallback_payload.get("save_exp") or {})
+        source_attack_mode = save_exp.get(
+            "attack_mode",
+            fallback_payload.get("popped_log_attack_mode", "unknown"),
+        )
+        fallback_suffix = f"_{TERNARY_FALLBACK_SUFFIX}"
+        fallback_attack_mode = (
+            source_attack_mode
+            if str(source_attack_mode).endswith(fallback_suffix)
+            else f"{source_attack_mode}{fallback_suffix}"
+        )
+        save_exp.update(
+            {
+                "attack_mode": fallback_attack_mode,
+                "fallback": True,
+                "fallback_type": "ternary",
+                "fallback_trigger": trigger,
+                "fallback_source_attack_mode": source_attack_mode,
+                "fallback_source_ton": save_exp.get("ton"),
+                "fallback_source_ton_next": save_exp.get("ton_next"),
+                "ternary_simplification": True,
+                "ternary_threshold_scale": self.ternary_fallback_threshold_scale,
+            }
+        )
+        fallback_payload["save_exp"] = save_exp
+        fallback_payload["popped_log_attack_mode"] = fallback_attack_mode
+        fallback_payload["ternary_simplification"] = True
+        fallback_payload["ternary_threshold_scale"] = self.ternary_fallback_threshold_scale
+        return fallback_payload
 
     def _log_payload_end(self, payload: Dict[str, Any], result: Any) -> None:
         recorder = self._get_result_recorder(result)
@@ -213,6 +298,8 @@ class QueueRunner(BaseRunner):
         solver_run_timeout: Optional[int] = None,
         collect_constraints_with: Literal["priority_queue", "queue"] = "queue",
         error_retry_limit: int = 2,
+        ternary_fallback: bool = False,
+        ternary_fallback_threshold_scale: float = 0.75,
     ) -> None:
         super().__init__(
             timeout=timeout,
@@ -222,13 +309,15 @@ class QueueRunner(BaseRunner):
             constraint_build_timeout_seconds=constraint_build_timeout_seconds,
             solver_run_timeout=solver_run_timeout,
             error_retry_limit=error_retry_limit,
+            ternary_fallback=ternary_fallback,
+            ternary_fallback_threshold_scale=ternary_fallback_threshold_scale,
         )
         self.collect_constraints_with = collect_constraints_with
 
     def _run_single(self, payload: Dict[str, Any]) -> None:
         ton_plans = payload.pop("ton_plans", None)
         if not ton_plans:
-            return self._execute_plan_with_retries(
+            return self._execute_plan_with_fallback(
                 payload,
                 payload_idx=payload.get("idx"),
                 ton_value=(payload.get("save_exp") or {}).get("ton"),
@@ -245,7 +334,7 @@ class QueueRunner(BaseRunner):
 
             # Retry stays at the runner layer because only the runner owns
             # re-executing a single TON payload; progress only interprets results.
-            result = self._execute_plan_with_retries(
+            result = self._execute_plan_with_fallback(
                 plan_payload,
                 payload_idx=base_payload.get("idx"),
                 ton_value=plan.get("ton"),
@@ -277,6 +366,8 @@ class ShapRunner(BaseRunner):
         constraint_build_timeout_seconds: int = 30,
         solver_run_timeout: Optional[int] = None,
         error_retry_limit: int = 2,
+        ternary_fallback: bool = False,
+        ternary_fallback_threshold_scale: float = 0.75,
     ) -> None:
         super().__init__(
             timeout=timeout or 0,
@@ -286,6 +377,8 @@ class ShapRunner(BaseRunner):
             constraint_build_timeout_seconds=constraint_build_timeout_seconds,
             solver_run_timeout=solver_run_timeout,
             error_retry_limit=error_retry_limit,
+            ternary_fallback=ternary_fallback,
+            ternary_fallback_threshold_scale=ternary_fallback_threshold_scale,
         )
         self.collect_constraints_with = collect_constraints_with
         self.model_type = model_type
@@ -293,7 +386,7 @@ class ShapRunner(BaseRunner):
     def _run_single(self, payload: Dict[str, Any]) -> None:
         ton_plans = payload.pop("ton_plans", None)
         if not ton_plans:
-            return self._execute_plan_with_retries(
+            return self._execute_plan_with_fallback(
                 payload,
                 payload_idx=payload.get("idx"),
                 ton_value=(payload.get("save_exp") or {}).get("ton"),
@@ -310,7 +403,7 @@ class ShapRunner(BaseRunner):
 
             # Retry stays at the runner layer because only the runner owns
             # re-executing a single TON payload; progress only interprets results.
-            result = self._execute_plan_with_retries(
+            result = self._execute_plan_with_fallback(
                 plan_payload,
                 payload_idx=base_payload.get("idx"),
                 ton_value=plan.get("ton"),
@@ -421,6 +514,8 @@ def run_attack_with_shap(
     model_type: str = "transformer",
     collect_constraints_with: Literal["priority_queue", "queue"] = "priority_queue",
     error_retry_limit: int = 2,
+    ternary_fallback: bool = False,
+    ternary_fallback_threshold_scale: float = 0.75,
 ) -> None:
     ShapRunner(
         timeout=timeout,
@@ -431,6 +526,8 @@ def run_attack_with_shap(
         constraint_build_timeout_seconds=constraint_build_timeout_seconds,
         solver_run_timeout=solver_run_timeout,
         error_retry_limit=error_retry_limit,
+        ternary_fallback=ternary_fallback,
+        ternary_fallback_threshold_scale=ternary_fallback_threshold_scale,
     ).run_tasks(args)
 
 
@@ -443,6 +540,8 @@ def run_attack_with_queue(
     solver_run_timeout: Optional[int] = None,
     collect_constraints_with: Literal["priority_queue", "queue"] = "queue",
     error_retry_limit: int = 2,
+    ternary_fallback: bool = False,
+    ternary_fallback_threshold_scale: float = 0.75,
 ) -> None:
     QueueRunner(
         timeout=timeout,
@@ -452,6 +551,8 @@ def run_attack_with_queue(
         solver_run_timeout=solver_run_timeout,
         collect_constraints_with=collect_constraints_with,
         error_retry_limit=error_retry_limit,
+        ternary_fallback=ternary_fallback,
+        ternary_fallback_threshold_scale=ternary_fallback_threshold_scale,
     ).run_tasks(args)
 
 
