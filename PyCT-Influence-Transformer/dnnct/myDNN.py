@@ -86,6 +86,13 @@ def adjusted_input(x, weight: float, delta: float):
     return -x
 
 
+def weighted_input(x, weight: float, delta: Optional[float] = None):
+    weight = float(weight)
+    if delta is not None:
+        return adjusted_input(x, weight, delta)
+    return x * weight
+
+
 def _piecewise_linear_exp(x):
     # Segment is chosen by concrete value to avoid introducing symbolic branches.
     concrete = float(unwrap(x))
@@ -539,9 +546,9 @@ class DenseLayer:
                 for in_id in range(0, self.shape[1]):
                     weight = float(self.weights[out_id][in_id])
                     if self.ternary_config.enabled and self._delta is not None:
-                        tensor_out[out_id] += adjusted_input(tensor_in[in_id], weight, self._delta)
+                        tensor_out[out_id] += weighted_input(tensor_in[in_id], weight, self._delta)
                     else:
-                        tensor_out[out_id] = tensor_in[in_id] * weight + tensor_out[out_id]
+                        tensor_out[out_id] = weighted_input(tensor_in[in_id], weight) + tensor_out[out_id]
                 if self.activation!="None":
                     tensor_out[out_id] = actFunc(tensor_out[out_id], self.activation)
         elif len(in_shape) == 2:
@@ -554,9 +561,9 @@ class DenseLayer:
                     for in_id in range(0, self.shape[1]):
                         weight = float(self.weights[out_id][in_id])
                         if self.ternary_config.enabled and self._delta is not None:
-                            tensor_out[i][out_id] += adjusted_input(tensor_in[i][in_id], weight, self._delta)
+                            tensor_out[i][out_id] += weighted_input(tensor_in[i][in_id], weight, self._delta)
                         else:
-                            tensor_out[i][out_id] += tensor_in[i][in_id] * weight
+                            tensor_out[i][out_id] += weighted_input(tensor_in[i][in_id], weight)
                     if self.activation!="None":
                         tensor_out[i][out_id] = actFunc(tensor_out[i][out_id], self.activation)
 
@@ -662,13 +669,13 @@ class Conv2DLayer:
                                             range(0, num_depth)):
                         weight = float(filter_weights[i-row_base][j-col_base][k])
                         if self.ternary_config.enabled and self._delta is not None:
-                            tensor_out[row][col][channel] += adjusted_input(
+                            tensor_out[row][col][channel] += weighted_input(
                                 tensor_in[i][j][k],
                                 weight,
                                 self._delta,
                             )
                         else:
-                            tensor_out[row][col][channel] = tensor_in[i][j][k] * weight + tensor_out[row][col][channel]
+                            tensor_out[row][col][channel] = weighted_input(tensor_in[i][j][k], weight) + tensor_out[row][col][channel]
                     if self.activation!="None":
                         tensor_out[row][col][channel] = actFunc(tensor_out[row][col][channel], self.activation)
                     #print(type(tensor_out[row][col][channel]))
@@ -1156,20 +1163,46 @@ class MultiHeadAttentionLayer:
         *,
         attention_axes=None,
         sample_rank=None,
+        ternary_config: Optional[TernaryRuntimeConfig] = None,
     ):
         self.num_heads = num_heads
         self.key_dim_per_heads = key_dim_per_heads
-        self.WQ = wq.numpy().tolist()
-        self.BQ = bq.numpy().tolist()
-        self.WK = wk.numpy().tolist()
-        self.BK = bk.numpy().tolist()
-        self.WV = wv.numpy().tolist()
-        self.BV = bv.numpy().tolist()
-        self.WO = output_weights.numpy().tolist()
-        self.BO = output_bias.numpy().tolist()
+        wq_array = np.asarray(wq.numpy(), dtype=float)
+        wk_array = np.asarray(wk.numpy(), dtype=float)
+        wv_array = np.asarray(wv.numpy(), dtype=float)
+        wo_array = np.asarray(output_weights.numpy(), dtype=float)
+        self.WQ = wq_array.tolist()
+        self.BQ = np.asarray(bq.numpy(), dtype=float).tolist()
+        self.WK = wk_array.tolist()
+        self.BK = np.asarray(bk.numpy(), dtype=float).tolist()
+        self.WV = wv_array.tolist()
+        self.BV = np.asarray(bv.numpy(), dtype=float).tolist()
+        self.WO = wo_array.tolist()
+        self.BO = np.asarray(output_bias.numpy(), dtype=float).tolist()
         self.attention_axes = tuple(attention_axes) if attention_axes is not None else None
         self.sample_rank = sample_rank
         self._output = None
+        self.ternary_config = ternary_config or TernaryRuntimeConfig()
+        self._delta_wq = (
+            compute_delta(wq_array, self.ternary_config.threshold_scale)
+            if self.ternary_config.enabled
+            else None
+        )
+        self._delta_wk = (
+            compute_delta(wk_array, self.ternary_config.threshold_scale)
+            if self.ternary_config.enabled
+            else None
+        )
+        self._delta_wv = (
+            compute_delta(wv_array, self.ternary_config.threshold_scale)
+            if self.ternary_config.enabled
+            else None
+        )
+        self._delta_wo = (
+            compute_delta(wo_array, self.ternary_config.threshold_scale)
+            if self.ternary_config.enabled
+            else None
+        )
 
     def forward(self, input, mask=None):
         input_rank = len(dim(input))
@@ -1195,15 +1228,15 @@ class MultiHeadAttentionLayer:
 
     def forwardSingle(self, input, mask=None):
         canonical_input, meta = self._canonicalize_input(input)
-        Q = self.transform_and_split(canonical_input, self.WQ, self.BQ, meta["feature_dim"])
-        K = self.transform_and_split(canonical_input, self.WK, self.BK, meta["feature_dim"])
-        V = self.transform_and_split(canonical_input, self.WV, self.BV, meta["feature_dim"])
+        Q = self.transform_and_split(canonical_input, self.WQ, self.BQ, meta["feature_dim"], self._delta_wq)
+        K = self.transform_and_split(canonical_input, self.WK, self.BK, meta["feature_dim"], self._delta_wk)
+        V = self.transform_and_split(canonical_input, self.WV, self.BV, meta["feature_dim"], self._delta_wv)
         attentions = [
             self.dot_product_attention(Q[i], K[i], V[i], meta=meta, mask=mask)
             for i in range(self.num_heads)
         ]
         merged = self.concatenate_heads(attentions)
-        outputs = self.output_transform(merged, self.WO, self.BO)
+        outputs = self.output_transform(merged, self.WO, self.BO, self._delta_wo)
         return self._restore_output(outputs, meta)
 
     def _canonicalize_input(self, tensor_in):
@@ -1276,11 +1309,14 @@ class MultiHeadAttentionLayer:
             for _ in range(token_shape[0])
         ]
 
-    def transform_and_split(self, sequence_of_vectors, weights, bias, feature_dim):
+    def transform_and_split(self, sequence_of_vectors, weights, bias, feature_dim, delta=None):
         outputs = [
             [
                 [
-                    self.mySum(weights[k][i][j] * vector[k] for k in range(feature_dim)) + bias[i][j]
+                    self.mySum(
+                        weighted_input(vector[k], weights[k][i][j], delta)
+                        for k in range(feature_dim)
+                    ) + bias[i][j]
                     for j in range(self.key_dim_per_heads)
                 ]
                 for vector in sequence_of_vectors
@@ -1300,12 +1336,16 @@ class MultiHeadAttentionLayer:
             for token_idx in range(token_count)
         ]
 
-    def output_transform(self, merged_tokens, output_weights, output_bias):
+    def output_transform(self, merged_tokens, output_weights, output_bias, delta=None):
         output_dim = len(output_bias)
         outputs = [
             [
                 self.mySum(
-                    merged_tokens[token_idx][head * self.key_dim_per_heads + dim_idx] * output_weights[head][dim_idx][out_idx]
+                    weighted_input(
+                        merged_tokens[token_idx][head * self.key_dim_per_heads + dim_idx],
+                        output_weights[head][dim_idx][out_idx],
+                        delta,
+                    )
                     for head in range(self.num_heads)
                     for dim_idx in range(self.key_dim_per_heads)
                 ) + output_bias[out_idx]
@@ -1832,6 +1872,7 @@ class NNModel:
                 output_bias,
                 attention_axes=attention_axes,
                 sample_rank=sample_rank,
+                ternary_config=self.ternary_config,
             )
             if resolved_inbounds:
                 mha_layer.input_from = resolved_inbounds
