@@ -427,6 +427,112 @@ def test_queue_runner_zero_retry_limit_disables_transfer_retry(monkeypatch, tmp_
     assert updates[0][1]["reason"] == "error_constraint_transfer_failure"
 
 
+def test_queue_runner_runs_ternary_fallback_after_timeout(monkeypatch, tmp_path: Path) -> None:
+    baseline_dir = tmp_path / "case_timeout"
+    fallback_dir = tmp_path / "case_timeout_ternary"
+    _write_stats(fallback_dir / "stats.json")
+    runner = runners.QueueRunner(
+        timeout=5,
+        norm=False,
+        ternary_fallback=True,
+        ternary_fallback_threshold_scale=1.5,
+    )
+    calls = []
+    results = [
+        _result_recorder(baseline_dir, is_timeout=True),
+        _result_recorder(fallback_dir, attack_label="adv"),
+    ]
+    monkeypatch.setattr(
+        runner,
+        "_execute_attack",
+        lambda payload: calls.append(dict(payload)) or results.pop(0),
+    )
+    monkeypatch.setattr(runners, "update_ton_progress_stats", lambda *_args, **_kwargs: True)
+
+    result = runner._run_single(
+        {
+            "idx": 0,
+            "popped_log_attack_mode": "queue_solver1s",
+            "ton_plans": [
+                {
+                    "ton": 1,
+                    "con_dict": {"v_0_0": 1},
+                    "save_exp": {
+                        "input_name": "case_0",
+                        "attack_mode": "queue_solver1s",
+                        "ton": 1,
+                        "ton_next": 2,
+                    },
+                },
+            ],
+        }
+    )
+
+    assert result[1].attack_label == "adv"
+    assert len(calls) == 2
+    assert calls[0]["con_dict"] == {"v_0_0": 1}
+    assert calls[1]["con_dict"] == {"v_0_0": 1}
+    assert calls[1]["ternary_simplification"] is True
+    assert calls[1]["ternary_threshold_scale"] == 1.5
+    assert calls[1]["popped_log_attack_mode"] == "queue_solver1s_ternaryfb"
+    assert calls[1]["save_exp"]["attack_mode"] == "queue_solver1s_ternaryfb"
+    assert calls[1]["save_exp"]["fallback"] is True
+    assert calls[1]["save_exp"]["fallback_type"] == "ternary"
+    assert calls[1]["save_exp"]["fallback_trigger"] == "timeout"
+    assert calls[1]["save_exp"]["fallback_source_attack_mode"] == "queue_solver1s"
+    assert calls[1]["save_exp"]["fallback_source_ton"] == 1
+    assert calls[1]["save_exp"]["fallback_source_ton_next"] == 2
+
+
+def test_queue_runner_does_not_fallback_after_success(monkeypatch, tmp_path: Path) -> None:
+    save_dir = tmp_path / "case_success"
+    _write_stats(save_dir / "stats.json")
+    runner = runners.QueueRunner(timeout=5, norm=False, ternary_fallback=True)
+    calls = []
+    monkeypatch.setattr(
+        runner,
+        "_execute_attack",
+        lambda payload: calls.append(dict(payload)) or _result_recorder(save_dir, attack_label="adv"),
+    )
+    monkeypatch.setattr(runners, "update_ton_progress_stats", lambda *_args, **_kwargs: True)
+
+    runner._run_single(
+        {
+            "idx": 0,
+            "ton_plans": [
+                {"ton": 1, "con_dict": {"v_0_0": 1}, "save_exp": {"input_name": "case_0"}},
+            ],
+        }
+    )
+
+    assert len(calls) == 1
+
+
+def test_queue_runner_does_not_fallback_for_existing_ternary_payload(monkeypatch, tmp_path: Path) -> None:
+    save_dir = tmp_path / "case_ternary_timeout"
+    _write_stats(save_dir / "stats.json")
+    runner = runners.QueueRunner(timeout=5, norm=False, ternary_fallback=True)
+    calls = []
+    monkeypatch.setattr(
+        runner,
+        "_execute_attack",
+        lambda payload: calls.append(dict(payload)) or _result_recorder(save_dir, is_timeout=True),
+    )
+    monkeypatch.setattr(runners, "update_ton_progress_stats", lambda *_args, **_kwargs: True)
+
+    runner._run_single(
+        {
+            "idx": 0,
+            "ternary_simplification": True,
+            "ton_plans": [
+                {"ton": 1, "con_dict": {"v_0_0": 1}, "save_exp": {"input_name": "case_0"}},
+            ],
+        }
+    )
+
+    assert len(calls) == 1
+
+
 def test_write_ton_sequence_ignores_missing_stats_file(monkeypatch, tmp_path: Path) -> None:
     calls = []
     monkeypatch.setattr(runners, "update_ton_progress_stats", lambda *_args, **_kwargs: calls.append(True))

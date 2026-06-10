@@ -153,7 +153,17 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
         norm=False,
         solve_order_stack=False,
         idx=9,
-        save_exp={"attack_mode": "queue_solver1s", "ton": 1, "ton_next": 2},
+        save_exp={
+            "attack_mode": "queue_solver1s",
+            "ton": 1,
+            "ton_next": 2,
+            "fallback": True,
+            "fallback_type": "ternary",
+            "fallback_trigger": "timeout",
+            "fallback_source_attack_mode": "queue_solver1s",
+            "fallback_source_ton": 1,
+            "fallback_source_ton_next": 2,
+        },
         collect_constraints_with="queue",
         popped_log_attack_mode="queue_solver1s",
         score_alpha=0.8,
@@ -203,6 +213,12 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
         "constraint_build_timeout_seconds": 15,
         "ton": 1,
         "ton_next": 2,
+        "fallback": True,
+        "fallback_type": "ternary",
+        "fallback_trigger": "timeout",
+        "fallback_source_attack_mode": "queue_solver1s",
+        "fallback_source_ton": 1,
+        "fallback_source_ton_next": 2,
     }
     assert captured["explore_args"][0] == "/tmp/engine/predictor_runtime.py"
     assert captured["explore_kwargs"]["collect_constraints_with"] == "queue"

@@ -90,6 +90,7 @@ def _make_args(**overrides):
         score_alpha=None,
         symbolic_path_threshold=2000,
         ternary_simplification=False,
+        ternary_fallback=False,
         ternary_threshold_scale=0.75,
         enable_constraint_log=False,
         pixel_search=(1,),
@@ -339,8 +340,8 @@ def test_run_launcher_enqueues_only_payloads_selected_by_stage_progress(monkeypa
     )
     monkeypatch.setattr(
         launcher,
-        "should_run_ton",
-        lambda case, ton, ton_sequence, force_refresh: ton == 1,
+        "_should_run_ton_with_effective_stats",
+        lambda case, ton, ton_sequence, **kwargs: ton == 1,
     )
     monkeypatch.setattr(launcher, "load_stats_payload", lambda path: ({"meta": {}}, None))
     monkeypatch.setattr(launcher, "extract_last_ton", lambda stats: 1)
@@ -360,6 +361,61 @@ def test_run_launcher_enqueues_only_payloads_selected_by_stage_progress(monkeypa
     assert task["save_exp"]["ton"] == 1
     assert task["save_exp"]["ton_next"] == 2
     assert updates[0][1]["current_ton"] == 1
+
+
+def test_effective_ton_progress_prefers_successful_fallback(monkeypatch, tmp_path: Path) -> None:
+    baseline_dir = tmp_path / "baseline" / "case_0"
+    fallback_dir = tmp_path / "fallback" / "case_0"
+    baseline_dir.mkdir(parents=True)
+    fallback_dir.mkdir(parents=True)
+    (baseline_dir / "stats.json").write_text(
+        json.dumps({"meta": {"is_timeout": True, "status": "timeout", "ton": 1}}),
+        encoding="utf-8",
+    )
+    (fallback_dir / "stats.json").write_text(
+        json.dumps(
+            {
+                "meta": {
+                    "attack_label": 3,
+                    "fallback": True,
+                    "fallback_type": "ternary",
+                    "status": "success",
+                    "ton": 1,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        launcher,
+        "get_save_dir_from_save_exp",
+        lambda *args, **kwargs: str(fallback_dir),
+    )
+    case = {
+        "base_payload": {"idx": 0, "model_name": "demo", "popped_log_attack_mode": "queue_solver1s"},
+        "plans": {
+            1: {"con_dict": {"v_0_0": 1}, "save_exp": {"input_name": "case_0", "attack_mode": "queue_solver1s"}},
+            2: {"con_dict": {"v_0_1": 1}, "save_exp": {"input_name": "case_0", "attack_mode": "queue_solver1s"}},
+        },
+        "save_dir": str(baseline_dir),
+    }
+
+    assert launcher._should_run_ton_with_effective_stats(
+        case,
+        2,
+        (1, 2),
+        force_refresh=False,
+        ternary_fallback=False,
+        ternary_threshold_scale=0.75,
+    )
+    assert not launcher._should_run_ton_with_effective_stats(
+        case,
+        2,
+        (1, 2),
+        force_refresh=False,
+        ternary_fallback=True,
+        ternary_threshold_scale=0.75,
+    )
 
 
 def test_run_launcher_clears_score_alpha_env_when_not_set(monkeypatch) -> None:
@@ -409,7 +465,7 @@ def test_worker_exits_immediately_when_shutdown_requested(monkeypatch, caplog) -
     monkeypatch.setattr(launcher, "ShapRunner", lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected")))
 
     with caplog.at_level(logging.INFO, logger="ct.cli"):
-        launcher._worker(queue, 3, True, 15, 1, 2, False, "queue", "random", 2024, event)
+        launcher._worker(queue, 3, True, 15, 1, 2, False, 0.75, False, "queue", "random", 2024, event)
 
     assert "[WORKER-SHUTDOWN]" in caplog.text
     assert "[WORKER-EXIT]" in caplog.text
@@ -431,7 +487,7 @@ def test_worker_uses_queue_runner_and_handles_empty_queue(monkeypatch) -> None:
     monkeypatch.setattr(launcher.os, "getpid", lambda: 2222)
     monkeypatch.setattr(launcher, "QueueRunner", _FakeRunner)
 
-    launcher._worker(queue, 5, True, 15, 2, 2, False, "queue", "random", 2024, _FakeEvent())
+    launcher._worker(queue, 5, True, 15, 2, 2, True, 1.5, False, "queue", "random", 2024, _FakeEvent())
 
     assert created == [
         {
@@ -440,6 +496,8 @@ def test_worker_uses_queue_runner_and_handles_empty_queue(monkeypatch) -> None:
             "constraint_build_timeout_seconds": 15,
             "solver_run_timeout": 2,
             "error_retry_limit": 2,
+            "ternary_fallback": True,
+            "ternary_fallback_threshold_scale": 1.5,
             "norm": False,
             "collect_constraints_with": "queue",
         }
@@ -477,7 +535,7 @@ def test_worker_logs_task_errors_and_continues(monkeypatch, caplog, tmp_path: Pa
     monkeypatch.setattr(launcher, "_resolve_task_save_dir", lambda task, attack_mode: save_dir)
 
     with caplog.at_level(logging.ERROR, logger="ct.cli"):
-        launcher._worker(queue, 5, True, 15, 2, 2, False, "shap", "random", 2024, _FakeEvent())
+        launcher._worker(queue, 5, True, 15, 2, 2, False, 0.75, False, "shap", "random", 2024, _FakeEvent())
 
     assert calls == [
         {
@@ -512,7 +570,7 @@ def test_worker_uses_random_assign_runner_and_handles_interrupt(monkeypatch, cap
     monkeypatch.setattr(launcher, "RandomAssignRunner", _FakeRunner)
 
     with caplog.at_level(logging.INFO, logger="ct.cli"):
-        launcher._worker(queue, 6, False, 12, None, 2, True, "random-assign", "shap", 99, _FakeEvent())
+        launcher._worker(queue, 6, False, 12, None, 2, False, 0.75, True, "random-assign", "shap", 99, _FakeEvent())
 
     assert created == [
         {

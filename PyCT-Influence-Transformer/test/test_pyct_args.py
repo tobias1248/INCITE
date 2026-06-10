@@ -161,6 +161,7 @@ def test_parse_args_defaults_ternary_flags() -> None:
     args = parse_args(["--attack-mode", "queue"])
 
     assert args.ternary_simplification is False
+    assert args.ternary_fallback is False
     assert args.ternary_threshold_scale == pytest.approx(0.75)
     assert args.error_retry_limit == 2
 
@@ -193,6 +194,44 @@ def test_parse_args_accepts_zero_ternary_threshold_scale() -> None:
 
     assert args.ternary_simplification is True
     assert args.ternary_threshold_scale == pytest.approx(0.0)
+
+
+def test_parse_args_accepts_ternary_fallback_for_queue() -> None:
+    args = parse_args(["--attack-mode", "queue", "--ternary-fallback"])
+
+    assert args.ternary_fallback is True
+    assert args.ternary_simplification is False
+
+
+def test_parse_args_accepts_ternary_fallback_for_shap() -> None:
+    args = parse_args(["--attack-mode", "shap", "--score-alpha", "0.8", "--ternary-fallback"])
+
+    assert args.ternary_fallback is True
+
+
+def test_parse_args_rejects_combined_ternary_simplification_and_fallback() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "queue",
+                "--ternary-simplification",
+                "--ternary-fallback",
+            ]
+        )
+
+
+def test_parse_args_rejects_ternary_fallback_for_random_assign() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "random-assign",
+                "--score-alpha",
+                "0.8",
+                "--ternary-fallback",
+            ]
+        )
 
 
 def test_parse_args_accepts_zero_error_retry_limit() -> None:
