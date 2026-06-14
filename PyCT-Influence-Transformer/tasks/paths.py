@@ -119,17 +119,19 @@ def get_save_dir_from_save_exp(
         build_timeout_enabled,
         build_timeout_seconds_val,
     )
-    ternary_enabled_component = "t1" if ternary_enabled_val else "t0"
-    ternary_threshold_component = _format_component(ternary_threshold_val)
-    base_dir = "{}_{}_{}_{}_{}_{}_{}_{}".format(
+    ternary_component = (
+        f"t1_{_format_component(ternary_threshold_val)}"
+        if ternary_enabled_val
+        else "t0"
+    )
+    base_dir = "{}_{}_{}_{}_{}_{}_{}".format(
         base_model,
         attack_mode,
         _format_component(timeout_val),
         build_timeout_component,
         alpha_component,
         _format_component(threshold_val),
-        ternary_enabled_component,
-        ternary_threshold_component,
+        ternary_component,
     )
     idx = save_exp.get("idx")
     if idx is None:
