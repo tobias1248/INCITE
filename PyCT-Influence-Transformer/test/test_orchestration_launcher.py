@@ -101,6 +101,7 @@ def _make_args(**overrides):
         pixel_selector="pixel-shap",
         norm_01=False,
         first_n=1,
+        case_indices=None,
         spawn_delay=0.0,
         force_refresh=True,
     )
@@ -167,6 +168,43 @@ def test_run_launcher_selects_queue_builder_and_sets_env(monkeypatch) -> None:
     queued_payload = next(item for item in _FakeQueue.created[0].items if isinstance(item, dict))
     assert queued_payload["ternary_simplification"] is False
     assert "ternary_threshold_scale" not in queued_payload
+
+
+def test_run_launcher_uses_case_indices_when_provided(monkeypatch) -> None:
+    builder_calls = []
+    payload = {
+        "model_name": "demo",
+        "idx": 3,
+        "save_exp": {"input_name": "case_3", "attack_mode": "queue_solver1s"},
+        "in_dict": {"v_0_0": 1.0},
+        "con_dict": {"v_0_0": 1},
+        "solve_order_stack": False,
+    }
+
+    def fake_mnist_shap(model_name, **kwargs):
+        builder_calls.append((model_name, kwargs))
+        return [dict(payload)]
+
+    _install_runtime_fakes(monkeypatch)
+    monkeypatch.setattr(launcher, "collect_stage_cases", lambda inputs: [])
+    monkeypatch.setattr(launcher, "should_run_payload", lambda payload, force_refresh: True)
+    monkeypatch.setattr(launcher, "mnist_transformer_shap", fake_mnist_shap)
+    monkeypatch.setattr(launcher, "mnist_transformer_random", lambda *args, **kwargs: [])
+
+    launcher.run_launcher(_make_args(first_n=0, case_indices=(3, 7, 11)))
+
+    assert builder_calls == [
+        (
+            "demo",
+            {
+                "first_n_img": (3, 7, 11),
+                "force": True,
+                "ton_values": (1,),
+                "exp_prefix": "queue",
+                "attack_mode": "queue_solver1s",
+            },
+        )
+    ]
 
 
 @pytest.mark.parametrize(

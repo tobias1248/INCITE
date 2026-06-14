@@ -166,6 +166,35 @@ def test_parse_args_defaults_ternary_flags() -> None:
     assert args.error_retry_limit == 2
 
 
+def test_parse_args_accepts_case_indices() -> None:
+    args = parse_args(
+        [
+            "--attack-mode",
+            "shap",
+            "--score-alpha",
+            "0.8",
+            "--case-indices",
+            "7,3,7,11",
+        ]
+    )
+
+    assert args.case_indices == (7, 3, 11)
+
+
+def test_parse_args_rejects_negative_case_indices() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "shap",
+                "--score-alpha",
+                "0.8",
+                "--case-indices",
+                "1,-2",
+            ]
+        )
+
+
 def test_parse_args_accepts_custom_ternary_threshold_scale() -> None:
     args = parse_args(
         [

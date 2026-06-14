@@ -320,7 +320,7 @@ def run_launcher(args: Any) -> None:
 
     if args.num_process < 1:
         raise ValueError("--num-process must be >= 1")
-    if args.first_n < 1:
+    if args.case_indices is None and args.first_n < 1:
         raise ValueError("--first-n must be >= 1")
     if args.timeout < 1:
         raise ValueError("--timeout must be >= 1 second")
@@ -366,7 +366,7 @@ def run_launcher(args: Any) -> None:
         attack_mode_parts.append(f"solver{args.solver_run_timeout}s")
     attack_mode_for_paths = "_".join(attack_mode_parts)
     force_refresh = args.force_refresh
-    first_n_range = range(0, args.first_n)
+    first_n_range = args.case_indices if args.case_indices is not None else range(0, args.first_n)
 
     if args.dataset == "cifar10":
         shap_fn = cifar10_transformer_shap

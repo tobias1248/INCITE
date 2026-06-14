@@ -29,6 +29,23 @@ def _parse_pixel_search(value: str) -> Tuple[int, ...]:
     return tuple(sequence)
 
 
+def _parse_case_indices(value: str) -> Tuple[int, ...]:
+    """Parse comma-separated case indices into a strict, ordered tuple."""
+    parts = [part.strip() for part in value.split(",")]
+    sequence: list[int] = []
+    for part in parts:
+        if not part:
+            continue
+        idx = int(part)
+        if idx < 0:
+            raise argparse.ArgumentTypeError("case indices must be >= 0.")
+        if idx not in sequence:
+            sequence.append(idx)
+    if not sequence:
+        raise argparse.ArgumentTypeError("case indices sequence cannot be empty.")
+    return tuple(sequence)
+
+
 def _parse_non_negative_float(value: str) -> float:
     parsed = float(value)
     if parsed < 0.0:
@@ -171,6 +188,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=int,
         default=100,
         help="Number of inputs to process from index 0.",
+    )
+    parser.add_argument(
+        "--case-indices",
+        type=_parse_case_indices,
+        help="Optional comma-separated case indices to process instead of --first-n, e.g. 3,7,11.",
     )
     parser.add_argument(
         "--spawn-delay",
