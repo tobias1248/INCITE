@@ -45,7 +45,27 @@ def test_get_save_dir_from_save_exp_uses_only_first_forward_flag():
     )
 
     assert save_dir == str(
-        ROOT / 'exp' / 'mnist_model_only_first_forward_queue_10_0_a05_100_t0_0.75' / 'case_9'
+        ROOT / 'exp' / 'mnist_model_only_first_forward_queue_10_0_a05_100_t0' / 'case_9'
+    )
+
+
+def test_get_save_dir_from_save_exp_omits_ternary_scale_when_disabled(monkeypatch):
+    monkeypatch.setenv('PYCT_TIMEOUT', '1800')
+    monkeypatch.setenv('PYCT_CONSTRAINT_BUILD_TIMEOUT_ENABLED', '1')
+    monkeypatch.setenv('PYCT_CONSTRAINT_BUILD_TIMEOUT_SECONDS', '30')
+    monkeypatch.setenv('PYCT_SCORE_ALPHA', '0.8')
+    monkeypatch.setenv('PYCT_SYMBOLIC_PATH_THRESHOLD', '2000')
+    monkeypatch.setenv('PYCT_TERNARY_SIMPLIFICATION', '0')
+    monkeypatch.setenv('PYCT_TERNARY_THRESHOLD_SCALE', '0.75')
+
+    save_dir = paths.get_save_dir_from_save_exp(
+        {'input_name': 'case_0', 'idx': 0},
+        'cifar10_concolic_transformer',
+        'shap_solver60s',
+    )
+
+    assert save_dir == str(
+        ROOT / 'exp' / 'cifar10_concolic_transformer_shap_solver60s_1800_30_a08_2000_t0' / 'case_0'
     )
 
 
