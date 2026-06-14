@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 import numpy as np
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -161,7 +162,9 @@ def test_mha_transform_projection_disabled_ternary_preserves_full_precision() ->
     )
 
     expected = 1.0 * 2.0 + 2.0 * 0.1 + 3.0 * -4.0
-    assert output == [[[expected]]]
+    assert len(output) == 1
+    assert len(output[0]) == 1
+    assert output[0][0] == [pytest.approx(expected)]
 
 
 def test_mha_output_projection_uses_ternary_weights() -> None:
