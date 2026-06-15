@@ -174,13 +174,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--norm-01",
         dest="norm_01",
         action="store_true",
-        help="Request normalization of inputs into the [0, 1] range.",
+        help="Constrain solver-generated concolic input variables to the [0, 1] range.",
     )
     parser.add_argument(
         "--no-norm-01",
         dest="norm_01",
         action="store_false",
-        help="Disable input normalization. This is the default.",
+        help="Do not add [0, 1] range constraints for solver-generated input variables. This is the default.",
     )
     parser.set_defaults(norm_01=False)
     parser.add_argument(
