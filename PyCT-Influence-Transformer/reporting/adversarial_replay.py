@@ -20,6 +20,9 @@ class ReplayCase:
     original_matches_label: bool
     still_adversarial: bool
     stored_attack_label_matches_prediction: bool
+    input_range_valid: bool
+    adv_input_min: float
+    adv_input_max: float
     adv_input_path: str
 
 
@@ -87,6 +90,18 @@ def _load_model(model_path: Path) -> Any:
     return load_model_with_compat(str(model_path))
 
 
+def _input_range_stats(
+    array: np.ndarray,
+    *,
+    min_value: float = 0.0,
+    max_value: float = 1.0,
+) -> Tuple[bool, float, float]:
+    observed_min = float(np.nanmin(array))
+    observed_max = float(np.nanmax(array))
+    is_valid = observed_min >= min_value and observed_max <= max_value
+    return is_valid, observed_min, observed_max
+
+
 def collect_replay_cases(experiment_root: Path) -> List[Tuple[Path, Dict[str, Any]]]:
     selected: List[Tuple[Path, Dict[str, Any]]] = []
     for case_dir in _iter_case_dirs(experiment_root):
@@ -129,6 +144,7 @@ def replay_adversarial_cases(
 
     original_arrays: List[np.ndarray] = []
     adversarial_arrays: List[np.ndarray] = []
+    adversarial_range_stats: List[Tuple[bool, float, float]] = []
     case_dirs: List[Path] = []
     payloads: List[Dict[str, Any]] = []
 
@@ -136,21 +152,25 @@ def replay_adversarial_cases(
         case_dirs.append(case_dir)
         payloads.append(payload)
         original_arrays.append(np.load(case_dir / "ori_input.npy").astype(np.float32, copy=False))
-        adversarial_arrays.append(np.load(case_dir / "adv_input.npy").astype(np.float32, copy=False))
+        adversarial_array = np.load(case_dir / "adv_input.npy").astype(np.float32, copy=False)
+        adversarial_arrays.append(adversarial_array)
+        adversarial_range_stats.append(_input_range_stats(adversarial_array))
 
     original_predictions = _batch_predict_labels(model, original_arrays, batch_size)
     adversarial_predictions = _batch_predict_labels(model, adversarial_arrays, batch_size)
 
     records: List[ReplayCase] = []
-    for case_dir, payload, original_prediction, adversarial_prediction in zip(
+    for case_dir, payload, original_prediction, adversarial_prediction, range_stats in zip(
         case_dirs,
         payloads,
         original_predictions,
         adversarial_predictions,
+        adversarial_range_stats,
     ):
         meta = payload["meta"]
         original_label = int(meta["original_label"])
         stored_attack_label = int(meta["attack_label"])
+        input_range_valid, adv_input_min, adv_input_max = range_stats
         records.append(
             ReplayCase(
                 case_name=case_dir.name,
@@ -162,6 +182,9 @@ def replay_adversarial_cases(
                 original_matches_label=original_prediction == original_label,
                 still_adversarial=adversarial_prediction != original_label,
                 stored_attack_label_matches_prediction=adversarial_prediction == stored_attack_label,
+                input_range_valid=input_range_valid,
+                adv_input_min=adv_input_min,
+                adv_input_max=adv_input_max,
                 adv_input_path=str(case_dir / "adv_input.npy"),
             )
         )
@@ -172,6 +195,10 @@ def _build_summary(model_path: Path, records: Sequence[ReplayCase]) -> Dict[str,
     total = len(records)
     still_adversarial = sum(1 for record in records if record.still_adversarial)
     original_mismatch = sum(1 for record in records if not record.original_matches_label)
+    input_range_invalid = sum(1 for record in records if not record.input_range_valid)
+    valid_adversarial = sum(
+        1 for record in records if record.still_adversarial and record.input_range_valid
+    )
     stored_attack_match = sum(
         1 for record in records if record.stored_attack_label_matches_prediction
     )
@@ -186,18 +213,26 @@ def _build_summary(model_path: Path, records: Sequence[ReplayCase]) -> Dict[str,
         for record in records
         if not record.stored_attack_label_matches_prediction
     ]
+    input_range_invalid_cases = [
+        asdict(record) for record in records if not record.input_range_valid
+    ]
     return {
         "model_path": str(model_path),
         "total_replayed_cases": total,
         "still_adversarial_count": still_adversarial,
         "still_adversarial_rate": (still_adversarial / total) if total else 0.0,
+        "valid_adversarial_count": valid_adversarial,
+        "valid_adversarial_rate": (valid_adversarial / total) if total else 0.0,
         "original_prediction_match_count": total - original_mismatch,
         "original_prediction_mismatch_count": original_mismatch,
+        "input_range_valid_count": total - input_range_invalid,
+        "input_range_invalid_count": input_range_invalid,
         "stored_attack_label_match_count": stored_attack_match,
         "stored_attack_label_mismatch_count": total - stored_attack_match,
         "not_adversarial_cases": not_adversarial_cases,
         "original_prediction_mismatch_cases": original_mismatch_cases,
         "stored_attack_label_mismatch_cases": stored_attack_mismatch_cases,
+        "input_range_invalid_cases": input_range_invalid_cases,
         "cases": [asdict(record) for record in records],
     }
 
@@ -205,13 +240,17 @@ def _build_summary(model_path: Path, records: Sequence[ReplayCase]) -> Dict[str,
 def _print_text_summary(experiment_root: Path, summary: Dict[str, Any]) -> None:
     total = int(summary["total_replayed_cases"])
     still_adv = int(summary["still_adversarial_count"])
+    valid_adv = int(summary["valid_adversarial_count"])
     original_match = int(summary["original_prediction_match_count"])
+    range_valid = int(summary["input_range_valid_count"])
     stored_attack_match = int(summary["stored_attack_label_match_count"])
 
     print(f"Experiment: {experiment_root}")
     print(f"Model: {summary['model_path']}")
     print(f"Replayed adversarial cases: {total}")
     print(f"Still adversarial: {still_adv}/{total}")
+    print(f"Valid in-range adversarial: {valid_adv}/{total}")
+    print(f"Adversarial input range valid: {range_valid}/{total}")
     print(f"Original prediction matches stats label: {original_match}/{total}")
     print(f"Stored attack label matches replay prediction: {stored_attack_match}/{total}")
 
@@ -243,6 +282,16 @@ def _print_text_summary(experiment_root: Path, summary: Dict[str, Any]) -> None:
             print(
                 f"  - {case['case_name']}: stored_attack={case['stored_attack_label']} "
                 f"replay_adv_pred={case['adversarial_prediction']}"
+            )
+
+    input_range_invalid = summary["input_range_invalid_cases"]
+    if input_range_invalid:
+        print("")
+        print("Cases whose adversarial input is outside [0, 1]:")
+        for case in input_range_invalid:
+            print(
+                f"  - {case['case_name']}: min={case['adv_input_min']} "
+                f"max={case['adv_input_max']}"
             )
 
 
@@ -281,7 +330,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Return exit code 1 if any replayed sample is no longer adversarial or if the "
-            "original input no longer matches the stored original_label."
+            "original input no longer matches the stored original_label or if any "
+            "adversarial input is outside [0, 1]."
         ),
     )
     return parser
@@ -306,7 +356,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     has_not_adversarial = bool(summary["not_adversarial_cases"])
     has_original_mismatch = bool(summary["original_prediction_mismatch_cases"])
-    if args.fail_on_issues and (has_not_adversarial or has_original_mismatch):
+    has_input_range_invalid = bool(summary["input_range_invalid_cases"])
+    if args.fail_on_issues and (
+        has_not_adversarial or has_original_mismatch or has_input_range_invalid
+    ):
         return 1
     return 0
 
