@@ -174,15 +174,21 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--norm-01",
         dest="norm_01",
         action="store_true",
-        help="Constrain solver-generated concolic input variables to the [0, 1] range.",
+        help=(
+            "Constrain solver-generated concolic input variables to the [0, 1] "
+            "image range. This is enabled by default for supported image datasets."
+        ),
     )
     parser.add_argument(
         "--no-norm-01",
         dest="norm_01",
         action="store_false",
-        help="Do not add [0, 1] range constraints for solver-generated input variables. This is the default.",
+        help=(
+            "Unsafe/debug-only: do not add [0, 1] range constraints for "
+            "solver-generated input variables. Rejected for supported image datasets."
+        ),
     )
-    parser.set_defaults(norm_01=False)
+    parser.set_defaults(norm_01=True)
     parser.add_argument(
         "--first-n",
         type=int,
@@ -241,6 +247,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         parser.error("--ternary-fallback cannot be combined with --ternary-simplification")
     if args.ternary_fallback and args.attack_mode not in {"shap", "queue"}:
         parser.error("--ternary-fallback requires --attack-mode shap or --attack-mode queue")
+    if not args.norm_01 and args.dataset in {"fashion_mnist", "cifar10", "mnist"}:
+        parser.error(
+            "--no-norm-01 is not supported for image datasets. PyCT image attacks "
+            "assume normalized model inputs in [0, 1] and must bind solver-generated "
+            "input variables to that range."
+        )
     if args.pixel_selector in {"patch-shap", "token-shap"}:
         if args.attack_mode != "shap":
             parser.error(f"--pixel-selector {args.pixel_selector} requires --attack-mode shap")

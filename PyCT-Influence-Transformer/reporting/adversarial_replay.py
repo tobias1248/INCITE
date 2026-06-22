@@ -21,6 +21,7 @@ class ReplayCase:
     still_adversarial: bool
     stored_attack_label_matches_prediction: bool
     input_range_valid: bool
+    adv_input_finite: bool
     adv_input_min: float
     adv_input_max: float
     adv_input_path: str
@@ -95,11 +96,19 @@ def _input_range_stats(
     *,
     min_value: float = 0.0,
     max_value: float = 1.0,
-) -> Tuple[bool, float, float]:
-    observed_min = float(np.nanmin(array))
-    observed_max = float(np.nanmax(array))
-    is_valid = observed_min >= min_value and observed_max <= max_value
-    return is_valid, observed_min, observed_max
+) -> Tuple[bool, float, float, bool]:
+    finite = bool(np.isfinite(array).all())
+    finite_values = array[np.isfinite(array)]
+    if finite_values.size:
+        observed_min = float(finite_values.min())
+        observed_max = float(finite_values.max())
+        range_valid = observed_min >= min_value and observed_max <= max_value
+    else:
+        observed_min = float("nan")
+        observed_max = float("nan")
+        range_valid = False
+    is_valid = finite and range_valid
+    return is_valid, observed_min, observed_max, finite
 
 
 def collect_replay_cases(experiment_root: Path) -> List[Tuple[Path, Dict[str, Any]]]:
@@ -170,7 +179,7 @@ def replay_adversarial_cases(
         meta = payload["meta"]
         original_label = int(meta["original_label"])
         stored_attack_label = int(meta["attack_label"])
-        input_range_valid, adv_input_min, adv_input_max = range_stats
+        input_range_valid, adv_input_min, adv_input_max, adv_input_finite = range_stats
         records.append(
             ReplayCase(
                 case_name=case_dir.name,
@@ -183,6 +192,7 @@ def replay_adversarial_cases(
                 still_adversarial=adversarial_prediction != original_label,
                 stored_attack_label_matches_prediction=adversarial_prediction == stored_attack_label,
                 input_range_valid=input_range_valid,
+                adv_input_finite=adv_input_finite,
                 adv_input_min=adv_input_min,
                 adv_input_max=adv_input_max,
                 adv_input_path=str(case_dir / "adv_input.npy"),
@@ -287,11 +297,11 @@ def _print_text_summary(experiment_root: Path, summary: Dict[str, Any]) -> None:
     input_range_invalid = summary["input_range_invalid_cases"]
     if input_range_invalid:
         print("")
-        print("Cases whose adversarial input is outside [0, 1]:")
+        print("Cases whose adversarial input is outside [0, 1] or non-finite:")
         for case in input_range_invalid:
             print(
                 f"  - {case['case_name']}: min={case['adv_input_min']} "
-                f"max={case['adv_input_max']}"
+                f"max={case['adv_input_max']} finite={case['adv_input_finite']}"
             )
 
 
@@ -331,7 +341,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Return exit code 1 if any replayed sample is no longer adversarial or if the "
             "original input no longer matches the stored original_label or if any "
-            "adversarial input is outside [0, 1]."
+            "adversarial input is outside [0, 1] or contains non-finite values."
         ),
     )
     return parser

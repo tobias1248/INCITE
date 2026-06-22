@@ -17,6 +17,8 @@ An experimental framework for concolic testing on image classifiers, built on to
 - `--symbolic-path-threshold` default: `8000`
 - Supported attack modes: `shap`, `random`, `random-assign`, `queue`
 - Supported datasets: `fashion_mnist`, `cifar10`, `mnist`
+- Image attacks assume models trained and evaluated on normalized float tensors in `[0, 1]`.
+  Solver-generated concolic input variables are constrained to this same range by default.
 
 ## Repository layout
 - `pyct/`: canonical application entrypoints for attacks, SHAP preprocessing, and stats
@@ -194,12 +196,32 @@ python3 -m pyct --attack-mode random-assign --pixel-source random --dataset cifa
 | `--no-constraint-build-timeout` | flag | disabled | Disable the 30s formula-build timeout |
 | `--score-alpha` | float | required | Priority score weight for path length term |
 | `--symbolic-path-threshold` | int | `8000` | Disable symbolic tracking after threshold |
-| `--norm-01` | flag | disabled | Add SMT constraints so solver-generated concolic input variables stay within `[0, 1]`; dataset inputs are already scaled by loaders |
+| `--norm-01` | flag | enabled | Add SMT constraints so solver-generated concolic input variables stay within `[0, 1]`; dataset inputs are already scaled by loaders |
+| `--no-norm-01` | flag | rejected for image datasets | Unsafe/debug-only; current image attacks require `[0, 1]` bounds for valid adversarial examples |
 | `--first-n` | int | `100` | Number of dataset items starting from index 0 |
 | `--random-seed` | int | `2024` | Used by random baselines |
 | `--pixel-source` | choice | `random` | For `random-assign`: `random` or `shap` |
 | `--spawn-delay` | float | `1.0` | Delay between spawning worker processes |
 | `--force-refresh` | flag | disabled | Recompute even if outputs already exist |
+
+### Image input domain
+The current image dataset adapters normalize tensors before attacks:
+
+```text
+mnist / fashion_mnist / cifar10: float32 image tensors in [0, 1]
+```
+
+Models used with these adapters must be trained for the same normalized input
+domain. The SMT formula binds every solver-generated concolic input variable to
+that domain, for example:
+
+```smt
+(assert (and (<= v_4_17_2_VAR 1) (>= v_4_17_2_VAR 0)))
+```
+
+Using a model trained for raw `0..255` pixels is not supported by the current
+image attack pipeline unless the dataset adapter, SHAP backgrounds, SMT bounds,
+and baselines are changed together.
 
 ## Output layout
 Experiment outputs are stored under the repository root:
@@ -245,7 +267,8 @@ python3 -m pyct.stats --path exp/<your_experiment_dir> --json --split-by-status
 - Inconsistent SHAP behavior:
   - Regenerate maps with `--force-refresh` and fixed background settings.
 - `adv_input.npy` contains values below `0` or above `1`:
-  - Add `--norm-01` to constrain solver-generated concolic input variables to the image input range. This is separate from dataset loading; dataset adapters already scale image tensors to `[0, 1]`.
+  - Current runs should bind solver-generated concolic input variables to the image input range by default. Recheck that the run used the current CLI and did not bypass `python -m pyct`.
+  - Dataset adapters already scale image tensors to `[0, 1]`; these SMT bounds are the corresponding solver-side validity constraint.
 - Dataset cache missing in offline environments:
   - Pre-populate `~/.keras/datasets`, or set `PYCT_KERAS_HOME` to a local cache. Use `PYCT_ALLOW_DATASET_DOWNLOAD=1` only when network downloads are acceptable.
 
