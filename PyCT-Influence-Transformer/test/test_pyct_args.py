@@ -164,6 +164,12 @@ def test_parse_args_defaults_ternary_flags() -> None:
     assert args.ternary_fallback is False
     assert args.ternary_threshold_scale == pytest.approx(0.75)
     assert args.error_retry_limit == 2
+    assert args.norm_01 is True
+
+
+def test_parse_args_rejects_disabling_norm_01_for_image_datasets() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--attack-mode", "queue", "--dataset", "cifar10", "--no-norm-01"])
 
 
 def test_parse_args_accepts_case_indices() -> None:

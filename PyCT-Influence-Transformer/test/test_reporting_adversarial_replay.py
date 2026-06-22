@@ -101,6 +101,7 @@ def test_replay_adversarial_cases_filters_success_cases_and_flags_mismatches(tmp
     assert records[0].still_adversarial is True
     assert records[0].stored_attack_label_matches_prediction is True
     assert records[0].input_range_valid is True
+    assert records[0].adv_input_finite is True
     assert np.isclose(records[0].adv_input_min, 0.8)
     assert np.isclose(records[0].adv_input_max, 0.8)
     assert records[1].still_adversarial is False
@@ -184,3 +185,49 @@ def test_main_fails_on_out_of_range_adversarial_input(tmp_path, monkeypatch, cap
     assert payload["input_range_invalid_cases"][0]["case_name"] == "case_0"
     assert payload["input_range_invalid_cases"][0]["adv_input_min"] == 20.0
     assert payload["input_range_invalid_cases"][0]["adv_input_max"] == 20.0
+    assert payload["input_range_invalid_cases"][0]["adv_input_finite"] is True
+
+
+def test_main_fails_on_non_finite_adversarial_input(tmp_path, monkeypatch, capsys) -> None:
+    exp_root = tmp_path / "exp"
+    _write_case(
+        exp_root,
+        "case_0",
+        idx=0,
+        original_label=0,
+        attack_label=1,
+        ori_marker=0.1,
+        adv_marker=0.8,
+    )
+    np.save(
+        exp_root / "case_0" / "adv_input.npy",
+        np.array([[[0.8], [np.nan]], [[0.8], [0.8]]], dtype=np.float32),
+    )
+    model_path = tmp_path / "model" / "demo_model.h5"
+    model_path.parent.mkdir()
+    model_path.write_text("placeholder", encoding="utf-8")
+
+    monkeypatch.setattr(adversarial_replay, "_load_model", lambda *_args, **_kwargs: FakeModel())
+
+    rc = adversarial_replay.main(
+        [
+            "--experiment-root",
+            str(exp_root),
+            "--model-path",
+            str(model_path),
+            "--json",
+            "--fail-on-issues",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert rc == 1
+    assert payload["still_adversarial_count"] == 1
+    assert payload["valid_adversarial_count"] == 0
+    assert payload["input_range_valid_count"] == 0
+    assert payload["input_range_invalid_count"] == 1
+    assert payload["input_range_invalid_cases"][0]["case_name"] == "case_0"
+    assert payload["input_range_invalid_cases"][0]["adv_input_finite"] is False
+    assert np.isclose(payload["input_range_invalid_cases"][0]["adv_input_min"], 0.8)
+    assert np.isclose(payload["input_range_invalid_cases"][0]["adv_input_max"], 0.8)
