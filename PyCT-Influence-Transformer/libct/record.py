@@ -27,6 +27,7 @@ class ConcolicTestRecorder:
         self.sat = []
         self.unsat = []
         self.unknown = []
+        self.invalid_model = []
         self.gen_constraint = []
         self.solve_constraint = []
         self.iter_wall_time = []
@@ -62,6 +63,7 @@ class ConcolicTestRecorder:
         self._pre_sat = 0
         self._pre_unsat = 0
         self._pre_unk = 0
+        self._pre_invalid_model = 0
 
 
     def iter_start(self, solver):
@@ -82,10 +84,13 @@ class ConcolicTestRecorder:
         self.sat.append(solver_stats['sat_number'] - self._pre_sat)
         self.unsat.append(solver_stats['unsat_number'] - self._pre_unsat)
         self.unknown.append(solver_stats['otherwise_number'] - self._pre_unk)
+        invalid_model_number = solver_stats.get('invalid_model_number', 0)
+        self.invalid_model.append(invalid_model_number - self._pre_invalid_model)
 
         self._pre_sat = solver_stats['sat_number']
         self._pre_unsat = solver_stats['unsat_number']
         self._pre_unk = solver_stats['otherwise_number']
+        self._pre_invalid_model = invalid_model_number
         
         self.total_iter += 1
 
@@ -193,6 +198,8 @@ class ConcolicTestRecorder:
             if out_of_bounds:
                 continue
             built[idx] = value
+        if not np.isfinite(built).all():
+            raise ValueError("Refusing to record an input containing NaN or Inf")
         return built
         
     
@@ -307,6 +314,10 @@ class ConcolicTestRecorder:
             return entry
         sanitized = dict(entry)
         sanitized.pop("smt_formula", None)
+        sanitized.pop("solver_stdout", None)
+        sanitized.pop("solver_stderr", None)
+        sanitized.pop("solver_raw_model_lines", None)
+        sanitized.pop("solver_model_diagnostics", None)
         return sanitized
 
     def _write_solver_iter1_top3_artifacts(self, constraint_complexity):
@@ -320,11 +331,14 @@ class ConcolicTestRecorder:
         save_dir = Path(self.save_dir)
         jsonl_path = save_dir / "solver_iter1_top3.jsonl"
         smt_dir = save_dir / "solver_iter1_top3_smt"
+        model_dir = save_dir / "solver_iter1_top3_model"
 
         if jsonl_path.exists():
             jsonl_path.unlink()
         if smt_dir.exists():
             shutil.rmtree(smt_dir)
+        if model_dir.exists():
+            shutil.rmtree(model_dir)
 
         retained = []
         for entry in detail_entries:
@@ -332,7 +346,7 @@ class ConcolicTestRecorder:
                 continue
             if entry.get("iter") != 1:
                 continue
-            if entry.get("status") not in ("sat", "unsat"):
+            if entry.get("status") not in ("sat", "unsat", "invalid_model"):
                 continue
             formula = entry.get("smt_formula")
             if not isinstance(formula, str):
@@ -341,10 +355,31 @@ class ConcolicTestRecorder:
             if len(retained) >= 3:
                 break
 
+        if not any(entry.get("status") == "invalid_model" for entry in retained):
+            for entry in detail_entries:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("status") != "invalid_model":
+                    continue
+                formula = entry.get("smt_formula")
+                if not isinstance(formula, str):
+                    continue
+                retained.append(entry)
+                break
+
         if not retained:
             return
 
         smt_dir.mkdir(parents=True, exist_ok=True)
+        needs_model_artifacts = any(
+            isinstance(entry.get("solver_stdout"), str)
+            or isinstance(entry.get("solver_stderr"), str)
+            or isinstance(entry.get("solver_model_diagnostics"), list)
+            for entry in retained
+        )
+        if needs_model_artifacts:
+            model_dir.mkdir(parents=True, exist_ok=True)
+
         with jsonl_path.open("w", encoding="utf-8") as handle:
             for index, entry in enumerate(retained, start=1):
                 status = entry["status"]
@@ -361,8 +396,34 @@ class ConcolicTestRecorder:
                     "formula_byte": entry.get("byte"),
                     "assert_count": entry.get("assert_num"),
                     "assert_len": entry.get("assert_len"),
+                    "model_error": entry.get("model_error"),
+                    "solver_returncode": entry.get("solver_returncode"),
                     "smt_path": str(Path("solver_iter1_top3_smt") / smt_filename),
                 }
+                stdout = entry.get("solver_stdout")
+                if isinstance(stdout, str):
+                    stdout_filename = f"{index:02d}_{status}.stdout.txt"
+                    (model_dir / stdout_filename).write_text(stdout, encoding="utf-8")
+                    payload["solver_stdout_path"] = str(
+                        Path("solver_iter1_top3_model") / stdout_filename
+                    )
+                stderr = entry.get("solver_stderr")
+                if isinstance(stderr, str) and stderr:
+                    stderr_filename = f"{index:02d}_{status}.stderr.txt"
+                    (model_dir / stderr_filename).write_text(stderr, encoding="utf-8")
+                    payload["solver_stderr_path"] = str(
+                        Path("solver_iter1_top3_model") / stderr_filename
+                    )
+                diagnostics = entry.get("solver_model_diagnostics")
+                if isinstance(diagnostics, list):
+                    diagnostics_filename = f"{index:02d}_{status}.model.json"
+                    (model_dir / diagnostics_filename).write_text(
+                        json.dumps(diagnostics, default=_json_default),
+                        encoding="utf-8",
+                    )
+                    payload["solver_model_diagnostics_path"] = str(
+                        Path("solver_iter1_top3_model") / diagnostics_filename
+                    )
                 json.dump(payload, handle, default=_json_default)
                 handle.write("\n")
 
@@ -415,6 +476,7 @@ class ConcolicTestRecorder:
             "sat": sum(self.sat),
             "unsat": sum(self.unsat),
             "unknown": sum(self.unknown),
+            "invalid_model": sum(self.invalid_model),
             "solver_time_total": sum(self.solve_constraint_wall_time),
         }
 
@@ -428,6 +490,7 @@ class ConcolicTestRecorder:
             "sat": self._summarize_numeric(self.sat),
             "unsat": self._summarize_numeric(self.unsat),
             "unknown": self._summarize_numeric(self.unknown),
+            "invalid_model": self._summarize_numeric(self.invalid_model),
             "solve_constraint": self._summarize_numeric(self.solve_constraint),
             "gen_constraint": self._summarize_numeric(self.gen_constraint),
             "iter_wall_time": self._summarize_numeric(self.iter_wall_time),

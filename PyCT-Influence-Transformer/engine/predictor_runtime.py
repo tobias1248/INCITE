@@ -182,7 +182,7 @@ def init_model(
     _assign_model_for_role(role, my_model, model_key, resolved_model_path)
 
 
-def _predict_with_model(model: Optional[NNModel], **data):
+def _predict_with_model(model: Optional[NNModel], *, require_finite: bool = False, **data):
     if model is None or model.input_shape is None:
         raise RuntimeError("Model not initialized. Call init_model() before predict().")
 
@@ -203,8 +203,14 @@ def _predict_with_model(model: Optional[NNModel], **data):
                 f"{data_name_prefix}{index[0]}_{index[1]}_{index[2]}_{index[3]}"
             ]
 
+    if require_finite and not np.isfinite(np.asarray(tensor_input, dtype=np.float64)).all():
+        raise ValueError("Validation input contains NaN or Inf")
+
     out_val = model.forward(tensor_input)
     log.debug("Completed forward pass for input_shape=%s", input_shape)
+
+    if require_finite and not np.isfinite(np.asarray(out_val, dtype=np.float64)).all():
+        raise ValueError("Validation model output contains NaN or Inf")
 
     if len(out_val) == 1:
         if isinstance(out_val[0], list):
@@ -222,7 +228,7 @@ def _predict_with_model(model: Optional[NNModel], **data):
 
 
 def predict(**data):
-    return _predict_with_model(myModel, **data)
+    return _predict_with_model(myModel, require_finite=True, **data)
 
 
 def predict_search(**data):
@@ -230,7 +236,7 @@ def predict_search(**data):
 
 
 def predict_validation(**data):
-    return _predict_with_model(validationModel, **data)
+    return _predict_with_model(validationModel, require_finite=True, **data)
 
 
 __all__ = [

@@ -1,4 +1,5 @@
-import logging, os, re, subprocess, sys, time, traceback, func_timeout, unittest
+import logging, math, os, re, subprocess, sys, time, traceback, func_timeout, unittest
+from fractions import Fraction
 from typing import Optional
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,228 @@ from tasks.paths import get_repo_output_subdir
 
 log = logging.getLogger("ct.solver")
 _SMTLIB2_REGISTERED = False
+
+
+class InvalidSolverModelError(ValueError):
+    """Raised when a SAT model value cannot be decoded into a finite primitive."""
+
+
+def _parse_smt_expression(value: str):
+    tokens = re.findall(r"\(|\)|[^\s()]+", value)
+    if not tokens:
+        raise InvalidSolverModelError("empty SMT value")
+
+    def parse_at(index):
+        token = tokens[index]
+        if token != "(":
+            return token, index + 1
+
+        items = []
+        index += 1
+        while index < len(tokens) and tokens[index] != ")":
+            item, index = parse_at(index)
+            items.append(item)
+        if index >= len(tokens):
+            raise InvalidSolverModelError("unbalanced SMT value")
+        return items, index + 1
+
+    expression, next_index = parse_at(0)
+    if next_index != len(tokens):
+        raise InvalidSolverModelError("unexpected trailing tokens in SMT value")
+    return expression
+
+
+def _parse_real_fraction(expression) -> Fraction:
+    if isinstance(expression, str):
+        try:
+            return Fraction(expression)
+        except (ValueError, ZeroDivisionError) as exc:
+            raise InvalidSolverModelError("unsupported SMT Real atom") from exc
+
+    if not isinstance(expression, list) or not expression:
+        raise InvalidSolverModelError("unsupported SMT Real expression")
+
+    operator = expression[0]
+    operands = expression[1:]
+    if operator == "-" and len(operands) == 1:
+        return -_parse_real_fraction(operands[0])
+    if operator == "/" and len(operands) == 2:
+        denominator = _parse_real_fraction(operands[1])
+        if denominator == 0:
+            raise InvalidSolverModelError("zero denominator in SMT Real")
+        return _parse_real_fraction(operands[0]) / denominator
+    raise InvalidSolverModelError("unsupported SMT Real operator")
+
+
+def _parse_real_model_value(value: str) -> float:
+    fraction = _parse_real_fraction(_parse_smt_expression(value.strip()))
+    try:
+        parsed = float(fraction)
+    except OverflowError as exc:
+        raise InvalidSolverModelError("SMT Real is outside the float range") from exc
+    if not math.isfinite(parsed):
+        raise InvalidSolverModelError("SMT Real decoded to a non-finite float")
+    return parsed
+
+
+def _float_debug(value: str):
+    try:
+        parsed = float(value)
+    except (OverflowError, ValueError) as exc:
+        return {"finite": False, "class": type(exc).__name__}
+    if math.isfinite(parsed):
+        return {"finite": True, "class": "finite", "value": parsed}
+    if math.isnan(parsed):
+        return {"finite": False, "class": "nan"}
+    if parsed > 0:
+        return {"finite": False, "class": "positive_infinity"}
+    return {"finite": False, "class": "negative_infinity"}
+
+
+def _float_result_debug(value: float):
+    if math.isfinite(value):
+        return {"finite": True, "class": "finite", "value": value}
+    if math.isnan(value):
+        return {"finite": False, "class": "nan"}
+    if value > 0:
+        return {"finite": False, "class": "positive_infinity"}
+    return {"finite": False, "class": "negative_infinity"}
+
+
+def _integer_atom_digits(value: str):
+    atom = value
+    if atom.startswith("-"):
+        atom = atom[1:]
+    if atom.isdigit():
+        return len(atom)
+    return None
+
+
+def _unwrap_negative_integer(expression):
+    if isinstance(expression, str):
+        return expression
+    if (
+        isinstance(expression, list)
+        and len(expression) == 2
+        and expression[0] == "-"
+        and isinstance(expression[1], str)
+    ):
+        return "-" + expression[1]
+    return None
+
+
+def _unwrap_rational_expression(expression):
+    sign = 1
+    if (
+        isinstance(expression, list)
+        and len(expression) == 2
+        and expression[0] == "-"
+    ):
+        sign = -1
+        expression = expression[1]
+    if not (
+        isinstance(expression, list)
+        and len(expression) == 3
+        and expression[0] == "/"
+    ):
+        return None
+
+    numerator = _unwrap_negative_integer(expression[1])
+    denominator = _unwrap_negative_integer(expression[2])
+    if numerator is None or denominator is None:
+        return None
+    if numerator.startswith("-"):
+        sign *= -1
+        numerator = numerator[1:]
+    if denominator.startswith("-"):
+        sign *= -1
+        denominator = denominator[1:]
+    return sign, numerator, denominator
+
+
+def _describe_real_model_value(value: str):
+    raw_value = value.strip()
+    diagnostic = {
+        "raw_value": raw_value,
+        "raw_value_length": len(raw_value),
+        "is_rational": False,
+    }
+    try:
+        expression = _parse_smt_expression(raw_value)
+        fraction = _parse_real_fraction(expression)
+    except InvalidSolverModelError as exc:
+        diagnostic["parse_error"] = str(exc)
+        return diagnostic
+
+    rational = _unwrap_rational_expression(expression)
+    if rational is not None:
+        sign, numerator, denominator = rational
+        diagnostic.update(
+            {
+                "is_rational": True,
+                "sign": sign,
+                "numerator_digits": _integer_atom_digits(numerator),
+                "denominator_digits": _integer_atom_digits(denominator),
+            }
+        )
+        legacy_numerator = _float_debug(numerator)
+        legacy_denominator = _float_debug(denominator)
+        diagnostic["legacy_numerator_float"] = legacy_numerator
+        diagnostic["legacy_denominator_float"] = legacy_denominator
+        try:
+            legacy_division = (
+                sign
+                * legacy_numerator.get("value", math.copysign(math.inf, sign))
+                / legacy_denominator.get("value", math.inf)
+            )
+            diagnostic["legacy_division"] = _float_result_debug(legacy_division)
+        except (OverflowError, ZeroDivisionError) as exc:
+            diagnostic["legacy_division"] = {
+                "finite": False,
+                "class": type(exc).__name__,
+            }
+    else:
+        atom_digits = _integer_atom_digits(raw_value)
+        if atom_digits is not None:
+            diagnostic["atom_digits"] = atom_digits
+
+    try:
+        exact_float = float(fraction)
+    except OverflowError as exc:
+        diagnostic["exact_float"] = {"finite": False, "class": type(exc).__name__}
+    else:
+        diagnostic["exact_float"] = _float_result_debug(exact_float)
+    diagnostic["exact_in_norm_range"] = bool(0 <= fraction <= 1)
+    return diagnostic
+
+
+def _build_model_diagnostics(engine, model_lines):
+    diagnostics = []
+    for line in model_lines:
+        entry = {"line": line}
+        if not line.startswith('((') or not line.endswith('))'):
+            entry["parse_error"] = "malformed SMT model line"
+            diagnostics.append(entry)
+            continue
+        try:
+            name, value = line[2:-2].split(" ", 1)
+        except ValueError:
+            entry["parse_error"] = "malformed SMT model binding"
+            diagnostics.append(entry)
+            continue
+        value_type = getattr(engine, "var_to_types", {}).get(name)
+        entry.update(
+            {
+                "name": name,
+                "value_type": value_type,
+                "raw_value": value,
+                "raw_value_length": len(value),
+            }
+        )
+        if value_type == "Real":
+            entry["real"] = _describe_real_model_value(value)
+        diagnostics.append(entry)
+    return diagnostics
 
 
 def _ensure_smtlib2_logger() -> None:
@@ -61,7 +284,15 @@ class Solver:
         solver_run_timeout: Optional[int] = None,
     ):
         cls.safety = safety; cls.smtdir = smtdir
-        cls.stats = {'sat_number': 0, 'sat_time': 0, 'unsat_number': 0, 'unsat_time': 0, 'otherwise_number': 0, 'otherwise_time': 0}
+        cls.stats = {
+            'sat_number': 0,
+            'sat_time': 0,
+            'unsat_number': 0,
+            'unsat_time': 0,
+            'otherwise_number': 0,
+            'otherwise_time': 0,
+            'invalid_model_number': 0,
+        }
         cls.build_timeout_enabled = bool(constraint_build_timeout)
         if cls.build_timeout_enabled:
             timeout_seconds = 30 if constraint_build_timeout_seconds is None else int(constraint_build_timeout_seconds)
@@ -177,6 +408,12 @@ class Solver:
         path_len = getattr(constraint, "height", None)
         current_iter = cls.iter
         current_attempt_index = cls.iter_count
+        model_error = None
+        solver_stdout = None
+        solver_stderr = None
+        solver_returncode = None
+        solver_raw_model_lines = None
+        solver_model_diagnostics = None
 
         def _record_constraint_complexity(status, formulas, build_elapsed, solver_elapsed):
             for key in (
@@ -246,6 +483,18 @@ class Solver:
                 detail["solver_time"] = solver_elapsed
             if formulas is not None:
                 detail["smt_formula"] = formulas
+            if model_error is not None:
+                detail["model_error"] = model_error
+            if solver_returncode is not None:
+                detail["solver_returncode"] = solver_returncode
+            if solver_stdout is not None:
+                detail["solver_stdout"] = solver_stdout
+            if solver_stderr is not None:
+                detail["solver_stderr"] = solver_stderr
+            if solver_raw_model_lines is not None:
+                detail["solver_raw_model_lines"] = solver_raw_model_lines
+            if solver_model_diagnostics is not None:
+                detail["solver_model_diagnostics"] = solver_model_diagnostics
             cls.ctr_size['detail'].append(detail)
         #limit_constraint_time_start
         build_elapsed = None
@@ -352,7 +601,14 @@ class Solver:
         solver_elapsed = time.time() - start
         
         
-        output = completed_process.stdout.decode()
+        solver_returncode = getattr(completed_process, "returncode", None)
+        solver_stdout = (getattr(completed_process, "stdout", b"") or b"").decode(
+            errors="replace"
+        )
+        solver_stderr = (getattr(completed_process, "stderr", b"") or b"").decode(
+            errors="replace"
+        )
+        output = solver_stdout
         model = None
         if output is None or len(output) == 0:
             status = "UNKNOWN"
@@ -360,6 +616,11 @@ class Solver:
         else:
             outputs = output.splitlines()
             status = outputs[0].lower()
+            solver_raw_model_lines = outputs[1:]
+            solver_model_diagnostics = _build_model_diagnostics(
+                engine,
+                solver_raw_model_lines,
+            )
             if "error" in status:
                 log.error(
                     "Solver error '%s' at SMT-id=%s. See smt_error.txt for formula",
@@ -370,13 +631,24 @@ class Solver:
                 sys.exit(1)
             if "sat" == status:
                 cls.stats['sat_number'] += 1; cls.stats['sat_time'] += solver_elapsed
-                model = Solver._get_model(engine, outputs[1:])
+                try:
+                    model = Solver._get_model(engine, outputs[1:])
+                except InvalidSolverModelError as exc:
+                    cls.stats['invalid_model_number'] = cls.stats.get('invalid_model_number', 0) + 1
+                    status = "invalid_model"
+                    model_error = str(exc)
+                    log.warning(
+                        "Discarding invalid SAT model (idx=%s, position=%s): %s",
+                        idx,
+                        summarize_position(position),
+                        exc,
+                    )
                 # FIXME make the value of non-concolic argument unchanged
             else:
                 if "unsat" == status: cls.stats['unsat_number'] += 1; cls.stats['unsat_time'] += solver_elapsed
                 else: status = "UNKNOWN"; cls.stats['otherwise_number'] += 1; cls.stats['otherwise_time'] += solver_elapsed
         log.info(
-            "[SOLVER] idx=%s attack=%s ton=%s position=%s status=%s sat=%d unsat=%d unknown=%d",
+            "[SOLVER] idx=%s attack=%s ton=%s position=%s status=%s sat=%d unsat=%d unknown=%d invalid_model=%d",
             idx,
             cls._derive_attack_mode(engine),
             cls._derive_attack_ton(engine),
@@ -385,6 +657,7 @@ class Solver:
             cls.stats["sat_number"],
             cls.stats["unsat_number"],
             cls.stats["otherwise_number"],
+            cls.stats.get("invalid_model_number", 0),
         )
         _record_constraint_complexity(
             status,
@@ -419,38 +692,41 @@ class Solver:
     def _get_model(engine, models):
         model = {}
         for line in models:
-            #print(line)
-            assert line.startswith('((') and line.endswith('))')
-            name, value = line[2:-2].split(" ", 1)
-            if engine.var_to_types[name] == "Bool":
+            if not line.startswith('((') or not line.endswith('))'):
+                raise InvalidSolverModelError("malformed SMT model line")
+            try:
+                name, value = line[2:-2].split(" ", 1)
+                value_type = engine.var_to_types[name]
+            except (KeyError, ValueError) as exc:
+                raise InvalidSolverModelError("malformed SMT model binding") from exc
+            if value_type == "Bool":
                 if value == 'true': value = True
                 elif value == 'false': value = False
-                else: raise NotImplementedError
-            elif engine.var_to_types[name] == "Real":
-                if "(" in value:
-                    tmp = value.replace("(", "").replace(")", "").replace("-", "").split()
-                    if value.count('-') % 2 == 1:
-                        value = - ( float(tmp[1])/float(tmp[2]) )
+                else: raise InvalidSolverModelError("invalid SMT Bool value")
+            elif value_type == "Real":
+                value = _parse_real_model_value(value)
+                if Solver.norm and not 0.0 <= value <= 1.0:
+                    raise InvalidSolverModelError("SMT Real is outside the normalized [0, 1] range")
+            elif value_type == "Int":
+                try:
+                    if "(" in value:
+                        if "-" in value:
+                            value = -int(value.replace("(", "").replace(")", "").split(" ")[2])
+                        else:
+                            value = int(value.replace("(", "").replace(")", "").split(" ")[1])
                     else:
-                        value = ( float(tmp[1])/float(tmp[2]) ) 
-                else:
-                    value = float(value)
-            elif engine.var_to_types[name] == "Int":
-                if "(" in value:
-                    if "-" in value:
-                        value = -int(value.replace("(", "").replace(")", "").split(" ")[2])
-                    else:
-                        value = int(value.replace("(", "").replace(")", "").split(" ")[1])
-                else:
-                    value = int(value)
-            elif engine.var_to_types[name] == "String":
+                        value = int(value)
+                except (IndexError, ValueError) as exc:
+                    raise InvalidSolverModelError("invalid SMT Int value") from exc
+            elif value_type == "String":
                 assert value.startswith('"') and value.endswith('"')
                 value = value[1:-1]
                 value = value.replace('""', '"').replace("\\t", "\t").replace("\\n", "\n").replace("\\r", "\r").replace("\\\\", "\\")
                 # Note the decoding order above must be in reverse with its encoding method (line 41 in libct/utils.py)
             else:
-                raise NotImplementedError
-            assert name.endswith('_VAR') # '_VAR' is used to avoid name collision
+                raise InvalidSolverModelError("unsupported SMT model value type")
+            if not name.endswith('_VAR'):
+                raise InvalidSolverModelError("SMT model name is missing the _VAR suffix")
             model[name[:-len('_VAR')]] = value
         return model
 

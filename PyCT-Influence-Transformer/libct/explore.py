@@ -619,9 +619,15 @@ class ExplorationEngine:
             interrupted = True
             log.warning("Exploration interrupted by user (idx=%s)", self.idx)
             raise
-        except BaseException:
+        except BaseException as exc:
             interrupted = True
             log.exception("Exploration loop terminated unexpectedly")
+            if recorder.extra_meta.get("status") != "error":
+                recorder.mark_error(
+                    "exploration_failure",
+                    str(exc),
+                    phase="execution_loop",
+                )
         finally:
             if timed_out:
                 log.info('[TOTAL TIMEOUT]: Total Timeout happened')
@@ -660,6 +666,8 @@ class ExplorationEngine:
                     f'unsat,{Solver.stats["unsat_number"]},{Solver.stats["unsat_time"]}\n')
                 f.write(
                     f'otherwise,{Solver.stats["otherwise_number"]},{Solver.stats["otherwise_time"]}\n')
+                f.write(
+                    f'invalid_model,{Solver.stats.get("invalid_model_number", 0)},0\n')
 
         return iteration, recorder
 
