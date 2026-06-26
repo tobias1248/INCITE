@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import math
 import sys
 
 import pytest
@@ -164,6 +165,26 @@ def test_predict_multiclass_returns_argmax() -> None:
     result = predictor.predict(v_0_0_0=1.0, v_0_0_1=2.0, v_0_0_2=3.0)
 
     assert result == 1
+
+
+def test_predict_rejects_non_finite_validation_input() -> None:
+    predictor.myModel = SimpleNamespace(
+        input_shape=(1, 1, 1),
+        forward=lambda tensor_input: [0.1, 0.9],
+    )
+
+    with pytest.raises(ValueError, match="Validation input contains"):
+        predictor.predict(v_0_0_0=math.nan)
+
+
+def test_predict_validation_rejects_non_finite_output_instead_of_class_zero() -> None:
+    predictor.validationModel = SimpleNamespace(
+        input_shape=(1, 1, 1),
+        forward=lambda tensor_input: [math.nan, math.nan, math.nan],
+    )
+
+    with pytest.raises(ValueError, match="Validation model output contains"):
+        predictor.predict_validation(v_0_0_0=0.5)
 
 
 def test_predict_builds_2d_tensor_input_keys_correctly() -> None:

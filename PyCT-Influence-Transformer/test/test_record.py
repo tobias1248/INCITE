@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 import sys
 
+import numpy as np
+import pytest
+
 try:
     import cv2 as _cv2  # type: ignore
 except ModuleNotFoundError:
@@ -21,6 +24,51 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from libct.record import ConcolicTestRecorder
+
+
+def test_recorder_rejects_non_finite_sat_and_adversarial_inputs() -> None:
+    recorder = ConcolicTestRecorder(None, "case_0")
+    recorder.input_shape = (1,)
+
+    with pytest.raises(ValueError, match="NaN or Inf"):
+        recorder.save_sat_input({"v_0": np.nan})
+    with pytest.raises(ValueError, match="NaN or Inf"):
+        recorder.find_adversarial_input({"v_0": np.inf}, attack_label=1)
+
+    assert recorder.sat_inputs == []
+    assert recorder.adversarial_input is None
+    assert recorder.attack_label is None
+
+
+def test_save_stats_dict_preserves_invalid_model_diagnostic(tmp_path: Path) -> None:
+    save_dir = tmp_path / "case_invalid_model"
+    recorder = ConcolicTestRecorder(str(save_dir), "case_invalid_model")
+    recorder.input_shape = (1,)
+    detail = [
+        {
+            "iter": 1,
+            "attempt_index": 1,
+            "status": "invalid_model",
+            "assert_num": 1,
+            "byte": 20,
+            "assert_len": [10],
+            "formula_build_time_s": 0.1,
+            "solver_subprocess_time_s": 0.2,
+            "solve_total_time_s": 0.3,
+            "total_time": 0.3,
+            "model_error": "SMT Real decoded to a non-finite float",
+            "smt_formula": "(check-sat)\n",
+        }
+    ]
+
+    recorder.save_stats_dict(_constraint_complexity(detail))
+
+    line = json.loads(
+        (save_dir / "solver_iter1_top3.jsonl").read_text(encoding="utf-8").strip()
+    )
+    assert line["status"] == "invalid_model"
+    assert line["model_error"] == "SMT Real decoded to a non-finite float"
+    assert (save_dir / "solver_iter1_top3_smt" / "01_invalid_model.smt2").is_file()
 
 
 def _constraint_complexity(detail):
@@ -137,6 +185,21 @@ def test_save_stats_dict_writes_solver_iter1_top3_artifacts(tmp_path: Path) -> N
             "solve_total_time_s": 3.0,
             "total_time": 3.0,
             "smt_formula": "(assert a)\n(check-sat)\n",
+            "solver_stdout": "sat\n((x_VAR (/ 1 2)))\n",
+            "solver_stderr": "",
+            "solver_returncode": 0,
+            "solver_model_diagnostics": [
+                {
+                    "name": "x_VAR",
+                    "value_type": "Real",
+                    "raw_value": "(/ 1 2)",
+                    "real": {
+                        "is_rational": True,
+                        "numerator_digits": 1,
+                        "denominator_digits": 1,
+                    },
+                }
+            ],
         },
         {
             "iter": 1,
@@ -190,26 +253,67 @@ def test_save_stats_dict_writes_solver_iter1_top3_artifacts(tmp_path: Path) -> N
             "total_time": 21.0,
             "smt_formula": "(assert e)\n(check-sat)\n",
         },
+        {
+            "iter": 2,
+            "attempt_index": 2,
+            "status": "invalid_model",
+            "assert_num": 6,
+            "byte": 606,
+            "assert_len": [66],
+            "formula_build_time_s": 12.0,
+            "solver_subprocess_time_s": 13.0,
+            "solve_total_time_s": 25.0,
+            "total_time": 25.0,
+            "model_error": "unsupported SMT Real atom",
+            "smt_formula": "(assert f)\n(check-sat)\n",
+            "solver_stdout": "sat\n((x_VAR NaN))\n",
+            "solver_model_diagnostics": [
+                {
+                    "name": "x_VAR",
+                    "value_type": "Real",
+                    "raw_value": "NaN",
+                    "real": {"parse_error": "unsupported SMT Real atom"},
+                }
+            ],
+        },
     ]
 
     recorder.save_stats_dict(_constraint_complexity(detail))
 
     stats = json.loads((save_dir / "stats.json").read_text(encoding="utf-8"))
-    assert stats["constraint_complexity"]["attempt_summary"]["all"]["formula_byte"]["sum"] == 1515
+    assert stats["constraint_complexity"]["attempt_summary"]["all"]["formula_byte"]["sum"] == 2121
     assert "smt_formula" not in stats["constraint_complexity"]["entries"][0]
+    assert "solver_stdout" not in stats["constraint_complexity"]["entries"][0]
+    assert "solver_model_diagnostics" not in stats["constraint_complexity"]["entries"][0]
 
     jsonl_path = save_dir / "solver_iter1_top3.jsonl"
     assert jsonl_path.is_file()
     lines = [json.loads(line) for line in jsonl_path.read_text(encoding="utf-8").splitlines()]
-    assert [line["attempt_index"] for line in lines] == [1, 2, 4]
-    assert [line["status"] for line in lines] == ["sat", "unsat", "sat"]
+    assert [line["attempt_index"] for line in lines] == [1, 2, 4, 2]
+    assert [line["status"] for line in lines] == ["sat", "unsat", "sat", "invalid_model"]
     assert [line["smt_path"] for line in lines] == [
         "solver_iter1_top3_smt/01_sat.smt2",
         "solver_iter1_top3_smt/02_unsat.smt2",
         "solver_iter1_top3_smt/03_sat.smt2",
+        "solver_iter1_top3_smt/04_invalid_model.smt2",
     ]
+    assert lines[0]["solver_stdout_path"] == "solver_iter1_top3_model/01_sat.stdout.txt"
+    assert (
+        lines[0]["solver_model_diagnostics_path"]
+        == "solver_iter1_top3_model/01_sat.model.json"
+    )
 
     smt_dir = save_dir / "solver_iter1_top3_smt"
     assert (smt_dir / "01_sat.smt2").read_text(encoding="utf-8") == "(assert a)\n(check-sat)\n"
     assert (smt_dir / "02_unsat.smt2").read_text(encoding="utf-8") == "(assert b)\n(check-sat)\n"
     assert (smt_dir / "03_sat.smt2").read_text(encoding="utf-8") == "(assert d)\n(check-sat)\n"
+    assert (smt_dir / "04_invalid_model.smt2").read_text(encoding="utf-8") == "(assert f)\n(check-sat)\n"
+    model_dir = save_dir / "solver_iter1_top3_model"
+    assert (model_dir / "01_sat.stdout.txt").read_text(encoding="utf-8") == "sat\n((x_VAR (/ 1 2)))\n"
+    assert (model_dir / "04_invalid_model.stdout.txt").read_text(encoding="utf-8") == "sat\n((x_VAR NaN))\n"
+    model_diagnostics = json.loads((model_dir / "01_sat.model.json").read_text(encoding="utf-8"))
+    assert model_diagnostics[0]["raw_value"] == "(/ 1 2)"
+    invalid_diagnostics = json.loads(
+        (model_dir / "04_invalid_model.model.json").read_text(encoding="utf-8")
+    )
+    assert invalid_diagnostics[0]["real"]["parse_error"] == "unsupported SMT Real atom"
