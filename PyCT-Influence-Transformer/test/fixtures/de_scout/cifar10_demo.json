@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "dataset": "cifar10",
+  "model_name": "demo_model",
+  "source": {
+    "tool": "one-pixel-attack-keras",
+    "channel_mode": "channel",
+    "pixels": 1,
+    "samples": 100,
+    "sample_mode": "first",
+    "skip_correct_filter": true,
+    "result_path": "networks/results/runs/demo"
+  },
+  "candidates": {
+    "7": [
+      {
+        "coord": [2, 3, 1],
+        "de_value": 128,
+        "score": 0.4
+      },
+      {
+        "coord": [8, 9, 0],
+        "de_value": 255,
+        "score": 0.3
+      }
+    ],
+    "88": [
+      {
+        "rank": 2,
+        "coord": [4, 5, 2],
+        "de_value": 17,
+        "score": 0.2
+      },
+      {
+        "rank": 1,
+        "coord": [0, 1, 0],
+        "de_value": 255,
+        "score": 0.9
+      },
+      {
+        "rank": 3,
+        "coord": [0, 1, 0],
+        "de_value": 42,
+        "score": 0.1
+      }
+    ]
+  }
+}

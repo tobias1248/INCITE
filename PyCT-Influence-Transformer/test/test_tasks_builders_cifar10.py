@@ -40,6 +40,18 @@ class _DummyPixelProvider:
         return [(4, 5, 2)]
 
 
+class _DummyDeScoutProvider:
+    last_init = None
+
+    def __init__(self, **kwargs) -> None:
+        type(self).last_init = kwargs
+
+    def top_pixels(self, idx, ton):
+        assert idx == 1
+        assert ton == 2
+        return [(7, 8, 1), (9, 10, 2)]
+
+
 def test_cifar10_transformer_shap_patch_selector_builds_single_channel(monkeypatch) -> None:
     monkeypatch.setattr(specs, "Cifar10Dataset", _DummyDataset)
     monkeypatch.setattr(specs, "JsonShapPixelProvider", _DummyPixelProvider)
@@ -99,4 +111,43 @@ def test_cifar10_transformer_shap_token_selector_rejects_multi_ton() -> None:
             ton_values=(1, 2),
             attack_mode="shap_tokenshap_solver60s",
             pixel_selector="token-shap",
+        )
+
+
+def test_cifar10_transformer_shap_de_scout_selector_builds_selected_channels(monkeypatch) -> None:
+    monkeypatch.setattr(specs, "Cifar10Dataset", _DummyDataset)
+    monkeypatch.setattr(specs, "DeScoutPixelProvider", _DummyDeScoutProvider)
+
+    inputs = specs.cifar10_transformer_shap(
+        "demo_model",
+        first_n_img=[1],
+        force=True,
+        ton_values=(2,),
+        attack_mode="shap_descout_solver60s",
+        pixel_selector="de-scout",
+        de_scout_path="de_scout/demo.json",
+    )
+
+    assert len(inputs) == 1
+    ton_plan = inputs[0]["ton_plans"][0]
+    assert ton_plan["con_dict"] == {"v_7_8_1": 1, "v_9_10_2": 1}
+    assert ton_plan["save_exp"]["pixel_selector"] == "de-scout"
+    assert ton_plan["save_exp"]["de_scout_path"] == "de_scout/demo.json"
+    assert _DummyDeScoutProvider.last_init == {
+        "path": "de_scout/demo.json",
+        "dataset": "cifar10",
+        "model_name": "demo_model",
+        "coordinate_bounds": (32, 32, 3),
+    }
+
+
+def test_cifar10_transformer_shap_de_scout_selector_requires_path() -> None:
+    with pytest.raises(ValueError, match="de_scout_path is required"):
+        specs.cifar10_transformer_shap(
+            "demo_model",
+            first_n_img=[1],
+            force=True,
+            ton_values=(1,),
+            attack_mode="shap_descout_solver60s",
+            pixel_selector="de-scout",
         )

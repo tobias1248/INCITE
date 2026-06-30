@@ -99,6 +99,7 @@ def _make_args(**overrides):
         random_seed=2024,
         pixel_source="random",
         pixel_selector="pixel-shap",
+        de_scout_path=None,
         norm_01=False,
         first_n=1,
         case_indices=None,
@@ -339,6 +340,43 @@ def test_run_launcher_adds_patchshap_suffix_for_cifar10(monkeypatch) -> None:
                 "ton_values": (1,),
                 "attack_mode": "shap_patchshap_solver1s",
                 "pixel_selector": "patch-shap",
+            },
+        )
+    ]
+
+
+def test_run_launcher_adds_descout_suffix_and_path_for_cifar10(monkeypatch) -> None:
+    calls = []
+    payload = {"idx": 0, "save_exp": {}, "con_dict": {}, "solve_order_stack": False}
+    _install_runtime_fakes(monkeypatch)
+    monkeypatch.setattr(launcher, "collect_stage_cases", lambda inputs: [])
+    monkeypatch.setattr(launcher, "should_run_payload", lambda payload, force_refresh: True)
+    monkeypatch.setattr(
+        launcher,
+        "cifar10_transformer_shap",
+        lambda model_name, **kwargs: calls.append((model_name, kwargs)) or [dict(payload)],
+    )
+    monkeypatch.setattr(launcher, "cifar10_transformer_random", lambda *args, **kwargs: [])
+
+    launcher.run_launcher(
+        _make_args(
+            dataset="cifar10",
+            attack_mode="shap",
+            pixel_selector="de-scout",
+            de_scout_path="de_scout/demo.json",
+        )
+    )
+
+    assert calls == [
+        (
+            "demo",
+            {
+                "first_n_img": range(0, 1),
+                "force": True,
+                "ton_values": (1,),
+                "attack_mode": "shap_descout_solver1s",
+                "pixel_selector": "de-scout",
+                "de_scout_path": "de_scout/demo.json",
             },
         )
     ]

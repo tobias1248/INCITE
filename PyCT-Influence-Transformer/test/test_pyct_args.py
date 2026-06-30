@@ -157,6 +157,78 @@ def test_parse_args_rejects_token_shap_for_multi_ton() -> None:
         )
 
 
+def test_parse_args_accepts_de_scout_for_cifar10_shap() -> None:
+    args = parse_args(
+        [
+            "--attack-mode",
+            "shap",
+            "--dataset",
+            "cifar10",
+            "--pixel-selector",
+            "de-scout",
+            "--de-scout-path",
+            "de_scout/demo.json",
+            "--score-alpha",
+            "0.8",
+        ]
+    )
+
+    assert args.pixel_selector == "de-scout"
+    assert args.de_scout_path == "de_scout/demo.json"
+
+
+def test_parse_args_rejects_de_scout_without_path() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "shap",
+                "--dataset",
+                "cifar10",
+                "--pixel-selector",
+                "de-scout",
+                "--score-alpha",
+                "0.8",
+            ]
+        )
+
+
+def test_parse_args_rejects_de_scout_for_non_cifar10() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "shap",
+                "--dataset",
+                "mnist",
+                "--pixel-selector",
+                "de-scout",
+                "--de-scout-path",
+                "de_scout/demo.json",
+                "--score-alpha",
+                "0.8",
+            ]
+        )
+
+
+def test_parse_args_rejects_de_scout_for_non_shap_attack() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "random",
+                "--dataset",
+                "cifar10",
+                "--pixel-selector",
+                "de-scout",
+                "--de-scout-path",
+                "de_scout/demo.json",
+                "--score-alpha",
+                "0.8",
+            ]
+        )
+
+
 def test_parse_args_defaults_ternary_flags() -> None:
     args = parse_args(["--attack-mode", "queue"])
 
