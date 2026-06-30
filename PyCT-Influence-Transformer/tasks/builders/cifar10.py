@@ -6,6 +6,7 @@ from typing import Dict, Iterable, List, Optional, Sequence
 import numpy as np
 
 from datasets.cifar10 import Cifar10Dataset
+from explainability.de_scout_provider import DeScoutPixelProvider
 from explainability.pixel_provider import JsonShapPixelProvider
 from explainability.shap_calculator import ShapValuesCalculator
 from tasks.builders.common import (
@@ -30,20 +31,31 @@ def cifar10_transformer_shap(
     exp_prefix: Optional[str] = None,
     attack_mode: str = "shap",
     pixel_selector: str = "pixel-shap",
+    de_scout_path: Optional[str] = None,
 ) -> List[Dict[str, object]]:
     ton_sequence = normalize_ton_sequence(ton_values, fallback=ton or 1)
     if pixel_selector in {"patch-shap", "token-shap"} and tuple(ton_sequence) != (1,):
         raise ValueError(f"{pixel_selector} supports only --pixel-search 1 in v1.")
+    if pixel_selector == "de-scout" and not de_scout_path:
+        raise ValueError("de_scout_path is required when pixel_selector='de-scout'.")
     dataset = Cifar10Dataset()
     sample_shape = tuple(int(dim) for dim in dataset.x_test.shape[1:])
 
-    pixel_provider = JsonShapPixelProvider(
-        model_name=model_name,
-        shap_root="shap_value_all_layer",
-        selector=pixel_selector,
-        coordinate_dims=3,
-        coordinate_bounds=sample_shape,
-    )
+    if pixel_selector == "de-scout":
+        pixel_provider = DeScoutPixelProvider(
+            path=de_scout_path,
+            dataset="cifar10",
+            model_name=model_name,
+            coordinate_bounds=sample_shape,
+        )
+    else:
+        pixel_provider = JsonShapPixelProvider(
+            model_name=model_name,
+            shap_root="shap_value_all_layer",
+            selector=pixel_selector,
+            coordinate_dims=3,
+            coordinate_bounds=sample_shape,
+        )
     queue_mode = QueueMode("priority_queue", "priority_queue")
 
     prefix = f"{exp_prefix.strip('/')}/" if exp_prefix else ""
@@ -65,7 +77,10 @@ def cifar10_transformer_shap(
                 "exp_name": f"{prefix}shap_{ton_value}",
                 "idx": idx,
                 "attack_mode": attack_mode,
+                "pixel_selector": pixel_selector,
             }
+            if pixel_selector == "de-scout":
+                save_exp["de_scout_path"] = de_scout_path
             save_dir = get_save_dir_from_save_exp(
                 save_exp,
                 model_name,

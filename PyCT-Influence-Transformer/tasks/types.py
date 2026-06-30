@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, TypedDict
 
 AttackMode = Literal["shap", "random", "random-assign", "queue"]
-PixelSelector = Literal["pixel-shap", "patch-shap", "token-shap"]
+PixelSelector = Literal["pixel-shap", "patch-shap", "token-shap", "de-scout"]
 
 
 class SaveExpConfig(TypedDict, total=False):

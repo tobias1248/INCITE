@@ -19,6 +19,7 @@ __pycache__/
 exp/
 tmp/
 popped_constraint_position/
+de_scout/
 
 # SHAP artifacts
 shap_value/

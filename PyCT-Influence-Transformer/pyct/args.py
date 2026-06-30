@@ -167,8 +167,16 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--pixel-selector",
         default="pixel-shap",
-        choices=("pixel-shap", "patch-shap", "token-shap"),
-        help="Coordinate selector for SHAP attacks (default: pixel-shap). patch-shap/token-shap are CIFAR10-only and require --pixel-search 1.",
+        choices=("pixel-shap", "patch-shap", "token-shap", "de-scout"),
+        help=(
+            "Coordinate selector for SHAP attacks (default: pixel-shap). "
+            "patch-shap/token-shap are CIFAR10-only and require --pixel-search 1; "
+            "de-scout is CIFAR10-only and requires --de-scout-path."
+        ),
+    )
+    parser.add_argument(
+        "--de-scout-path",
+        help="Path to an offline DE scout JSON artifact used when --pixel-selector de-scout.",
     )
     parser.add_argument(
         "--norm-01",
@@ -260,6 +268,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             parser.error(f"--pixel-selector {args.pixel_selector} requires --dataset cifar10")
         if tuple(args.pixel_search) != (1,):
             parser.error(f"--pixel-selector {args.pixel_selector} requires --pixel-search 1")
+    if args.pixel_selector == "de-scout":
+        if args.attack_mode != "shap":
+            parser.error("--pixel-selector de-scout requires --attack-mode shap")
+        if args.dataset != "cifar10":
+            parser.error("--pixel-selector de-scout requires --dataset cifar10")
+        if not args.de_scout_path:
+            parser.error("--pixel-selector de-scout requires --de-scout-path")
     return args
 
 

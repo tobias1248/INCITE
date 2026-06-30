@@ -360,6 +360,8 @@ def run_launcher(args: Any) -> None:
         attack_mode_parts.append("patchshap")
     if args.attack_mode == "shap" and args.pixel_selector == "token-shap":
         attack_mode_parts.append("tokenshap")
+    if args.attack_mode == "shap" and args.pixel_selector == "de-scout":
+        attack_mode_parts.append("descout")
     if args.attack_mode == "random-assign":
         attack_mode_parts.append(args.pixel_source)
     if args.solver_run_timeout and args.solver_run_timeout > 0:
@@ -381,6 +383,8 @@ def run_launcher(args: Any) -> None:
     shap_kwargs = {}
     if args.dataset == "cifar10":
         shap_kwargs["pixel_selector"] = args.pixel_selector
+        if args.pixel_selector == "de-scout":
+            shap_kwargs["de_scout_path"] = getattr(args, "de_scout_path", None)
 
     if args.attack_mode == "shap":
         inputs = shap_fn(
