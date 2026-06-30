@@ -152,6 +152,17 @@ def _unwrap_rational_expression(expression):
     return sign, numerator, denominator
 
 
+def _describe_real_parse_error(exc: InvalidSolverModelError):
+    detail = str(exc)
+    cause = getattr(exc, "__cause__", None)
+    if cause is not None:
+        cause_detail = str(cause)
+        if "Exceeds the limit" in cause_detail and "integer string conversion" in cause_detail:
+            return "integer string exceeds Python int_max_str_digits", cause_detail
+        return detail, cause_detail
+    return detail, None
+
+
 def _describe_real_model_value(value: str):
     raw_value = value.strip()
     diagnostic = {
@@ -161,7 +172,6 @@ def _describe_real_model_value(value: str):
     }
     try:
         expression = _parse_smt_expression(raw_value)
-        fraction = _parse_real_fraction(expression)
     except InvalidSolverModelError as exc:
         diagnostic["parse_error"] = str(exc)
         return diagnostic
@@ -197,6 +207,15 @@ def _describe_real_model_value(value: str):
         atom_digits = _integer_atom_digits(raw_value)
         if atom_digits is not None:
             diagnostic["atom_digits"] = atom_digits
+
+    try:
+        fraction = _parse_real_fraction(expression)
+    except InvalidSolverModelError as exc:
+        parse_error, parse_error_detail = _describe_real_parse_error(exc)
+        diagnostic["parse_error"] = parse_error
+        if parse_error_detail is not None:
+            diagnostic["parse_error_detail"] = parse_error_detail
+        return diagnostic
 
     try:
         exact_float = float(fraction)
