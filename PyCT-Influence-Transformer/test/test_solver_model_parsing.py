@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 from unittest import mock
 
@@ -92,6 +93,32 @@ def test_describe_real_model_value_records_legacy_overflow_risk() -> None:
     assert diagnostic["legacy_division"]["class"] == "nan"
     assert diagnostic["exact_float"] == {"finite": True, "class": "finite", "value": 0.5}
     assert diagnostic["exact_in_norm_range"] is True
+
+
+def test_describe_real_model_value_preserves_huge_rational_metadata_when_int_parse_fails() -> None:
+    get_digit_limit = getattr(sys, "get_int_max_str_digits", None)
+    if get_digit_limit is None:
+        pytest.skip("Python runtime does not enforce integer string digit limits")
+    digit_limit = get_digit_limit()
+    if digit_limit <= 0:
+        pytest.skip("Python integer string digit limit is disabled")
+
+    digit_count = digit_limit + 1
+    numerator = "1" * digit_count
+    denominator = "2" * digit_count
+    raw_value = f"(/ {numerator} {denominator})"
+
+    diagnostic = solver._describe_real_model_value(raw_value)
+
+    assert diagnostic["is_rational"] is True
+    assert diagnostic["raw_value_length"] == len(raw_value)
+    assert diagnostic["numerator_digits"] == digit_count
+    assert diagnostic["denominator_digits"] == digit_count
+    assert diagnostic["legacy_numerator_float"]["finite"] is False
+    assert diagnostic["legacy_denominator_float"]["finite"] is False
+    assert diagnostic["legacy_division"]["class"] == "nan"
+    assert diagnostic["parse_error"] == "integer string exceeds Python int_max_str_digits"
+    assert "Exceeds the limit" in diagnostic["parse_error_detail"]
 
 
 @pytest.mark.parametrize("raw", ["NaN", "(/ 1 0)", "(+ 1 2)", "("])
