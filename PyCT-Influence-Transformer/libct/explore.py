@@ -82,6 +82,7 @@ class ExplorationEngine:
                 execute_: Callable,
                 validation_execute_: Optional[Callable] = None,
                 only_first_forward: bool,
+                trace_only: bool = False,
                 shap_score_alpha: Optional[float] = None,
                 symbolic_path_threshold: Optional[int] = None,
                 reuse_search_result_for_validation: bool = False):
@@ -94,6 +95,9 @@ class ExplorationEngine:
         self.save_dir = save_dir
         self.input_name = input_name
         self.only_first_forward = only_first_forward
+        self.trace_only = bool(trace_only)
+        self.branch_trace_enabled = False
+        self.branch_model_sha256 = ""
         self.shap_score_alpha = (
             None if shap_score_alpha is None else float(shap_score_alpha)
         )
@@ -276,6 +280,7 @@ class ExplorationEngine:
         event_type: str,
         message: str,
         error_class: Optional[str] = None,
+        branch_trace: Optional[Any] = None,
     ) -> Dict[str, Any]:
         return self._get_child_protocol().build_child_event_envelope(
             pid=pid,
@@ -284,6 +289,7 @@ class ExplorationEngine:
             event_type=event_type,
             message=message,
             error_class=error_class,
+            branch_trace=branch_trace,
         )
 
     def _build_child_error_envelope(
@@ -380,6 +386,15 @@ class ExplorationEngine:
             recorder.save_original_input(all_args)
         self._update_symbolic_meta()
         recorder.save_stats_dict()
+
+        if getattr(self, "trace_only", False):
+            log.info(
+                "[TRACE-ONLY] idx=%s branches=%s constraints=%s",
+                self.idx,
+                len(getattr(self.path, "branch_trace", ())),
+                len(self.constraints_to_solve),
+            )
+            return timed_out
 
         # After First execution, no constr to solve
         if len(self.constraints_to_solve) == 0:

@@ -115,11 +115,17 @@ class ConcolicExecutionRunner:
                 )
             except func_timeout.FunctionTimedOut:
                 result = self._engine.Timeout
-                message = (
-                    f"Timeout (soft) for: {all_args} >> ./pyct.py -r '{self._engine.root}' "
-                    f"'{self._engine.modpath}' -s {self._engine.funcname} {{}} --lib '{self._engine.lib}' "
-                    "--include_exception"
-                )
+                if getattr(self._engine, "branch_trace_enabled", False):
+                    message = (
+                        "Timeout (soft) for trace-only execution: "
+                        f"idx={self._engine.idx}, variables={len(all_args)}"
+                    )
+                else:
+                    message = (
+                        f"Timeout (soft) for: {all_args} >> ./pyct.py -r '{self._engine.root}' "
+                        f"'{self._engine.modpath}' -s {self._engine.funcname} {{}} --lib "
+                        f"'{self._engine.lib}' --include_exception"
+                    )
                 log.error(message)
                 if self._engine.statsdir:
                     with open(self._engine.statsdir + '/exception.txt', 'a') as f:
@@ -130,13 +136,24 @@ class ConcolicExecutionRunner:
                     result=result,
                     event_type="soft_timeout",
                     message=message,
+                    branch_trace=(
+                        tuple(getattr(self._engine.path, "branch_trace", ()))
+                        if getattr(self._engine, "branch_trace_enabled", False)
+                        else None
+                    ),
                 )
             except Exception as e:
-                message = (
-                    f"Exception for: {all_args} >> ./pyct '{self._engine.root}' "
-                    f"'{self._engine.modpath}' -s {self._engine.funcname} {{}} -m 20 --lib "
-                    f"'{self._engine.lib}' --include_exception"
-                )
+                if getattr(self._engine, "branch_trace_enabled", False):
+                    message = (
+                        "Exception during trace-only execution: "
+                        f"idx={self._engine.idx}, variables={len(all_args)}"
+                    )
+                else:
+                    message = (
+                        f"Exception for: {all_args} >> ./pyct '{self._engine.root}' "
+                        f"'{self._engine.modpath}' -s {self._engine.funcname} {{}} -m 20 --lib "
+                        f"'{self._engine.lib}' --include_exception"
+                    )
                 log.exception(message)
                 if self._engine.statsdir:
                     with open(self._engine.statsdir + '/exception.txt', 'a') as f:
@@ -149,6 +166,11 @@ class ConcolicExecutionRunner:
                     event_type="target_exception",
                     message=str(e) or message,
                     error_class=e.__class__.__name__,
+                    branch_trace=(
+                        tuple(getattr(self._engine.path, "branch_trace", ()))
+                        if getattr(self._engine, "branch_trace_enabled", False)
+                        else None
+                    ),
                 )
         except Exception as exc:
             traceback_text = traceback.format_exc()

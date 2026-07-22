@@ -97,6 +97,25 @@ class CandidateExecutionRunner:
         concolic_dict: Dict[str, Any],
     ) -> None:
         recorder = self._recorder()
+        if getattr(self._engine, "trace_only", False):
+            result, constraint_payload = self._engine._one_execution_deferred_constraints(
+                all_args,
+                concolic_dict,
+            )
+            recorder.original_label = (
+                result if self._engine._is_valid_label_result(result) else None
+            )
+            log.info(
+                "[TRACE-ONLY-RESULT] idx=%s result=%s label=%s",
+                self._engine.idx,
+                result,
+                recorder.original_label,
+            )
+            if constraint_payload is not None:
+                self._engine._apply_constraint_transfer_payload(constraint_payload)
+            self._engine.in_out.append((all_args.copy(), result))
+            self._engine._record_result(all_args, result)
+            return
         if not self._engine._candidate_execution_can_validate():
             recorder.original_label = self._engine._predict_validation(all_args)
             self._engine.previous_result = recorder.original_label

@@ -154,6 +154,7 @@ class ChildProtocol:
         event_type: str,
         message: str,
         error_class: Optional[str] = None,
+        branch_trace: Optional[Any] = None,
     ) -> Dict[str, Any]:
         envelope = {
             "kind": "child_event",
@@ -165,6 +166,8 @@ class ChildProtocol:
         }
         if error_class is not None:
             envelope["error_class"] = error_class
+        if branch_trace is not None:
+            envelope["branch_trace"] = branch_trace
         envelope.update(self.build_child_shared_state(updated_args))
         return envelope
 
@@ -228,6 +231,8 @@ class ChildProtocol:
             "concolic_flag_dict",
             self._engine.concolic_flag_dict,
         )
+        if "branch_trace" in envelope and hasattr(self._engine.path, "branch_trace"):
+            self._engine.path.branch_trace = list(envelope["branch_trace"])
 
     def raise_transport_failure(
         self,

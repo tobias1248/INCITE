@@ -50,6 +50,7 @@ class ExplorerConfig:
     save_dir: Optional[str] = None
     input_name: Optional[str] = None
     only_first_forward: bool = False
+    trace_only: bool = False
     shap_score_alpha: Optional[float] = None
     symbolic_path_threshold: Optional[int] = None
     ternary_simplification: bool = False
@@ -157,6 +158,7 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
         execute_=explorer_cfg.execute,
         validation_execute_=explorer_cfg.validation_execute,
         only_first_forward=explorer_cfg.only_first_forward,
+        trace_only=explorer_cfg.trace_only,
         shap_score_alpha=explorer_cfg.shap_score_alpha,
         symbolic_path_threshold=explorer_cfg.symbolic_path_threshold,
         reuse_search_result_for_validation=explorer_cfg.reuse_search_result_for_validation,
@@ -178,7 +180,10 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         score_alpha: Optional[float] = None,
         symbolic_path_threshold: Optional[int] = None,
         ternary_simplification: bool = False,
-        ternary_threshold_scale: float = 0.75) -> tuple[int, Any]:
+        ternary_threshold_scale: float = 0.75,
+        trace_only: bool = False,
+        branch_trace_enabled: bool = False,
+        branch_model_sha256: str = "") -> tuple[int, Any]:
 
     collect_mode: Literal["priority_queue", "queue", "stack"] = _validate_collect_mode(collect_constraints_with)
     model_path, module_path, root = _resolve_model_artifacts(model_name)
@@ -247,6 +252,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         save_dir=save_dir,
         input_name=input_name,
         only_first_forward=only_first_forward,
+        trace_only=trace_only,
         shap_score_alpha=score_alpha,
         symbolic_path_threshold=symbolic_path_threshold,
         ternary_simplification=ternary_simplification,
@@ -255,6 +261,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
     )
 
     engine = _build_explorer(explorer_cfg)
+    engine.branch_trace_enabled = bool(branch_trace_enabled)
+    engine.branch_model_sha256 = str(branch_model_sha256)
     extra_meta = {
         "model_name": model_name,
         "attack_mode": attack_mode,
@@ -313,6 +321,13 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         collect_constraints_with=collect_mode,
         popped_log_attack_mode=popped_log_attack_mode or "unknown",
     )
+
+    if branch_trace_enabled:
+        result[1].branch_trace = tuple(getattr(engine.path, "branch_trace", ()))
+        trace_meta = getattr(result[1], "extra_meta", {})
+        result[1].branch_trace_complete = (
+            trace_meta.get("status") != "error" and not bool(trace_meta.get("child_event_type"))
+        )
 
     libct.explore.clear_global_context()
     del engine
