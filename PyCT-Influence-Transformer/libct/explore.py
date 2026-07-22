@@ -101,6 +101,7 @@ class ExplorationEngine:
         self.reuse_search_result_for_validation = bool(reuse_search_result_for_validation)
         self.symbolic_enabled = True
         self.symbolic_disabled_at_path_len = None
+        self.trivial_branch_pruned_count = 0
         self.constraint_log_enabled = _env_flag("PYCT_ENABLE_CONSTRAINT_LOG", False)
         self.verbose = verbose
         self.logfile = logfile
@@ -524,6 +525,11 @@ class ExplorationEngine:
         extra_meta["symbolic_path_threshold"] = threshold
         extra_meta["symbolic_disabled_at_path_len"] = disabled_at
         extra_meta["symbolic_disabled"] = disabled_at is not None
+        extra_meta["trivial_branch_pruned_count"] = getattr(
+            self,
+            "trivial_branch_pruned_count",
+            0,
+        )
 
     def explore(
             self, modpath, all_args={}, /, *, root='.', funcname=None,

@@ -433,6 +433,7 @@ class Solver:
         solver_returncode = None
         solver_raw_model_lines = None
         solver_model_diagnostics = None
+        cls._last_formula_sharing_stats = None
 
         def _record_constraint_complexity(status, formulas, build_elapsed, solver_elapsed):
             for key in (
@@ -502,6 +503,9 @@ class Solver:
                 detail["solver_time"] = solver_elapsed
             if formulas is not None:
                 detail["smt_formula"] = formulas
+            sharing_stats = getattr(cls, "_last_formula_sharing_stats", None)
+            if sharing_stats is not None:
+                detail.update(sharing_stats)
             if model_error is not None:
                 detail["model_error"] = model_error
             if solver_returncode is not None:
@@ -756,7 +760,27 @@ class Solver:
         #NOTE DNN
         declare_vars = "\n".join(f"(declare-const {name} {engine.var_to_types[name]})"                 
                                 for (name) in engine.concolic_name_list)
-        queries = "\n".join(assertion.get_formula() for assertion in constraint.get_all_asserts())
+        query_formulas = []
+        query_bytes_before = 0
+        cse_binding_count = 0
+        cse_assertion_count = 0
+        for assertion in constraint.get_all_asserts():
+            formula, sharing_stats = assertion.get_formula_with_sharing()
+            query_formulas.append(formula)
+            query_bytes_before += sharing_stats["bytes_before"]
+            cse_binding_count += sharing_stats["binding_count"]
+            if sharing_stats["binding_count"]:
+                cse_assertion_count += 1
+        queries = "\n".join(query_formulas)
+        Solver._last_formula_sharing_stats = {
+            "cse_binding_count": cse_binding_count,
+            "cse_assertion_count": cse_assertion_count,
+            "query_bytes_before_cse": query_bytes_before,
+            "query_bytes_after_cse": (
+                sum(len(formula) for formula in query_formulas)
+                + max(0, len(query_formulas) - 1)
+            ),
+        }
         
         norm_queries = ""        
         if Solver.norm: # limit solve range [0,1]

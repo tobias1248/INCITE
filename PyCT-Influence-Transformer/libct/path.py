@@ -21,9 +21,25 @@ class PathToConstraint:
         engine = getattr(conbool, "engine", None)
         if engine is not None and getattr(engine, "symbolic_enabled", True) is False:
             return
-        p = Predicate(conbool.expr, unwrap(conbool))
+        concrete_value = bool(unwrap(conbool))
+        trivial_value = Predicate.trivial_truth_value(conbool.expr)
+        if trivial_value is not None and concrete_value == trivial_value:
+            if engine is not None:
+                engine.trivial_branch_pruned_count = (
+                    getattr(engine, "trivial_branch_pruned_count", 0) + 1
+                )
+            log.debug("Pruned reflexive branch with fixed value=%s", trivial_value)
+            return
+        if trivial_value is not None:
+            log.warning(
+                "Keeping reflexive branch because concrete value=%s differs from "
+                "SMT Real truth=%s",
+                concrete_value,
+                trivial_value,
+            )
+        p = Predicate(conbool.expr, concrete_value)
         c = self.current_constraint.find_child(p)
-        pneg = Predicate(conbool.expr, not unwrap(conbool))
+        pneg = Predicate(conbool.expr, not concrete_value)
         cneg = self.current_constraint.find_child(pneg)
         if c is None and cneg is None:
             c = self.current_constraint.add_child(p)

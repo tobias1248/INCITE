@@ -2,6 +2,139 @@
 
 from libct.concolic import Concolic
 
+
+class _ExpressionNode:
+    """Internable expression node whose structural hash is computed once."""
+
+    __slots__ = ("items", "_hash")
+
+    def __init__(self, items):
+        self.items = tuple(items)
+        self._hash = hash(self.items)
+
+    def __hash__(self):
+        return self._hash
+
+    def __eq__(self, other):
+        return isinstance(other, _ExpressionNode) and self.items == other.items
+
+    def __iter__(self):
+        return iter(self.items)
+
+    def __len__(self):
+        return len(self.items)
+
+
+class _CommonSubexpressionSerializer:
+    """Serialize an expression with bounded, deterministic SMT ``let`` sharing."""
+
+    _MIN_EXPRESSION_LENGTH = 48
+    _MAX_BINDINGS = 512
+
+    def __init__(self, expr):
+        self._concolic_cache = {}
+        self._interned_nodes = {}
+        self.root = self._normalize(expr)
+        self._counts = {}
+        self._first_seen = {}
+        self._sizes = {}
+        self._visit_index = 0
+        self._count_subexpressions(self.root)
+
+    def _normalize(self, expr):
+        if isinstance(expr, Concolic):
+            cache_key = id(expr)
+            if cache_key not in self._concolic_cache:
+                self._concolic_cache[cache_key] = self._normalize(expr.expr)
+            return self._concolic_cache[cache_key]
+        if isinstance(expr, list):
+            node = _ExpressionNode(self._normalize(item) for item in expr)
+            interned = self._interned_nodes.get(node)
+            if interned is None:
+                self._interned_nodes[node] = node
+                interned = node
+            return interned
+        if isinstance(expr, str):
+            return expr
+        raise NotImplementedError
+
+    def _count_subexpressions(self, expr):
+        if isinstance(expr, str):
+            return
+        self._counts[expr] = self._counts.get(expr, 0) + 1
+        if expr not in self._first_seen:
+            self._first_seen[expr] = self._visit_index
+            self._visit_index += 1
+        for item in expr:
+            self._count_subexpressions(item)
+
+    def _serialized_size(self, expr):
+        if isinstance(expr, str):
+            return len(expr)
+        cached = self._sizes.get(expr)
+        if cached is not None:
+            return cached
+        size = 2 + max(0, len(expr) - 1)
+        size += sum(self._serialized_size(item) for item in expr)
+        self._sizes[expr] = size
+        return size
+
+    def _binding_candidates(self):
+        candidates = []
+        assumed_name_length = len("_pyct_cse_511")
+        for expr, count in self._counts.items():
+            if count < 2:
+                continue
+            expression_length = self._serialized_size(expr)
+            if expression_length < self._MIN_EXPRESSION_LENGTH:
+                continue
+            estimated_saving = (
+                (count - 1) * expression_length
+                - count * assumed_name_length
+                - 12
+            )
+            if estimated_saving <= 0:
+                continue
+            candidates.append(
+                (
+                    estimated_saving,
+                    expression_length,
+                    self._first_seen[expr],
+                    expr,
+                )
+            )
+        candidates.sort(key=lambda item: (-item[0], -item[1], item[2]))
+        selected = candidates[:self._MAX_BINDINGS]
+        return [item[3] for item in selected]
+
+    def _serialize(self, expr, aliases):
+        alias = aliases.get(expr) if not isinstance(expr, str) else None
+        if alias is not None:
+            return alias
+        if isinstance(expr, str):
+            return expr
+        return "(" + " ".join(self._serialize(item, aliases) for item in expr) + ")"
+
+    def serialize(self):
+        candidates = self._binding_candidates()
+        candidates.sort(key=lambda expr: (self._serialized_size(expr), self._first_seen[expr]))
+        aliases = {}
+        bindings = []
+        for index, expr in enumerate(candidates):
+            name = f"_pyct_cse_{index}"
+            binding_expression = self._serialize(expr, aliases)
+            aliases[expr] = name
+            bindings.append((name, binding_expression))
+
+        result = self._serialize(self.root, aliases)
+        for name, binding_expression in reversed(bindings):
+            result = f"(let (({name} {binding_expression})) {result})"
+        return result, len(bindings)
+
+    def original_size(self):
+        return self._serialized_size(self.root)
+
+
 def depth(expr):
     if isinstance(expr, Concolic):
         return 1 + depth(expr.expr)
@@ -19,19 +152,62 @@ class Predicate:
     def __eq__(self, other):
         return isinstance(other, self.__class__) and \
             self.value == other.value and \
-            self._eq_worker(self.expr, other.expr)
+            self.expressions_equal(self.expr, other.expr)
 
-    def _eq_worker(self, expr1, expr2):
-        if isinstance(expr1, Concolic) and isinstance(expr2, Concolic):
-            return self._eq_worker(expr1.expr, expr2.expr)
+    @staticmethod
+    def expressions_equal(expr1, expr2):
+        if isinstance(expr1, Concolic):
+            expr1 = expr1.expr
+        if isinstance(expr2, Concolic):
+            expr2 = expr2.expr
         if isinstance(expr1, list) and isinstance(expr2, list) and len(expr1) == len(expr2):
-            return next((False for (e1, e2) in zip(expr1, expr2) if not self._eq_worker(e1, e2)), True)
+            return all(
+                Predicate.expressions_equal(e1, e2)
+                for e1, e2 in zip(expr1, expr2)
+            )
         return expr1 == expr2
+
+    @staticmethod
+    def trivial_truth_value(expr):
+        """Return the fixed truth value of a reflexive comparison, if known."""
+        if isinstance(expr, Concolic):
+            return Predicate.trivial_truth_value(expr.expr)
+        if not isinstance(expr, list):
+            return None
+        if len(expr) == 2 and expr[0] == "not":
+            inner = Predicate.trivial_truth_value(expr[1])
+            return None if inner is None else not inner
+        if (
+            len(expr) == 3
+            and expr[0] in {"=", "<", "<=", ">", ">="}
+            and Predicate.expressions_equal(expr[1], expr[2])
+        ):
+            return expr[0] in {"=", "<=", ">="}
+        return None
 
     def get_formula(self):
         formula = self.get_formula_deep(self.expr)
         if not self.value: formula = "(not " + formula + ")"
         return "(assert " + formula + ")"
+
+    def get_formula_with_sharing(self):
+        """Return an equivalent assertion using SMT ``let`` common subexpressions."""
+        expr = self.expr if self.value else ["not", self.expr]
+        serializer = _CommonSubexpressionSerializer(expr)
+        shared_body, binding_count = serializer.serialize()
+        shared_formula = "(assert " + shared_body + ")"
+        original_size = len("(assert ") + serializer.original_size() + len(")")
+        if len(shared_formula) >= original_size:
+            return self.get_formula(), {
+                "binding_count": 0,
+                "bytes_before": original_size,
+                "bytes_after": original_size,
+            }
+        return shared_formula, {
+            "binding_count": binding_count,
+            "bytes_before": original_size,
+            "bytes_after": len(shared_formula),
+        }
 
     @staticmethod
     def get_formula_deep(expr):

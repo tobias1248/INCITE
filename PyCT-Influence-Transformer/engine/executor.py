@@ -263,6 +263,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         "symbolic_path_threshold": symbolic_path_threshold,
         "ternary_simplification": bool(ternary_simplification),
         "ternary_threshold_scale": float(ternary_threshold_scale),
+        "attention_symbolic_mode": "frozen_qk",
+        "smt_formula_sharing": "let_cse",
         "constraint_build_timeout": bool(constraint_build_timeout),
         "constraint_build_timeout_seconds": (
             int(constraint_build_timeout_seconds)

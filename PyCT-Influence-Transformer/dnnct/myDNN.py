@@ -1148,6 +1148,8 @@ class LSTMLayer:
         return new_h, new_c
 
 class MultiHeadAttentionLayer:
+    symbolic_attention_mode = "frozen_qk"
+
     def __init__(
         self,
         num_heads,
@@ -1221,23 +1223,75 @@ class MultiHeadAttentionLayer:
         return self._output
 
     def forwardBatch(self, inputs, mask=None):
-        return [self.forwardSingle(input, mask) for input in inputs]
+        masks = self._split_batch_mask(mask, len(inputs))
+        return [
+            self.forwardSingle(input, sample_mask)
+            for input, sample_mask in zip(inputs, masks)
+        ]
 
     def getOutput(self):
         return self._output
 
     def forwardSingle(self, input, mask=None):
         canonical_input, meta = self._canonicalize_input(input)
-        Q = self.transform_and_split(canonical_input, self.WQ, self.BQ, meta["feature_dim"], self._delta_wq)
-        K = self.transform_and_split(canonical_input, self.WK, self.BK, meta["feature_dim"], self._delta_wk)
-        V = self.transform_and_split(canonical_input, self.WV, self.BV, meta["feature_dim"], self._delta_wv)
+        outputs = self._forward_attention(
+            canonical_input,
+            canonical_input,
+            canonical_input,
+            mask=mask,
+        )
+        return self._restore_output(outputs, meta)
+
+    def _forward_attention(self, query_input, key_input, value_input, mask=None):
+        """Evaluate attention with frozen concrete Q/K weights and symbolic V."""
+        concrete_query = self._concretize_vectors(query_input)
+        concrete_key = self._concretize_vectors(key_input)
+        Q = self.transform_and_split(
+            concrete_query,
+            self.WQ,
+            self.BQ,
+            len(self.WQ),
+            self._delta_wq,
+        )
+        K = self.transform_and_split(
+            concrete_key,
+            self.WK,
+            self.BK,
+            len(self.WK),
+            self._delta_wk,
+        )
+        V = self.transform_and_split(
+            value_input,
+            self.WV,
+            self.BV,
+            len(self.WV),
+            self._delta_wv,
+        )
         attentions = [
-            self.dot_product_attention(Q[i], K[i], V[i], meta=meta, mask=mask)
+            self.dot_product_attention(Q[i], K[i], V[i], mask=mask)
             for i in range(self.num_heads)
         ]
         merged = self.concatenate_heads(attentions)
-        outputs = self.output_transform(merged, self.WO, self.BO, self._delta_wo)
-        return self._restore_output(outputs, meta)
+        return self.output_transform(merged, self.WO, self.BO, self._delta_wo)
+
+    def _concretize_vectors(self, vectors):
+        return [
+            [float(unwrap(value)) for value in vector]
+            for vector in vectors
+        ]
+
+    def _split_batch_mask(self, mask, batch_size):
+        if mask is None:
+            return [None] * batch_size
+        mask_array = np.asarray(mask)
+        if mask_array.ndim == 2:
+            return [mask] * batch_size
+        if mask_array.ndim == 3 and mask_array.shape[0] == batch_size:
+            return list(mask)
+        raise ValueError(
+            "MHA batch mask must have shape (query, key) or "
+            f"(batch, query, key); got {mask_array.shape}"
+        )
 
     def _canonicalize_input(self, tensor_in):
         if isinstance(tensor_in, np.ndarray):
@@ -1361,7 +1415,7 @@ class MultiHeadAttentionLayer:
             for i in x:
                 s = s + i
             return s
-    def dot_product_attention(self, Q, K, V, meta=None, mask=None):
+    def dot_product_attention(self, Q, K, V, mask=None):
         # print('$$$$$ dot product attention')
         K_T = [*zip(*K)]#32,500
     
@@ -1369,42 +1423,39 @@ class MultiHeadAttentionLayer:
         # print("777")
         attention_scores = [[score / (self.key_dim_per_heads ** 0.5) for score in attention_score ]for attention_score in attention_scores]#500,500
         # print("779")
-        attention_scores = self.softmax(attention_scores, meta=meta)#500,500
+        attention_scores = self._apply_attention_mask(attention_scores, mask)
+        attention_scores = self.softmax(attention_scores)#500,500
         # print("781")
         context_vector = self.matrix_multiply(attention_scores, V)#500,32
         # print("783")
         return context_vector
 
-    def _register_attention_position(self, query_idx, key_idx, meta):
-        del key_idx
-        if meta["mode"] == "sequence":
-            register_current_indices([(query_idx, j) for j in range(meta["feature_dim"])])
-            return
-        row, col = self._unflatten_token_index(query_idx, meta["token_shape"])
-        register_current_indices([(row, col, j) for j in range(meta["feature_dim"])])
+    def _apply_attention_mask(self, scores, mask):
+        if mask is None:
+            return scores
+        mask_array = np.asarray(mask)
+        expected_shape = (len(scores), len(scores[0]))
+        if mask_array.ndim != 2 or tuple(mask_array.shape) != expected_shape:
+            raise ValueError(
+                f"MHA mask must have shape {expected_shape}; got {mask_array.shape}"
+            )
+        return [
+            [score if bool(mask_array[i, j]) else -math.inf for j, score in enumerate(row)]
+            for i, row in enumerate(scores)
+        ]
 
-    def _unflatten_token_index(self, index, token_shape):
-        if len(token_shape) != 2:
-            raise ValueError(f"Expected 2D token shape, got {token_shape}")
-        rows, cols = token_shape
-        return index // cols, index % cols
-
-    def myMax(self, x, i, meta):
-
-        max = x[i][0]
-        for j in range(len(x[i])):
-            self._register_attention_position(i, j, meta)
-            if x[i][j] > max:
-                max = x[i][j]
-        return max
-    
-    def softmax(self, x, meta):
-        x_max = [self.myMax(x, i, meta) for i in range(len(x))]
+    def softmax(self, x):
         concrete_x = [[float(unwrap(val)) for val in row] for row in x]
-        concrete_max = [float(unwrap(val)) for val in x_max]
-        e_x = [[math.exp(concrete_x[i][j] - concrete_max[i]) for j in range(len(concrete_x[i]))] for i in range(len(concrete_x))]
-        e_x_sum = [self.mySum(e_x[i]) for i in range(len(e_x))]
-        result = [[e_x[i][j] / e_x_sum[i] for j in range(len(e_x[i]))] for i in range(len(e_x)) ]
+        result = []
+        for row in concrete_x:
+            if not row:
+                raise ValueError("MHA softmax cannot evaluate an empty row")
+            row_max = max(row)
+            if row_max == -math.inf:
+                raise ValueError("MHA attention mask cannot hide every key in a row")
+            exponentials = [math.exp(value - row_max) for value in row]
+            denominator = self.mySum(exponentials)
+            result.append([value / denominator for value in exponentials])
         return result
     
     def matrix_multiply(self, matrix1, matrix2):

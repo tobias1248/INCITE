@@ -124,6 +124,11 @@ class ChildProtocol:
             "var_to_types": self._engine.var_to_types,
             "concolic_name_list": self._engine.concolic_name_list,
             "concolic_flag_dict": self._engine.concolic_flag_dict,
+            "trivial_branch_pruned_count": getattr(
+                self._engine,
+                "trivial_branch_pruned_count",
+                0,
+            ),
         }
 
     def build_child_ok_envelope(
@@ -227,6 +232,10 @@ class ChildProtocol:
         self._engine.concolic_flag_dict = envelope.get(
             "concolic_flag_dict",
             self._engine.concolic_flag_dict,
+        )
+        self._engine.trivial_branch_pruned_count = envelope.get(
+            "trivial_branch_pruned_count",
+            getattr(self._engine, "trivial_branch_pruned_count", 0),
         )
 
     def raise_transport_failure(
