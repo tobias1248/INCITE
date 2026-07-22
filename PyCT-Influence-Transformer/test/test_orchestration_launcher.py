@@ -85,6 +85,7 @@ def _make_args(**overrides):
         timeout=3,
         constraint_build_timeout=True,
         constraint_build_timeout_seconds=15,
+        smt_formula_sharing="raw",
         solver_run_timeout=1,
         error_retry_limit=2,
         score_alpha=None,
@@ -161,13 +162,33 @@ def test_run_launcher_selects_queue_builder_and_sets_env(monkeypatch) -> None:
     assert launcher.os.environ["PYCT_TIMEOUT"] == "3"
     assert launcher.os.environ["PYCT_CONSTRAINT_BUILD_TIMEOUT_ENABLED"] == "1"
     assert launcher.os.environ["PYCT_CONSTRAINT_BUILD_TIMEOUT_SECONDS"] == "15"
+    assert launcher.os.environ["PYCT_SMT_FORMULA_SHARING"] == "raw"
     assert launcher.os.environ["PYCT_SYMBOLIC_PATH_THRESHOLD"] == "2000"
     assert launcher.os.environ["PYCT_TERNARY_SIMPLIFICATION"] == "0"
     assert launcher.os.environ["PYCT_TERNARY_THRESHOLD_SCALE"] == "0.75"
     assert _FakeProcess.created and _FakeProcess.created[0].started is True
     queued_payload = next(item for item in _FakeQueue.created[0].items if isinstance(item, dict))
     assert queued_payload["ternary_simplification"] is False
+    assert queued_payload["smt_formula_sharing"] == "raw"
     assert "ternary_threshold_scale" not in queued_payload
+
+
+def test_worker_signal_handler_interrupts_without_parent_process_access(monkeypatch) -> None:
+    installed = {}
+    event = _FakeEvent()
+    monkeypatch.setattr(
+        launcher.signal,
+        "signal",
+        lambda signum, handler: installed.setdefault(signum, handler),
+    )
+
+    handler = launcher._install_worker_signal_handlers(4321, event)
+
+    assert installed[launcher.signal.SIGINT] is handler
+    assert installed[launcher.signal.SIGTERM] is handler
+    with pytest.raises(KeyboardInterrupt):
+        handler(launcher.signal.SIGTERM, None)
+    assert event.is_set() is True
 
 
 def test_run_launcher_uses_case_indices_when_provided(monkeypatch) -> None:

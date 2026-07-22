@@ -173,6 +173,7 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
         solver_run_timeout=1,
         constraint_build_timeout=True,
         constraint_build_timeout_seconds=15,
+        smt_formula_sharing="let_cse",
     )
 
     first = executor.run(**payload)
@@ -201,6 +202,7 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
     assert captured["cfg"].execute == "search-predict"
     assert captured["cfg"].validation_execute == "validation-predict"
     assert captured["cfg"].reuse_search_result_for_validation is False
+    assert captured["cfg"].smt_formula_sharing == "let_cse"
     assert captured["extra_meta"] == {
         "model_name": "demo",
         "attack_mode": "queue_solver1s",
@@ -210,6 +212,7 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
         "ternary_simplification": True,
         "ternary_threshold_scale": 1.5,
         "attention_symbolic_mode": "frozen_qk",
+        "affine_expression_compaction": True,
         "smt_formula_sharing": "let_cse",
         "constraint_build_timeout": True,
         "constraint_build_timeout_seconds": 15,
@@ -297,7 +300,8 @@ def test_run_uses_defaults_when_save_exp_and_optional_args_are_missing(monkeypat
         "ternary_simplification": False,
         "ternary_threshold_scale": 0.75,
         "attention_symbolic_mode": "frozen_qk",
-        "smt_formula_sharing": "let_cse",
+        "affine_expression_compaction": True,
+        "smt_formula_sharing": "raw",
         "constraint_build_timeout": True,
         "constraint_build_timeout_seconds": 30,
     }

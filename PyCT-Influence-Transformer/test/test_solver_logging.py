@@ -10,24 +10,6 @@ from types import SimpleNamespace
 from unittest import mock
 import tempfile
 
-try:
-    import func_timeout as _func_timeout  # type: ignore
-except ModuleNotFoundError:
-    class _StubFuncTimeoutModule:
-        class exceptions:
-            class FunctionTimedOut(TimeoutError):
-                ...
-
-        @staticmethod
-        def func_timeout(_timeout, func, args=(), kwargs=None):
-            return func(*args, **(kwargs or {}))
-
-    import sys
-
-    sys.modules["func_timeout"] = _StubFuncTimeoutModule()
-else:
-    del _func_timeout
-
 import libct.solver as solver
 
 
@@ -73,7 +55,11 @@ class SolverLoggingTests(unittest.TestCase):
         )
         fake_subprocess = SimpleNamespace(stdout=b"sat\n((x_VAR 1))\n")
 
-        with mock.patch("libct.solver.func_timeout.func_timeout", return_value="(check-sat)\n"):
+        with mock.patch.object(
+            solver.Solver,
+            "_build_formulas_from_constraint",
+            return_value="(check-sat)\n",
+        ):
             with mock.patch("libct.solver.subprocess.run", return_value=fake_subprocess):
                 with mock.patch.object(solver.Solver, "_resolve_constraint_log_path", return_value=Path("inline.log")):
                     with mock.patch.object(solver.Solver, "_append_constraint_log"):

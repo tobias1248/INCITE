@@ -157,6 +157,7 @@ class _ChildEngine:
         self.path = _Path()
         self.can_use_concolic_wrapper = False
         self.single_timeout = 5
+        self.input_name = "case_4"
         self.root = "/repo"
         self.modpath = "target.py"
         self.funcname = "target"
@@ -212,3 +213,26 @@ def test_concolic_runner_child_success_builds_ok_envelope(monkeypatch) -> None:
             "constraint_payload": (concolic.Constraint.global_constraints, ["constraint"], engine.path, 3),
         }
     ]
+
+
+def test_concolic_runner_timeout_message_does_not_dump_input_values(monkeypatch) -> None:
+    monkeypatch.setattr(concolic, "prepare_child_environment", lambda: None)
+    monkeypatch.setattr(concolic.os, "getpid", lambda: 999)
+
+    def raise_timeout(*_args, **_kwargs):
+        raise concolic.func_timeout.FunctionTimedOut("timeout")
+
+    monkeypatch.setattr(concolic.func_timeout, "func_timeout", raise_timeout)
+
+    engine = _ChildEngine()
+    send_conn = _Conn()
+    all_args = {"value": 4, "secret_pixel": 0.123, "other_pixel": 0.456}
+    ConcolicExecutionRunner(engine)._child_process(send_conn, all_args, {})
+
+    envelope = send_conn.sent[0]
+    assert envelope["kind"] == "child_event"
+    assert envelope["event_type"] == "soft_timeout"
+    assert "input_name=case_4" in envelope["message"]
+    assert "argument_count=3" in envelope["message"]
+    assert "secret_pixel" not in envelope["message"]
+    assert "0.123" not in envelope["message"]

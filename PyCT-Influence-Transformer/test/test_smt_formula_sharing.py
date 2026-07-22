@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import shutil
+import signal
 import subprocess
+import threading
 from types import SimpleNamespace
 
 import pytest
 
+import libct.predicate as predicate_module
 from libct.predicate import Predicate
-from libct.solver import Solver
+from libct.solver import FormulaBuildTimedOut, Solver, _formula_build_deadline
 
 
 def _repeated_expression():
@@ -44,6 +47,48 @@ def test_predicate_keeps_original_formula_when_sharing_is_not_profitable() -> No
     assert "(let " not in compact
     assert stats["binding_count"] == 0
     assert stats["bytes_before"] == stats["bytes_after"] == len(compact)
+
+
+def test_predicate_counts_deep_shared_dag_without_expanding_occurrences() -> None:
+    shared = _repeated_expression()
+    for _ in range(80):
+        shared = ["+", shared, shared]
+
+    compact, stats = Predicate([">", shared, "0"], True).get_formula_with_sharing()
+
+    assert stats["binding_count"] > 0
+    assert "fallback_reason" not in stats
+    assert len(compact) < 50_000
+
+
+def test_predicate_falls_back_to_raw_when_cse_budget_is_exceeded(monkeypatch) -> None:
+    monkeypatch.setattr(
+        predicate_module._CommonSubexpressionSerializer,
+        "_MAX_UNIQUE_NODES",
+        2,
+    )
+    predicate = Predicate(
+        [">", ["+", ["*", "x_VAR", "2"], ["*", "y_VAR", "3"]], "0"],
+        True,
+    )
+
+    compact, stats = predicate.get_formula_with_sharing()
+
+    assert compact == predicate.get_formula()
+    assert stats["binding_count"] == 0
+    assert "unique-node budget exceeded" in stats["fallback_reason"]
+
+
+def test_formula_build_deadline_does_not_leave_a_worker_thread() -> None:
+    thread_count = threading.active_count()
+
+    with pytest.raises(FormulaBuildTimedOut):
+        with _formula_build_deadline(0.02):
+            while True:
+                pass
+
+    assert threading.active_count() == thread_count
+    assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
 
 
 @pytest.mark.skipif(shutil.which("cvc5") is None, reason="cvc5 is not installed")
@@ -108,16 +153,21 @@ def test_solver_builder_reports_query_compression_stats() -> None:
     )
     previous_norm = Solver.norm
     previous_limit = Solver.limit_change_range
+    previous_sharing = Solver.formula_sharing_mode
     Solver.norm = False
     Solver.limit_change_range = None
+    Solver.formula_sharing_mode = "let_cse"
     try:
         formulas = Solver._build_formulas_from_constraint(engine, constraint, {})
     finally:
         Solver.norm = previous_norm
         Solver.limit_change_range = previous_limit
+        Solver.formula_sharing_mode = previous_sharing
 
     stats = Solver._last_formula_sharing_stats
     assert "(let ((_pyct_cse_0 " in formulas
     assert stats["cse_binding_count"] == 1
     assert stats["cse_assertion_count"] == 1
+    assert stats["cse_fallback_count"] == 0
+    assert stats["formula_sharing_mode"] == "let_cse"
     assert stats["query_bytes_after_cse"] < stats["query_bytes_before_cse"]

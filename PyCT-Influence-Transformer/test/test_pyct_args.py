@@ -165,6 +165,15 @@ def test_parse_args_defaults_ternary_flags() -> None:
     assert args.ternary_threshold_scale == pytest.approx(0.75)
     assert args.error_retry_limit == 2
     assert args.norm_01 is True
+    assert args.smt_formula_sharing == "raw"
+
+
+def test_parse_args_accepts_bounded_cse_formula_sharing() -> None:
+    args = parse_args(
+        ["--attack-mode", "queue", "--smt-formula-sharing", "let_cse"]
+    )
+
+    assert args.smt_formula_sharing == "let_cse"
 
 
 def test_parse_args_rejects_disabling_norm_01_for_image_datasets() -> None:

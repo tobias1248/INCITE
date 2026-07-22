@@ -141,7 +141,11 @@ def test_find_model_discards_invalid_sat_binding_and_records_diagnostic(
     _configure_solver()
     fake_subprocess = SimpleNamespace(stdout=f"sat\n((x_VAR {raw_value}))\n".encode())
 
-    with mock.patch("libct.solver.func_timeout.func_timeout", return_value="(check-sat)\n"):
+    with mock.patch.object(
+        solver.Solver,
+        "_build_formulas_from_constraint",
+        return_value="(check-sat)\n",
+    ):
         with mock.patch("libct.solver.subprocess.run", return_value=fake_subprocess):
             with mock.patch.object(solver.Solver, "_resolve_constraint_log_path", return_value=Path("inline.log")):
                 with mock.patch.object(solver.Solver, "_append_constraint_log"):
