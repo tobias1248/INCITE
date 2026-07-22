@@ -3,6 +3,10 @@
 from libct.concolic import Concolic
 
 
+class _CseBudgetExceeded(RuntimeError):
+    """Raised when CSE analysis would exceed its bounded work budget."""
+
+
 class _ExpressionNode:
     """Internable expression node whose structural hash is computed once."""
 
@@ -30,16 +34,22 @@ class _CommonSubexpressionSerializer:
 
     _MIN_EXPRESSION_LENGTH = 48
     _MAX_BINDINGS = 512
+    _MAX_UNIQUE_NODES = 50_000
+    _MAX_TRAVERSAL_EDGES = 250_000
+    _MAX_OCCURRENCE_COUNT = 1_000_000_000
 
     def __init__(self, expr):
         self._concolic_cache = {}
+        self._list_cache = {}
         self._interned_nodes = {}
+        self._unique_node_count = 0
+        self._traversal_edge_count = 0
         self.root = self._normalize(expr)
         self._counts = {}
         self._first_seen = {}
         self._sizes = {}
         self._visit_index = 0
-        self._count_subexpressions(self.root)
+        self._index_subexpressions()
 
     def _normalize(self, expr):
         if isinstance(expr, Concolic):
@@ -48,25 +58,58 @@ class _CommonSubexpressionSerializer:
                 self._concolic_cache[cache_key] = self._normalize(expr.expr)
             return self._concolic_cache[cache_key]
         if isinstance(expr, list):
+            cache_key = id(expr)
+            cached = self._list_cache.get(cache_key)
+            if cached is not None:
+                return cached
+            self._unique_node_count += 1
+            self._traversal_edge_count += len(expr)
+            if self._unique_node_count > self._MAX_UNIQUE_NODES:
+                raise _CseBudgetExceeded(
+                    f"unique-node budget exceeded ({self._MAX_UNIQUE_NODES})"
+                )
+            if self._traversal_edge_count > self._MAX_TRAVERSAL_EDGES:
+                raise _CseBudgetExceeded(
+                    f"edge budget exceeded ({self._MAX_TRAVERSAL_EDGES})"
+                )
             node = _ExpressionNode(self._normalize(item) for item in expr)
             interned = self._interned_nodes.get(node)
             if interned is None:
                 self._interned_nodes[node] = node
                 interned = node
+            self._list_cache[cache_key] = interned
             return interned
         if isinstance(expr, str):
             return expr
         raise NotImplementedError
 
-    def _count_subexpressions(self, expr):
-        if isinstance(expr, str):
-            return
-        self._counts[expr] = self._counts.get(expr, 0) + 1
-        if expr not in self._first_seen:
+    def _index_subexpressions(self):
+        """Count expanded occurrences while visiting each DAG node once."""
+        visited = set()
+        postorder = []
+
+        def visit(expr):
+            if isinstance(expr, str) or expr in visited:
+                return
+            visited.add(expr)
             self._first_seen[expr] = self._visit_index
             self._visit_index += 1
-        for item in expr:
-            self._count_subexpressions(item)
+            for item in expr:
+                visit(item)
+            postorder.append(expr)
+
+        visit(self.root)
+        self._counts[self.root] = 1
+        for expr in reversed(postorder):
+            parent_count = self._counts.get(expr, 0)
+            for item in expr:
+                if isinstance(item, str):
+                    continue
+                child_count = self._counts.get(item, 0) + parent_count
+                self._counts[item] = min(
+                    child_count,
+                    self._MAX_OCCURRENCE_COUNT,
+                )
 
     def _serialized_size(self, expr):
         if isinstance(expr, str):
@@ -127,8 +170,12 @@ class _CommonSubexpressionSerializer:
             bindings.append((name, binding_expression))
 
         result = self._serialize(self.root, aliases)
-        for name, binding_expression in reversed(bindings):
-            result = f"(let (({name} {binding_expression})) {result})"
+        if bindings:
+            prefix = "".join(
+                f"(let (({name} {binding_expression})) "
+                for name, binding_expression in bindings
+            )
+            result = prefix + result + ")" * len(bindings)
         return result, len(bindings)
 
     def original_size(self):
@@ -193,7 +240,16 @@ class Predicate:
     def get_formula_with_sharing(self):
         """Return an equivalent assertion using SMT ``let`` common subexpressions."""
         expr = self.expr if self.value else ["not", self.expr]
-        serializer = _CommonSubexpressionSerializer(expr)
+        try:
+            serializer = _CommonSubexpressionSerializer(expr)
+        except _CseBudgetExceeded as exc:
+            formula = self.get_formula()
+            return formula, {
+                "binding_count": 0,
+                "bytes_before": len(formula),
+                "bytes_after": len(formula),
+                "fallback_reason": str(exc),
+            }
         shared_body, binding_count = serializer.serialize()
         shared_formula = "(assert " + shared_body + ")"
         original_size = len("(assert ") + serializer.original_size() + len(")")

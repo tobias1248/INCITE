@@ -96,6 +96,15 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Timeout in seconds for SMT formula construction when build timeout is enabled (default: 30).",
     )
     parser.add_argument(
+        "--smt-formula-sharing",
+        choices=("raw", "let_cse"),
+        default="raw",
+        help=(
+            "SMT assertion serialization mode: raw is the safe default; "
+            "let_cse enables bounded common-subexpression sharing with raw fallback."
+        ),
+    )
+    parser.add_argument(
         "--solver-run-timeout",
         type=int,
         default=60,

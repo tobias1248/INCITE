@@ -69,6 +69,7 @@ class ExplorationEngine:
                 timeout=20,
                 constraint_build_timeout=True,
                 constraint_build_timeout_seconds: int = 30,
+                smt_formula_sharing: str = "raw",
                 solver_run_timeout: Optional[int] = None,
                 safety=0,
                 store=None,
@@ -121,6 +122,7 @@ class ExplorationEngine:
             constraint_build_timeout,
             constraint_build_timeout_seconds,
             solver_run_timeout,
+            smt_formula_sharing,
         )
         _ensure_smtlib2_logger()
 

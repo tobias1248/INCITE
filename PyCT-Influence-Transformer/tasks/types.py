@@ -54,6 +54,7 @@ class TaskPayload(TypedDict, total=False):
     ternary_simplification: bool
     ternary_threshold_scale: float
     ternary_fallback: bool
+    smt_formula_sharing: Literal["raw", "let_cse"]
 
 
 @dataclass(frozen=True)

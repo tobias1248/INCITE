@@ -189,6 +189,26 @@ def _resolve_experiment_layout(attack_mode: str, ton_values) -> str:
     return attack_mode
 
 
+def _install_worker_signal_handlers(worker_pid: int, shutdown_event: Event):
+    """Install worker-local handlers without closing over parent Process objects."""
+    def _handle_worker_signal(signum, _frame):
+        try:
+            signame = signal.Signals(signum).name
+        except ValueError:
+            signame = str(signum)
+        logger.warning(
+            "[WORKER-SIGNAL] pid=%s received %s; interrupting current task",
+            worker_pid,
+            signame,
+        )
+        shutdown_event.set()
+        raise KeyboardInterrupt
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, _handle_worker_signal)
+    return _handle_worker_signal
+
+
 def _worker(
     task_queue: JoinableQueue,
     timeout: int,
@@ -204,8 +224,8 @@ def _worker(
     base_seed: int,
     shutdown_event: Event,
 ) -> None:
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
     worker_pid = os.getpid()
+    _install_worker_signal_handlers(worker_pid, shutdown_event)
     runner = None
     try:
         if shutdown_event.is_set():
@@ -343,6 +363,7 @@ def run_launcher(args: Any) -> None:
     os.environ["PYCT_CONSTRAINT_BUILD_TIMEOUT_SECONDS"] = str(
         args.constraint_build_timeout_seconds
     )
+    os.environ["PYCT_SMT_FORMULA_SHARING"] = args.smt_formula_sharing
     if args.score_alpha is not None:
         os.environ["PYCT_SCORE_ALPHA"] = str(args.score_alpha)
     else:
@@ -438,6 +459,7 @@ def run_launcher(args: Any) -> None:
     for payload in inputs:
         payload["score_alpha"] = args.score_alpha
         payload["symbolic_path_threshold"] = args.symbolic_path_threshold
+        payload["smt_formula_sharing"] = args.smt_formula_sharing
         if args.attack_mode in {"random", "random-assign"}:
             payload["random_seed"] = args.random_seed
         payload["ternary_simplification"] = args.ternary_simplification

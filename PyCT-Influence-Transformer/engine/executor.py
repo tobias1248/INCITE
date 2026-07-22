@@ -41,6 +41,7 @@ class ExplorerConfig:
     timeout: int = 900
     constraint_build_timeout: bool = True
     constraint_build_timeout_seconds: int = 30
+    smt_formula_sharing: Literal["raw", "let_cse"] = "raw"
     solver_run_timeout: Optional[int] = 60
     safety: int = 0
     verbose: int = 1
@@ -144,6 +145,7 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
         timeout=explorer_cfg.timeout,
         constraint_build_timeout=explorer_cfg.constraint_build_timeout,
         constraint_build_timeout_seconds=explorer_cfg.constraint_build_timeout_seconds,
+        smt_formula_sharing=explorer_cfg.smt_formula_sharing,
         solver_run_timeout=explorer_cfg.solver_run_timeout,
         safety=explorer_cfg.safety,
         store=None,
@@ -168,6 +170,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         max_iter=0, single_timeout=900, timeout=900, total_timeout=900, verbose=1,
         constraint_build_timeout: bool = True,
         constraint_build_timeout_seconds: int = 30,
+        smt_formula_sharing: Literal["raw", "let_cse"] = "raw",
         solver_run_timeout: Optional[int] = 60,
         random_seed: Optional[int] = None,
         limit_change_range=None,
@@ -241,6 +244,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         timeout=timeout,
         constraint_build_timeout=constraint_build_timeout,
         constraint_build_timeout_seconds=constraint_build_timeout_seconds,
+        smt_formula_sharing=smt_formula_sharing,
         solver_run_timeout=solver_run_timeout,
         verbose=verbose,
         smtdir=smtdir,
@@ -264,7 +268,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         "ternary_simplification": bool(ternary_simplification),
         "ternary_threshold_scale": float(ternary_threshold_scale),
         "attention_symbolic_mode": "frozen_qk",
-        "smt_formula_sharing": "let_cse",
+        "affine_expression_compaction": True,
+        "smt_formula_sharing": smt_formula_sharing,
         "constraint_build_timeout": bool(constraint_build_timeout),
         "constraint_build_timeout_seconds": (
             int(constraint_build_timeout_seconds)

@@ -8,6 +8,7 @@ from functools import reduce
 import logging
 from typing import Tuple, Optional, List, Any
 from libct.position import register_current_indices, register_current_layer_number, to_Keras_layer_number
+from libct.concolic import compact_affine_sum
 from libct.utils import unwrap
 
 from keras.layers import (
@@ -542,13 +543,14 @@ class DenseLayer:
             assert in_shape[0]==self.shape[1], "DenseLayer.forward(), dim. mismatching between input and weights!"
             for out_id in range(0, self.shape[0]):
                 register_current_indices((out_id,))
-                ## Dot operation
+                terms = []
                 for in_id in range(0, self.shape[1]):
                     weight = float(self.weights[out_id][in_id])
                     if self.ternary_config.enabled and self._delta is not None:
-                        tensor_out[out_id] += weighted_input(tensor_in[in_id], weight, self._delta)
+                        terms.append(weighted_input(tensor_in[in_id], weight, self._delta))
                     else:
-                        tensor_out[out_id] = weighted_input(tensor_in[in_id], weight) + tensor_out[out_id]
+                        terms.append(weighted_input(tensor_in[in_id], weight))
+                tensor_out[out_id] = compact_affine_sum([tensor_out[out_id], *terms])
                 if self.activation!="None":
                     tensor_out[out_id] = actFunc(tensor_out[out_id], self.activation)
         elif len(in_shape) == 2:
@@ -557,13 +559,16 @@ class DenseLayer:
             for i in range(len(tensor_in)):
                 for out_id in range(0, self.shape[0]):
                     register_current_indices((i,out_id))
-                ## Dot operation
+                    terms = []
                     for in_id in range(0, self.shape[1]):
                         weight = float(self.weights[out_id][in_id])
                         if self.ternary_config.enabled and self._delta is not None:
-                            tensor_out[i][out_id] += weighted_input(tensor_in[i][in_id], weight, self._delta)
+                            terms.append(weighted_input(tensor_in[i][in_id], weight, self._delta))
                         else:
-                            tensor_out[i][out_id] += weighted_input(tensor_in[i][in_id], weight)
+                            terms.append(weighted_input(tensor_in[i][in_id], weight))
+                    tensor_out[i][out_id] = compact_affine_sum(
+                        [tensor_out[i][out_id], *terms]
+                    )
                     if self.activation!="None":
                         tensor_out[i][out_id] = actFunc(tensor_out[i][out_id], self.activation)
 
@@ -1409,12 +1414,7 @@ class MultiHeadAttentionLayer:
         ]
         return outputs
     def mySum(self,x):
-            s = 0.0
-            # print('x:',type(x))
-            # print('x[0]:',type(list(x)[0]))
-            for i in x:
-                s = s + i
-            return s
+            return compact_affine_sum(x)
     def dot_product_attention(self, Q, K, V, mask=None):
         # print('$$$$$ dot product attention')
         K_T = [*zip(*K)]#32,500
@@ -1464,14 +1464,13 @@ class MultiHeadAttentionLayer:
             print("error")
             raise ValueError("矩陣的維度不符合乘法要求。")
 
-        result = [[0] * len(matrix2[0]) for _ in range(len(matrix1))]
-        # print("result before ", len(matrix1), len(matrix2[0]), len(matrix2))
-        for i in range(len(matrix1)):
-            for j in range(len(matrix2[0])):
-                for k in range(len(matrix2)):
-                    # print("i,j,k:",i,'/',len(matrix1),j,'/',len(matrix2[0]),k,'/',len(matrix2))
-                    result[i][j] += matrix1[i][k] * matrix2[k][j]
-                    # print("805")
+        result = [
+            [
+                self.mySum(matrix1[i][k] * matrix2[k][j] for k in range(len(matrix2)))
+                for j in range(len(matrix2[0]))
+            ]
+            for i in range(len(matrix1))
+        ]
         # print("result after:",result[i][j])
 
         return result

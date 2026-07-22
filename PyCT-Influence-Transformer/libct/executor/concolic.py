@@ -116,7 +116,8 @@ class ConcolicExecutionRunner:
             except func_timeout.FunctionTimedOut:
                 result = self._engine.Timeout
                 message = (
-                    f"Timeout (soft) for: {all_args} >> ./pyct.py -r '{self._engine.root}' "
+                    f"Timeout (soft) for input_name={self._engine.input_name} "
+                    f"argument_count={len(all_args)} >> ./pyct.py -r '{self._engine.root}' "
                     f"'{self._engine.modpath}' -s {self._engine.funcname} {{}} --lib '{self._engine.lib}' "
                     "--include_exception"
                 )

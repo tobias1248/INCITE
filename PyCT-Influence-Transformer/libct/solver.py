@@ -1,4 +1,5 @@
-import logging, math, os, re, subprocess, sys, time, traceback, func_timeout, unittest
+import logging, math, os, re, signal, subprocess, sys, time, traceback, unittest
+from contextlib import contextmanager
 from fractions import Fraction
 from typing import Optional
 from pathlib import Path
@@ -17,6 +18,36 @@ _SMTLIB2_REGISTERED = False
 
 class InvalidSolverModelError(ValueError):
     """Raised when a SAT model value cannot be decoded into a finite primitive."""
+
+
+class FormulaBuildTimedOut(TimeoutError):
+    """Raised synchronously when SMT formula construction exceeds its deadline."""
+
+
+@contextmanager
+def _formula_build_deadline(timeout_seconds: Optional[float]):
+    """Bound formula construction without leaving a background worker thread."""
+    if timeout_seconds is None:
+        yield
+        return
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+
+    def _raise_timeout(_signum, _frame):
+        raise FormulaBuildTimedOut(
+            f"SMT formula construction exceeded {timeout_seconds}s"
+        )
+
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, float(timeout_seconds))
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer != (0.0, 0.0):
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
 
 
 def _parse_smt_expression(value: str):
@@ -278,6 +309,7 @@ def _ensure_smtlib2_logger() -> None:
 _ensure_smtlib2_logger()
 
 class Solver:
+    VALID_FORMULA_SHARING_MODES = {"raw", "let_cse"}
     # options = {"lan": "smt.string_solver=z3str3", "stdin": "-in"}
     cnt = 1 # for store
     # limit the percentage of variable, if x=100, percentage is 0.1, means that the range of new x is [100*0.9, 100*1.1]
@@ -287,6 +319,7 @@ class Solver:
     iter_count = 1 # for the filename of saved smt constraint
     build_timeout_enabled = True
     build_timeout_seconds: Optional[int] = 30
+    formula_sharing_mode = "raw"
     run_timeout: Optional[int] = None
     
 
@@ -301,6 +334,7 @@ class Solver:
         constraint_build_timeout=True,
         constraint_build_timeout_seconds: Optional[int] = 30,
         solver_run_timeout: Optional[int] = None,
+        smt_formula_sharing: str = "raw",
     ):
         cls.safety = safety; cls.smtdir = smtdir
         cls.stats = {
@@ -322,6 +356,13 @@ class Solver:
             cls.build_timeout_seconds = timeout_seconds
         else:
             cls.build_timeout_seconds = None
+        if smt_formula_sharing not in cls.VALID_FORMULA_SHARING_MODES:
+            valid_modes = ", ".join(sorted(cls.VALID_FORMULA_SHARING_MODES))
+            raise ValueError(
+                f"Unsupported smt_formula_sharing={smt_formula_sharing!r}; "
+                f"expected one of: {valid_modes}"
+            )
+        cls.formula_sharing_mode = smt_formula_sharing
         cls.run_timeout = solver_run_timeout
         
         # assert_len 是一個二維的list，第一個維度是每個iteration，第二個維度是該iteration的每個assert的長度
@@ -523,15 +564,17 @@ class Solver:
         build_elapsed = None
         try:
             build_formula_start = time.time()
-            if cls.build_timeout_enabled:
-                timeout_seconds = cls.build_timeout_seconds or 30
-                formulas = func_timeout.func_timeout(
-                    timeout_seconds,
-                    Solver._build_formulas_from_constraint,
-                    args=(engine, constraint, ori_args),
+            timeout_seconds = (
+                cls.build_timeout_seconds
+                if cls.build_timeout_enabled
+                else None
+            )
+            with _formula_build_deadline(timeout_seconds):
+                formulas = Solver._build_formulas_from_constraint(
+                    engine,
+                    constraint,
+                    ori_args,
                 )
-            else:
-                formulas = Solver._build_formulas_from_constraint(engine, constraint, ori_args)
             build_formula_end = time.time()
             build_elapsed = build_formula_end - build_formula_start
             cls._append_constraint_log(
@@ -540,7 +583,7 @@ class Solver:
                 shap_value,
                 f"formulas built time:{build_elapsed}",
             )
-        except func_timeout.exceptions.FunctionTimedOut:
+        except FormulaBuildTimedOut:
             if build_elapsed is None:
                 build_elapsed = time.time() - build_formula_start
             cls._append_constraint_log(
@@ -764,17 +807,32 @@ class Solver:
         query_bytes_before = 0
         cse_binding_count = 0
         cse_assertion_count = 0
+        cse_fallback_reasons = []
         for assertion in constraint.get_all_asserts():
-            formula, sharing_stats = assertion.get_formula_with_sharing()
+            if Solver.formula_sharing_mode == "let_cse":
+                formula, sharing_stats = assertion.get_formula_with_sharing()
+            else:
+                formula = assertion.get_formula()
+                sharing_stats = {
+                    "binding_count": 0,
+                    "bytes_before": len(formula),
+                    "bytes_after": len(formula),
+                }
             query_formulas.append(formula)
             query_bytes_before += sharing_stats["bytes_before"]
             cse_binding_count += sharing_stats["binding_count"]
             if sharing_stats["binding_count"]:
                 cse_assertion_count += 1
+            fallback_reason = sharing_stats.get("fallback_reason")
+            if fallback_reason is not None:
+                cse_fallback_reasons.append(fallback_reason)
         queries = "\n".join(query_formulas)
         Solver._last_formula_sharing_stats = {
+            "formula_sharing_mode": Solver.formula_sharing_mode,
             "cse_binding_count": cse_binding_count,
             "cse_assertion_count": cse_assertion_count,
+            "cse_fallback_count": len(cse_fallback_reasons),
+            "cse_fallback_reasons": sorted(set(cse_fallback_reasons)),
             "query_bytes_before_cse": query_bytes_before,
             "query_bytes_after_cse": (
                 sum(len(formula) for formula in query_formulas)
