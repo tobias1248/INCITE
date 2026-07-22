@@ -34,6 +34,7 @@ dependencies = [
     "keras-resnet",
     "numpy==1.24.3",
     "opencv-python==4.8.1.78",
+    "scipy==1.13.1",
     "shap==0.42.1",
     "tensorflow==2.13.1",
 ]
@@ -41,6 +42,7 @@ dependencies = [
 [project.scripts]
 pyct = "pyct.main:main"
 pyct-doctor = "pyct.doctor:main"
+pyct-de = "pyct.de.cli:main"
 pyct-shap = "pyct.shap:main"
 pyct-stats = "pyct.stats:main"
 pyct-adv-verify = "pyct.verify:main"

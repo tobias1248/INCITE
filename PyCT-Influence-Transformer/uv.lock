@@ -543,6 +543,7 @@ dependencies = [
     { name = "keras-resnet" },
     { name = "numpy" },
     { name = "opencv-python" },
+    { name = "scipy" },
     { name = "shap" },
     { name = "tensorflow" },
 ]
@@ -560,6 +561,7 @@ requires-dist = [
     { name = "keras-resnet" },
     { name = "numpy", specifier = "==1.24.3" },
     { name = "opencv-python", specifier = "==4.8.1.78" },
+    { name = "scipy", specifier = "==1.13.1" },
     { name = "shap", specifier = "==0.42.1" },
     { name = "tensorflow", specifier = "==2.13.1" },
 ]
