@@ -209,6 +209,8 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
         "symbolic_path_threshold": 2000,
         "ternary_simplification": True,
         "ternary_threshold_scale": 1.5,
+        "attention_symbolic_mode": "frozen_qk",
+        "smt_formula_sharing": "let_cse",
         "constraint_build_timeout": True,
         "constraint_build_timeout_seconds": 15,
         "ton": 1,
@@ -294,6 +296,8 @@ def test_run_uses_defaults_when_save_exp_and_optional_args_are_missing(monkeypat
         "symbolic_path_threshold": None,
         "ternary_simplification": False,
         "ternary_threshold_scale": 0.75,
+        "attention_symbolic_mode": "frozen_qk",
+        "smt_formula_sharing": "let_cse",
         "constraint_build_timeout": True,
         "constraint_build_timeout_seconds": 30,
     }

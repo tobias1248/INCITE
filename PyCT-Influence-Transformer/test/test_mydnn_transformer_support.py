@@ -6,8 +6,8 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+from libct.predicate import Predicate
 from libct.utils import ConcolicObject
-from unittest import mock
 
 import dnnct.myDNN as mydnn
 
@@ -172,69 +172,100 @@ class MyDNNTransformerSupportTests(unittest.TestCase):
             output_weights=_TensorLike(np.zeros((1, 2, 2))),
             output_bias=_TensorLike(np.zeros((2,))),
         )
-        meta = {
-            "feature_dim": 2,
-            "token_shape": (2,),
-            "mode": "sequence",
-        }
         scores = [
             [ConcolicObject(0.3, ["a"]), ConcolicObject(0.1, ["b"])],
             [ConcolicObject(-0.2, ["c"]), ConcolicObject(0.2, ["d"])],
         ]
-        output = layer.softmax(scores, meta)
+        output = layer.softmax(scores)
 
         self.assertEqual(len(output), 2)
         self.assertTrue(all(type(value) is float for row in output for value in row))
         self.assertAlmostEqual(sum(output[0]), 1.0, places=6)
         self.assertAlmostEqual(sum(output[1]), 1.0, places=6)
 
-    def test_attention_position_registration_is_query_only(self) -> None:
-        layer = mydnn.MultiHeadAttentionLayer(
-            num_heads=1,
-            key_dim_per_heads=2,
-            wq=_TensorLike(np.zeros((2, 1, 2))),
-            bq=_TensorLike(np.zeros((1, 2))),
-            wk=_TensorLike(np.zeros((2, 1, 2))),
-            bk=_TensorLike(np.zeros((1, 2))),
-            wv=_TensorLike(np.zeros((2, 1, 2))),
-            bv=_TensorLike(np.zeros((1, 2))),
-            output_weights=_TensorLike(np.zeros((1, 2, 2))),
-            output_bias=_TensorLike(np.zeros((2,))),
-        )
-        meta = {
-            "feature_dim": 4,
-            "token_shape": (8,),
-            "mode": "sequence",
-        }
-        with mock.patch("dnnct.myDNN.register_current_indices") as mocked_register:
-            layer._register_attention_position(3, 99, meta)
-        mocked_register.assert_called_once()
-        indices = mocked_register.call_args.args[0]
-        self.assertEqual(indices, [(3, 0), (3, 1), (3, 2), (3, 3)])
+    def test_mha_freezes_qk_but_keeps_value_projection_symbolic(self) -> None:
+        class _NoBranchPath:
+            def add_branch(self, _branch) -> None:
+                raise AssertionError("frozen Q/K attention must not create branches")
 
-    def test_attention_position_registration_is_spatial_query_only(self) -> None:
-        layer = mydnn.MultiHeadAttentionLayer(
-            num_heads=1,
-            key_dim_per_heads=1,
-            wq=_TensorLike(np.zeros((1, 1, 1))),
-            bq=_TensorLike(np.zeros((1, 1))),
-            wk=_TensorLike(np.zeros((1, 1, 1))),
-            bk=_TensorLike(np.zeros((1, 1))),
-            wv=_TensorLike(np.zeros((1, 1, 1))),
-            bv=_TensorLike(np.zeros((1, 1))),
-            output_weights=_TensorLike(np.zeros((1, 1, 1))),
-            output_bias=_TensorLike(np.zeros((1,))),
-            attention_axes=(1, 2),
-            sample_rank=3,
+        class _Engine:
+            symbolic_enabled = True
+            path = _NoBranchPath()
+
+        engine = _Engine()
+        layer = _unit_mha_layer(sample_rank=2)
+        query = [
+            [ConcolicObject(1.0, "query_0_VAR", engine)],
+            [ConcolicObject(2.0, "query_1_VAR", engine)],
+        ]
+        key = [
+            [ConcolicObject(1.5, "key_0_VAR", engine)],
+            [ConcolicObject(0.5, "key_1_VAR", engine)],
+        ]
+        value = [
+            [ConcolicObject(3.0, "value_0_VAR", engine)],
+            [ConcolicObject(4.0, "value_1_VAR", engine)],
+        ]
+
+        output = layer._forward_attention(query, key, value)
+        expression = Predicate.get_formula_deep(output[0][0].expr)
+
+        self.assertEqual(layer.symbolic_attention_mode, "frozen_qk")
+        self.assertNotIn("query_", expression)
+        self.assertNotIn("key_", expression)
+        self.assertIn("value_", expression)
+
+    def test_mha_recomputes_frozen_attention_weights_for_each_input(self) -> None:
+        layer = _unit_mha_layer(sample_rank=2)
+
+        first = layer.forward([[1.0], [2.0]])
+        second = layer.forward([[2.0], [1.0]])
+
+        self.assertFalse(np.allclose(first, second, atol=1e-6))
+
+    def test_mha_applies_attention_mask(self) -> None:
+        layer = _unit_mha_layer(sample_rank=2)
+
+        output = layer.forward(
+            [[1.0], [2.0]],
+            mask=[[True, False], [False, True]],
         )
-        meta = {
-            "feature_dim": 1,
-            "token_shape": (2, 2),
-            "mode": "spatial_2d",
-        }
-        with mock.patch("dnnct.myDNN.register_current_indices") as mocked_register:
-            layer._register_attention_position(3, 0, meta)
-        mocked_register.assert_called_once_with([(1, 1, 0)])
+
+        self.assertTrue(np.allclose(output, [[1.0], [2.0]], atol=1e-6))
+
+    def test_mha_rejects_fully_masked_attention_row(self) -> None:
+        layer = _unit_mha_layer(sample_rank=2)
+
+        with self.assertRaisesRegex(ValueError, "cannot hide every key"):
+            layer.forward(
+                [[1.0], [2.0]],
+                mask=[[False, False], [True, True]],
+            )
+
+    def test_mha_applies_per_sample_batch_masks(self) -> None:
+        layer = _unit_mha_layer(sample_rank=2)
+
+        output = layer.forward(
+            [
+                [[1.0], [2.0]],
+                [[3.0], [4.0]],
+            ],
+            mask=[
+                [[True, False], [False, True]],
+                [[False, True], [True, False]],
+            ],
+        )
+
+        self.assertTrue(
+            np.allclose(
+                output,
+                [
+                    [[1.0], [2.0]],
+                    [[4.0], [3.0]],
+                ],
+                atol=1e-6,
+            )
+        )
 
     def test_mha_forward_supports_spatial_attention_shape(self) -> None:
         layer = mydnn.MultiHeadAttentionLayer(

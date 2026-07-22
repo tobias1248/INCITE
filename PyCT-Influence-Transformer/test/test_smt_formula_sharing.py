@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+import shutil
+import subprocess
+from types import SimpleNamespace
+
+import pytest
+
+from libct.predicate import Predicate
+from libct.solver import Solver
+
+
+def _repeated_expression():
+    return [
+        "+",
+        ["*", "x_VAR", "12345678901234567890"],
+        ["*", "y_VAR", "98765432109876543210"],
+    ]
+
+
+def test_predicate_uses_let_for_profitable_common_subexpression() -> None:
+    shared = _repeated_expression()
+    predicate = Predicate([">", ["+", shared, shared], "0"], True)
+
+    raw = predicate.get_formula()
+    compact, stats = predicate.get_formula_with_sharing()
+
+    assert "(let ((_pyct_cse_0 " in compact
+    assert compact.count("_pyct_cse_0") == 3
+    assert len(compact) < len(raw)
+    assert stats == {
+        "binding_count": 1,
+        "bytes_before": len(raw),
+        "bytes_after": len(compact),
+    }
+
+
+def test_predicate_keeps_original_formula_when_sharing_is_not_profitable() -> None:
+    predicate = Predicate([">", "x_VAR", "0"], False)
+
+    compact, stats = predicate.get_formula_with_sharing()
+
+    assert compact == predicate.get_formula()
+    assert "(let " not in compact
+    assert stats["binding_count"] == 0
+    assert stats["bytes_before"] == stats["bytes_after"] == len(compact)
+
+
+@pytest.mark.skipif(shutil.which("cvc5") is None, reason="cvc5 is not installed")
+def test_shared_formula_has_same_solver_result_as_original() -> None:
+    shared = _repeated_expression()
+    predicate = Predicate([">", ["+", shared, shared], "0"], True)
+    compact, _stats = predicate.get_formula_with_sharing()
+    prefix = "\n".join(
+        [
+            "(set-logic ALL)",
+            "(declare-const x_VAR Real)",
+            "(declare-const y_VAR Real)",
+        ]
+    )
+
+    def solve(assertion):
+        completed = subprocess.run(
+            ["cvc5", "--lang", "smt", "--quiet"],
+            input=f"{prefix}\n{assertion}\n(check-sat)\n".encode(),
+            capture_output=True,
+            check=True,
+        )
+        return completed.stdout.decode().splitlines()[0]
+
+    assert solve(compact) == solve(predicate.get_formula()) == "sat"
+
+
+@pytest.mark.skipif(shutil.which("cvc5") is None, reason="cvc5 is not installed")
+def test_nested_let_bindings_have_valid_dependency_scope() -> None:
+    inner = _repeated_expression()
+    outer = ["+", inner, inner]
+    predicate = Predicate([">", ["+", outer, outer], "0"], True)
+
+    compact, stats = predicate.get_formula_with_sharing()
+    formulas = "\n".join(
+        [
+            "(set-logic ALL)",
+            "(declare-const x_VAR Real)",
+            "(declare-const y_VAR Real)",
+            compact,
+            "(check-sat)",
+        ]
+    )
+    completed = subprocess.run(
+        ["cvc5", "--lang", "smt", "--quiet"],
+        input=formulas.encode(),
+        capture_output=True,
+        check=True,
+    )
+
+    assert stats["binding_count"] >= 2
+    assert completed.stdout.decode().splitlines()[0] == "sat"
+
+
+def test_solver_builder_reports_query_compression_stats() -> None:
+    shared = _repeated_expression()
+    predicate = Predicate([">", ["+", shared, shared], "0"], True)
+    constraint = SimpleNamespace(get_all_asserts=lambda: [predicate])
+    engine = SimpleNamespace(
+        concolic_name_list=["x_VAR", "y_VAR"],
+        var_to_types={"x_VAR": "Real", "y_VAR": "Real"},
+    )
+    previous_norm = Solver.norm
+    previous_limit = Solver.limit_change_range
+    Solver.norm = False
+    Solver.limit_change_range = None
+    try:
+        formulas = Solver._build_formulas_from_constraint(engine, constraint, {})
+    finally:
+        Solver.norm = previous_norm
+        Solver.limit_change_range = previous_limit
+
+    stats = Solver._last_formula_sharing_stats
+    assert "(let ((_pyct_cse_0 " in formulas
+    assert stats["cse_binding_count"] == 1
+    assert stats["cse_assertion_count"] == 1
+    assert stats["query_bytes_after_cse"] < stats["query_bytes_before_cse"]

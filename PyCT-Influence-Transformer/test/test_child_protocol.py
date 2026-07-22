@@ -50,6 +50,7 @@ class _EngineStub:
         self.constraints_to_solve = deque(["original"])
         self.path = "old_path"
         self.symbolic_disabled_at_path_len = None
+        self.trivial_branch_pruned_count = 3
         self._recorder = recorder
 
     def _get_recorder(self):
@@ -125,6 +126,7 @@ def test_child_envelope_builders_include_shared_state() -> None:
     assert envelope["var_to_types"] == engine.var_to_types
     assert envelope["concolic_name_list"] == engine.concolic_name_list
     assert envelope["concolic_flag_dict"] == engine.concolic_flag_dict
+    assert envelope["trivial_branch_pruned_count"] == 3
     assert envelope["traceback"] == "trace"
 
 
@@ -145,6 +147,7 @@ def test_handle_ok_envelope_applies_shared_state_and_constraint_payload() -> Non
         "var_to_types": {"x_VAR": "Real"},
         "concolic_name_list": ["x_VAR"],
         "concolic_flag_dict": {"x_VAR": 1},
+        "trivial_branch_pruned_count": 7,
     }
 
     result = protocol.handle_child_envelope(all_args, envelope)
@@ -156,6 +159,7 @@ def test_handle_ok_envelope_applies_shared_state_and_constraint_payload() -> Non
     assert engine.path is new_path
     assert engine.symbolic_disabled_at_path_len == 4
     assert engine.var_to_types == {"x_VAR": "Real"}
+    assert engine.trivial_branch_pruned_count == 7
 
 
 def test_deferred_ok_envelope_returns_payload_without_applying_constraints() -> None:
@@ -180,6 +184,7 @@ def test_deferred_ok_envelope_returns_payload_without_applying_constraints() -> 
         "var_to_types": {"x_VAR": "Real"},
         "concolic_name_list": ["x_VAR"],
         "concolic_flag_dict": {"x_VAR": 1},
+        "trivial_branch_pruned_count": 9,
     }
 
     result, constraint_payload = protocol.handle_child_envelope_deferred_constraints(all_args, envelope)
@@ -190,6 +195,7 @@ def test_deferred_ok_envelope_returns_payload_without_applying_constraints() -> 
     assert engine.var_to_types == {"x_VAR": "Real"}
     assert engine.concolic_name_list == ["x_VAR"]
     assert engine.concolic_flag_dict == {"x_VAR": 1}
+    assert engine.trivial_branch_pruned_count == 9
     assert Constraint.global_constraints is old_constraints
     assert engine.constraints_to_solve is old_queue
     assert engine.path is old_path
