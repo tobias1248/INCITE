@@ -293,6 +293,7 @@ class ActivationLayer:
                 tensor_out = []
                 for idx in range(0, out_shape[0]):
                     # print('start 1-', idx, tensor_in[idx])
+                    register_current_indices((idx,))
                     tensor_out.append(actFunc(tensor_in[idx], self.type))
                     # print('end 1-', tensor_out[idx])
             # print('end 1')
@@ -302,6 +303,7 @@ class ActivationLayer:
             for i in range(0, out_shape[0]):
                 row = []
                 for j in range(0, out_shape[1]):
+                    register_current_indices((i, j))
                     row.append(actFunc(tensor_in[i][j], self.type))
                 tensor_out.append(row)
             # print('end 2')
@@ -313,6 +315,7 @@ class ActivationLayer:
                 for j in range(0, out_shape[1]):
                     pixel = []
                     for k in range(0, out_shape[2]):
+                        register_current_indices((i, j, k))
                         pixel.append(actFunc(tensor_in[i][j][k], self.type))
                     row.append(pixel)
                 tensor_out.append(row)
