@@ -1,6 +1,9 @@
 # 各層 Neuron SHAP Value 計算技術說明
 
-本文件依據 [`libct/shapInfl.py`](../libct/shapInfl.py) 重構，說明專案如何為「每一層每一個 neuron 位置」產生可查詢的影響分數，並落地成 JSON cache。實作上有兩條主要路徑：
+本文件依據
+[`explainability/shap_calculator.py`](../explainability/shap_calculator.py)
+說明專案如何為「每一層每一個 neuron 位置」產生可查詢的影響分數，
+並落地成 JSON cache。實作上有兩條主要路徑：
 
 - `Sequential` 模型：逐層建立可解釋子模型，主要使用 `shap.GradientExplainer`。
 - `Functional/DAG/Residual` 模型：保留完整圖結構，輸入層仍算 SHAP，中間層改算 branch influence。
@@ -19,7 +22,7 @@
 輸出位置：
 
 ```text
-shap_value_all_layer/<model_name>/shap_value_<idx>.json
+shap_target_class/<model_name>/shap_value_<idx>.json
 ```
 
 輸出內容是 key-value map。key 由 `get_position_key(layer_number, indices)` 組成，例如：
@@ -27,13 +30,18 @@ shap_value_all_layer/<model_name>/shap_value_<idx>.json
 - `-1_12_7_0`：輸入空間某個位置。
 - `3_5_9`：第 3 個 tracked layer 某個 neuron 位置。
 
-若背景抽樣參數可得，JSON 外層還會加上 `__meta__`：
+JSON 外層的 `__meta__` 會記錄 attribution contract 與 provenance，例如：
 
 ```json
 {
   "__meta__": {
+    "schema_version": 2,
+    "attribution_target": "original_prediction",
+    "target_class": 7,
+    "class_count": 10,
     "background_per_class": 5,
-    "background_seed": 1234
+    "background_seed": 1234,
+    "case_index": 0
   },
   "values": {
     "-1_12_7_0": 0.031,
@@ -46,7 +54,8 @@ shap_value_all_layer/<model_name>/shap_value_<idx>.json
 
 ## 2. 計算入口
 
-核心類別是 `libct/shapInfl.py` 中的 `ShapValuesCalculator`。
+核心類別是 `explainability/shap_calculator.py` 中的
+`ShapValuesCalculator`。
 
 初始化時它會：
 
@@ -129,41 +138,42 @@ gradients = explainer.shap_values(input_data)
 - 原始輸入張量。
 - 經過前幾層後的 activation tensor。
 
-`GradientExplainer` 的輸出 shape 依任務而異，實作因此不直接假設固定格式，而是交給 `_reduce_gradient_shap_values()` 做統一整理。
+`GradientExplainer` 的輸出 shape 依 SHAP 版本與模型輸出格式而異，實作因此
+不直接假設固定 class axis，而是交給 `select_target_class_values()` 驗證並
+選出固定 target class。
 
-#### 3.2.3 `_reduce_gradient_shap_values()` 如何把結果壓成每個 neuron 一個值
+#### 3.2.3 如何選出固定 target class
 
-此函式的邏輯很重要，因為它決定最終 cache 裡記錄的數值到底是什麼。
+calculator 載入模型後，先對未修改的 case 執行一次 Keras prediction：
 
 ```python
-if isinstance(gradients, list):
-    grad_arr = np.asarray(gradients)
-    grad_arr = np.mean(grad_arr, axis=0)
-else:
-    grad_arr = np.asarray(gradients)
-
-if grad_arr.shape[0] == input_data.shape[0]:
-    grad_arr = np.mean(grad_arr, axis=0)
-
-grad_arr = np.squeeze(grad_arr)
+predictions = model.predict(original_input)
+target_class = np.argmax(predictions[0])
 ```
 
-這代表實作做了兩次可能的降維：
+這個 `target_class` 在同一個 case 的整次 attribution 計算中保持固定。後續
+`GradientExplainer` 回傳多個 class outputs 時，
+`select_target_class_values()` 只取出這個 class：
 
-1. 若 `GradientExplainer` 針對多個輸出維度分別回傳 attribution，先沿著輸出維度取平均。
-2. 若結果還保留 batch 維度，沿著 batch 維度取平均。
+```python
+target_values = select_target_class_values(
+    gradients,
+    target_class=target_class,
+    batched_input_shape=input_data.shape,
+)
+```
 
-最後得到的 `grad_arr` 與當前層表示的空間形狀一致，每個位置對應一個 scalar。換句話說，這份實作保存的不是「某一類別專屬」的 layer SHAP，而是：
+這裡沒有跨 classes 平均。batch size 必須對應目前的一筆 case，選出的
+`target_values` 與當前層表示的 feature shape 一致，每個位置保存一個
+對原始預測類別有方向的 scalar：
 
-- 對所有輸出頭或類別先做平均。
-- 對 batch 再做平均。
-- 最後留下每個 neuron 位置一個單一影響值。
-
-這是工程上的折衷：它犧牲 class-specific attribution 的精細度，換來統一、穩定、易於快取與後續排序的 neuron score。
+- 正值表示支持原始預測類別。
+- 負值表示抑制原始預測類別。
+- magnitude 表示影響強度。
 
 #### 3.2.4 如何把 attribution 寫進 cache
 
-整理完後，程式用 `np.ndenumerate(average_gradients)` 逐點寫入：
+選出 target class 後，程式用 `np.ndenumerate(target_values)` 逐點寫入：
 
 ```python
 shap_values[self.get_position_key(layer_number - 1, indices)] = float(value)
@@ -316,27 +326,18 @@ logits = input_out[-1]
 
 #### 4.3.4 target 是怎麼選的
 
-`GradientTape` 不是直接對整個輸出向量求梯度，而是先定義一個 scalar target：
-
-- 二元輸出且最後維度為 1 時：
-
-```python
-target = tf.reduce_mean(logits[:, 0])
-```
-
-- 多類別輸出時：
+`GradientTape` 不是直接對整個輸出向量求梯度，而是使用 calculator
+初始化時由原始 Keras prediction 決定的固定 target class：
 
 ```python
-top_class = tf.cast(tf.argmax(logits[0]), tf.int32)
-target = tf.reduce_mean(tf.gather(logits, top_class, axis=1))
+target = tf.reduce_mean(
+    tf.gather(logits, self._target_class, axis=1)
+)
 ```
 
-也就是說，目前實作關注的是：
-
-- binary case：唯一輸出 logit。
-- multi-class case：當前樣本預測到的 top class logit。
-
-branch influence 因此是「對目前預測類別」的支撐或抑制，而不是所有類別平均。
+即使某個中間計算或候選輸入的即時 argmax 不同，target 也不會跟著改變。
+branch influence 因此一致表示「對原始預測類別」的支撐或抑制，而不是
+所有類別平均，也不是每一層重新選一次 argmax。
 
 #### 4.3.5 為什麼要 `tape.watch(input_acts)`
 
@@ -523,10 +524,17 @@ influence = gradient × (activation - background_mean)
 
 ## 5. 後續查詢與使用方式
 
-`ShapValuesComparator` 會載入這些 JSON，後續供 constraint priority 使用。雖然這不是本文件主題，但有兩點要記住：
+`ShapValuesComparator` 會載入這些 JSON，後續供 constraint priority 使用。
+雖然這不是本文件主題，但有五點要記住：
 
 1. cache 可能同時含有 `-1_*` 與非負 layer index。
 2. Sequential 路徑有 layer index offset，因此 comparator 需要做 fallback lookup。
+3. pixel selector 依 `abs(target-class influence)` 排序，但保留 cache 中的正負號。
+4. 一個 constraint 若對應多個 positions，使用
+   `abs(mean(signed target-class influences))`；正負值會互相抵消，而不是先
+   各自取絕對值。
+5. output layer 使用有限的 `0.0` importance，不使用會在 scheduler 中變成
+   `+inf` 的非有限 sentinel。
 
 換句話說，整個系統真正依賴的是「位置 -> scalar influence」這個統一介面，而不是各路徑在數學上完全一致。
 
@@ -536,6 +544,8 @@ influence = gradient × (activation - background_mean)
 
 本專案目前的各層 neuron 影響值計算可總結為：
 
-1. `Sequential` 模型使用逐層 `GradientExplainer`。每輪把目前層表示當成子模型輸入，經過 `_reduce_gradient_shap_values()` 壓成每個 neuron 一個值後寫入 cache。
+1. `Sequential` 模型使用逐層 `GradientExplainer`。每輪把目前層表示當成
+   子模型輸入，只選取原始 Keras prediction class 的 attribution，再把每個
+   neuron 的 signed value 寫入 cache。
 2. `Functional/DAG/Residual` 模型不做危險的 layer slicing。輸入層仍保留標準 SHAP，中間層則用 `gradient * (activation - background_mean)` 計算 branch influence。
 3. 兩條路徑最後都統一輸出成相同的 key-value JSON 介面，讓 concolic engine 可以不區分來源地直接查詢 neuron influence。

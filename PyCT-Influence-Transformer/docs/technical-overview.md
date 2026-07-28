@@ -47,7 +47,8 @@
 
 SHAP 在此不是最終目標，而是搜尋指引：
 
-- 在 preprocessing 階段預先計算每個測試樣本的 SHAP value map。
+- 在 preprocessing 階段，先以 Keras 對原始樣本的預測類別作為固定 target，
+  再計算該 target class 的 SHAP value map。
 - 在 task generation 階段選出 top-k 像素、patch 或 token group。
 - 在 concolic engine 中，進一步用 SHAP 值與 path length 組合成 constraint priority。
 
@@ -123,7 +124,10 @@ SHAP 預處理由 `python -m pyct.shap` 對應的 `pyct/shap.py` 負責。它根
 - class-balanced：每個類別抽固定數量樣本。
 - reproducible：固定 random seed，降低不同 run 間的漂移。
 
-輸出結果會以 JSON 形式保存在 `shap_value_all_layer/<model_name>/shap_value_<idx>.json`。
+輸出結果會以 JSON 形式保存在
+`shap_target_class/<model_name>/shap_value_<idx>.json`。cache metadata 會記錄
+target class，並驗證 model、input、background、case index 與 explainer identity；
+舊的 class-averaged cache 不會被靜默重用。
 
 ### 5.2 Task generation
 
@@ -298,7 +302,13 @@ score = (1 - alpha) * log10(|shap_value| + eps)
 
 - branch 不是匿名的布林條件，而是帶有 `position=(layer, indices)`。
 - `ShapValuesComparator` 可依 `(layer, indices)` 查詢對應 SHAP value。
-- 若位置是一組 indices，例如 attention query 對整個 feature vector 的定位，則會對多個位置的 SHAP influence 做平均或聚合。
+- 單一 position 使用 `abs(target-class influence)`。
+- 若位置是一組 indices，例如 attention query 對整個 feature vector 的定位，
+  則使用 `abs(mean(signed target-class influences))`。正負方向互相抵消時，
+  代表這組 feature 沒有一致的 target-class influence，因此不會被
+  `mean(abs(...))` 人為放大。
+- 不直接排序的 output layer 使用有限分數 `0.0`，避免非有限 sentinel 經過
+  `abs()` 後意外成為最高優先級。
 
 因此，constraint priority 並不是「某個 path 的抽象分數」，而是「某條 path 中最新 branch 對應到的神經位置重要性」。
 

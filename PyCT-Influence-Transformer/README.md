@@ -124,7 +124,9 @@ Current model artifacts in `model/`:
 - `mnist_sep_act_m6_9628.h5`
 
 Local-only SHAP artifacts:
-- `shap_value/` and `shap_value_all_layer/` are cache/artifact directories and should remain untracked.
+- `shap_target_class/` is the current target-class attribution cache.
+- `shap_value/` and `shap_value_all_layer/` are legacy cache/artifact directories.
+- All of these directories should remain untracked.
 
 ## 1) Generate SHAP maps
 Run SHAP preprocessing before SHAP-guided attacks:
@@ -143,6 +145,10 @@ Important SHAP options:
 - `--background-per-class` (default `3`)
 - `--background-seed` (default `2233`)
 - `--explainer-type` (`gradient` or `kernel`)
+
+Each cache is tied to the original Keras-predicted class for that case. Cache
+metadata also fingerprints the model, input, background, case index, and
+explainer settings; incompatible or legacy class-averaged caches are not reused.
 
 ## 2) Run attacks
 
