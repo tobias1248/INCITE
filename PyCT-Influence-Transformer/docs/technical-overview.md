@@ -348,6 +348,16 @@ stage 狀態會回寫到 `stats.json` 的 `meta.ton_progress`，並額外記錄�
 
 此外，它還會將 Keras graph 轉成自訂 `NNModel` 所需的 layer 與 inbound 依賴圖。
 
+這兩個 model runtime 的責任不同：
+
+- 原始 Keras model 是 label 的 authoritative reference。
+- 自訂 `NNModel` 只負責 concolic forward、symbolic path 與 constraint 生成。
+
+`original_label` 與 `attack_label` 都只會由同一個 Keras model 的
+`Model.predict(..., verbose=0)` 產生。即使 `NNModel.forward()` 得到不同
+class，只要 Keras prediction 沒有改變，該 candidate 就不算
+adversarial。
+
 #### (2) Symbolic-safe forward path
 
 `dnnct/myDNN.py` 針對 transformer 補了多個 layer 的純 Python 推論實作，例如：
@@ -441,6 +451,40 @@ MHA 中最危險的部分是 softmax。若完全符號化 softmax，公式大小
 - attention softmax 權重也會用 concrete 值
 
 這不是缺陷，而是系統設計上的明確取捨。否則 expression tree 會迅速膨脹到 solver 難以處理的程度。
+
+### 6.4.3 SAT candidate 的 label verification
+
+每個 case 的執行順序固定如下：
+
+1. Keras reference model 對原始輸入做 prediction，保存
+   `original_label`。
+2. `NNModel` 執行第一次 concolic forward，建立 constraint queue。
+3. solver 產生未嘗試過的 SAT candidate。
+4. Keras reference model 對 candidate 做 prediction。
+5. 若 candidate label 與 `original_label` 不同，保存
+   `attack_label` 與 `adv_input.npy`，並停止該 case。
+6. 若 label 相同，才讓 `NNModel` 對 candidate 做下一次 concolic
+   forward，繼續生成 constraints。
+
+這個順序同時適用於 ternary 與 non-ternary search。search runtime
+不會把自己的輸出重用成 verification label。`random-assign` 也使用
+同一個 Keras prediction 契約比較修改前後 label。
+
+Keras reference model 會依 model path 在每個 worker process 內快取；
+不同 ternary threshold 的 `NNModel` search runtime 共用同一份 reference
+model。若 reference model 載入或 prediction 失敗、輸入包含
+NaN/Inf、輸出包含 NaN/Inf，case 會 fail closed，並在 `stats.json`
+記錄：
+
+- `status: "error"`
+- `error_type: "reference_prediction_failure"`
+- `error_phase: "reference_model_load"`、`"original_reference"` 或
+  `"candidate_reference"`
+
+成功 case 的 metadata 會包含
+`label_source: "keras_model_predict"`；reference prediction 次數、phase
+與 wall time 則記在 `summary`。舊實驗結果不會因此自動獲得新的 label
+語意保證，需要使用 adversarial replay 重新檢查。
 
 ### 6.6 `symbolic-path-threshold` 的作用
 

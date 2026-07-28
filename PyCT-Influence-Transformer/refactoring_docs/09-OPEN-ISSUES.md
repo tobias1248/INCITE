@@ -23,13 +23,13 @@ Use this format for new entries:
 
 ### ISSUE-7: Ternary search path can trigger duplicate model execution per candidate
 
-- **Status**: Open
+- **Status**: Resolved
 - **Area**: Runtime
 - **Priority**: High
 - **Found during**: Post-refactor timing review of `total_time`, `solve_time`, and `forward_time` in `exp_storage`
-- **Problem**: In the current `ternary_simplification=true` flow, a SAT candidate can first be evaluated by `predict_validation` during the solve phase to check whether the label changed, and then be passed into `_one_execution()` where `execute_search` runs again to continue exploration and generate constraints. This means one candidate may incur two model-level executions in the same iteration, split across `solve_time` and `forward_time`.
-- **Impact**: Experiment timing is harder to interpret because `solve_time` includes validation inference while `forward_time` includes search execution. This also adds avoidable runtime overhead relative to the non-ternary path, where `execute` may already match validation semantics and could allow result reuse or a merged path.
-- **Suggested follow-up**: Treat this as a high-priority performance and accounting issue. First document the exact call paths and add per-phase counters or timings for validation-vs-search execution. Then evaluate whether the non-ternary path can safely reuse one execution result, and whether the ternary path can avoid redundant validation or restructure candidate handling without changing attack semantics.
+- **Problem**: A SAT candidate needs both authoritative label verification and, when it is not adversarial, another concolic forward to generate constraints. Treating both executions as interchangeable allowed a search result to become an attack label.
+- **Resolution**: The responsibilities are now explicit for ternary and non-ternary modes. The cached Keras model alone produces `original_label` and `attack_label`; `NNModel` alone performs concolic search. Every unique SAT candidate is checked by Keras first and is sent to `NNModel` only when its Keras label is unchanged.
+- **Observability**: Reference prediction count, phase, and wall time are recorded separately, so the required Keras verification is no longer hidden inside solver or search timing.
 
 ### ISSUE-1: `child_event_message` can become too large
 
