@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import math
 import sys
 
+import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,9 +24,10 @@ def _reset_predictor_state() -> None:
     predictor.loaded_model_key = None
     predictor.searchModel = None
     predictor.search_model_key = None
-    predictor.validationModel = None
-    predictor.validation_model_key = None
+    predictor.referenceModel = None
+    predictor.reference_model_path = None
     predictor._MODEL_CACHE.clear()
+    predictor._KERAS_MODEL_CACHE.clear()
 
 
 def test_collect_input_names_uses_model_inputs_when_input_layer_is_absent() -> None:
@@ -108,16 +110,20 @@ def test_init_model_bootstraps_real_mnist_model_without_missing_input_key() -> N
 
     assert predictor.myModel is not None
     assert predictor.myModel.keras_to_cache_key['input_1'] == 'layer_input'
-    assert predictor.loaded_model_key == (str(MODEL_PATH), False, 0.75)
+    assert predictor.loaded_model_key == (str(MODEL_PATH.resolve()), False, 0.75)
+    assert predictor.referenceModel is not None
 
 
 def test_init_model_returns_early_when_same_model_already_loaded(monkeypatch) -> None:
     _reset_predictor_state()
     cached_model = object()
+    cached_reference = object()
+    resolved_path = str(MODEL_PATH.resolve())
     predictor.myModel = cached_model
-    predictor.loaded_model_path = str(MODEL_PATH)
-    predictor.loaded_model_key = (str(MODEL_PATH), False, 0.75)
-    predictor._MODEL_CACHE[(str(MODEL_PATH), False, 0.75)] = cached_model
+    predictor.loaded_model_path = resolved_path
+    predictor.loaded_model_key = (resolved_path, False, 0.75)
+    predictor._MODEL_CACHE[(resolved_path, False, 0.75)] = cached_model
+    predictor._KERAS_MODEL_CACHE[resolved_path] = cached_reference
     monkeypatch.setattr(
         predictor,
         "load_model_with_compat",
@@ -177,14 +183,14 @@ def test_predict_rejects_non_finite_validation_input() -> None:
         predictor.predict(v_0_0_0=math.nan)
 
 
-def test_predict_validation_rejects_non_finite_output_instead_of_class_zero() -> None:
-    predictor.validationModel = SimpleNamespace(
-        input_shape=(1, 1, 1),
-        forward=lambda tensor_input: [math.nan, math.nan, math.nan],
+def test_predict_reference_rejects_non_finite_output_instead_of_class_zero() -> None:
+    predictor.referenceModel = SimpleNamespace(
+        input_shape=(None, 1, 1, 1),
+        predict=lambda _batch, verbose=0: [[math.nan, math.nan, math.nan]],
     )
 
-    with pytest.raises(ValueError, match="Validation model output contains"):
-        predictor.predict_validation(v_0_0_0=0.5)
+    with pytest.raises(ValueError, match="Keras reference model output contains"):
+        predictor.predict_reference(v_0_0_0=0.5)
 
 
 def test_predict_builds_2d_tensor_input_keys_correctly() -> None:
@@ -243,30 +249,6 @@ def test_predict_builds_4d_tensor_input_keys_correctly() -> None:
     assert captured["input"] == [[[[1.0, 2.0], [3.0, 4.0]]]]
 
 
-def test_init_model_clears_session_when_switching_model_path(monkeypatch, tmp_path: Path) -> None:
-    calls = []
-    other_model = tmp_path / "other_model.h5"
-    other_model.write_bytes(b"fake")
-    real_loader = predictor.load_model_with_compat
-
-    _reset_predictor_state()
-    predictor.myModel = object()
-    predictor.loaded_model_path = "existing-model.h5"
-    predictor.loaded_model_key = ("existing-model.h5", False, 0.75)
-    predictor._MODEL_CACHE[("existing-model.h5", False, 0.75)] = predictor.myModel
-
-    monkeypatch.setattr(predictor.keras.backend, "clear_session", lambda: calls.append("clear"))
-    monkeypatch.setattr(
-        predictor,
-        "load_model_with_compat",
-        lambda *_args, **_kwargs: real_loader(str(MODEL_PATH)),
-    )
-
-    predictor.init_model(str(other_model))
-
-    assert calls == ["clear"]
-
-
 def test_init_model_distinguishes_cache_entries_by_ternary_config(monkeypatch) -> None:
     _reset_predictor_state()
     calls = []
@@ -287,10 +269,11 @@ def test_init_model_distinguishes_cache_entries_by_ternary_config(monkeypatch) -
     predictor.init_model(str(MODEL_PATH), ternary_simplification=True, ternary_threshold_scale=1.5)
     third_model = predictor.myModel
 
-    assert len(calls) == 3
+    assert len(calls) == 1
     assert first_model is not second_model
     assert second_model is not third_model
     assert len(predictor._MODEL_CACHE) == 3
+    assert len(predictor._KERAS_MODEL_CACHE) == 1
 
 
 def test_init_model_reuses_cache_only_when_model_and_ternary_config_match(monkeypatch) -> None:
@@ -313,27 +296,49 @@ def test_init_model_reuses_cache_only_when_model_and_ternary_config_match(monkey
     assert first_model is second_model
 
 
-def test_init_model_assigns_role_specific_models() -> None:
+def test_init_model_assigns_search_and_reference_models() -> None:
     _reset_predictor_state()
 
-    predictor.init_model(str(MODEL_PATH), ternary_simplification=False, ternary_threshold_scale=0.75, role="validation")
     predictor.init_model(str(MODEL_PATH), ternary_simplification=True, ternary_threshold_scale=1.5, role="search")
 
-    assert predictor.validationModel is not None
     assert predictor.searchModel is not None
-    assert predictor.validation_model_key == (str(MODEL_PATH), False, 0.75)
-    assert predictor.search_model_key == (str(MODEL_PATH), True, 1.5)
+    assert predictor.referenceModel is not None
+    assert predictor.search_model_key == (str(MODEL_PATH.resolve()), True, 1.5)
+    assert predictor.reference_model_path == str(MODEL_PATH.resolve())
 
 
-def test_predict_search_and_validation_use_role_specific_models() -> None:
+def test_predict_search_and_reference_use_role_specific_models() -> None:
+    reference_calls = []
     predictor.searchModel = SimpleNamespace(
         input_shape=(1, 2),
         forward=lambda tensor_input: [0.1, 0.8],
     )
-    predictor.validationModel = SimpleNamespace(
-        input_shape=(1, 2),
-        forward=lambda tensor_input: [0.9, 0.2],
+    predictor.referenceModel = SimpleNamespace(
+        input_shape=(None, 1, 2),
+        predict=lambda batch, verbose=0: reference_calls.append((batch.copy(), verbose))
+        or np.array([[0.9, 0.2]], dtype=np.float32),
     )
 
     assert predictor.predict_search(v_0_0=0.1, v_0_1=0.2) == 1
-    assert predictor.predict_validation(v_0_0=0.1, v_0_1=0.2) == 0
+    assert predictor.predict_reference(v_0_0=0.1, v_0_1=0.2) == 0
+    assert reference_calls[0][0].shape == (1, 1, 2)
+    assert reference_calls[0][1] == 0
+
+
+def test_predict_reference_binary_output_uses_threshold() -> None:
+    predictor.referenceModel = SimpleNamespace(
+        input_shape=(None, 1, 1),
+        predict=lambda _batch, verbose=0: np.array([[0.8]], dtype=np.float32),
+    )
+
+    assert predictor.predict_reference(v_0_0=0.25) == 1
+
+
+def test_predict_reference_rejects_non_finite_input() -> None:
+    predictor.referenceModel = SimpleNamespace(
+        input_shape=(None, 1, 1),
+        predict=lambda _batch, verbose=0: np.array([[0.8]], dtype=np.float32),
+    )
+
+    with pytest.raises(ValueError, match="Keras reference input contains"):
+        predictor.predict_reference(v_0_0=math.inf)

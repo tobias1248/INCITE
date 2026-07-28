@@ -28,9 +28,10 @@ def test_resolve_model_artifacts_raises_when_model_file_is_missing(monkeypatch) 
 def test_load_predictor_reuses_cached_module_entry(monkeypatch) -> None:
     executor._PREDICTOR_CACHE.clear()
     module = object()
+    init_reference_fn = object()
     init_fn = object()
     predict_search_fn = object()
-    predict_validation_fn = object()
+    predict_reference_fn = object()
     module_calls = []
     function_calls = []
 
@@ -43,11 +44,13 @@ def test_load_predictor_reuses_cached_module_entry(monkeypatch) -> None:
         executor,
         "get_function_from_module_and_funcname",
         lambda mod, name: function_calls.append((mod, name)) or (
-            init_fn
+            init_reference_fn
+            if name == "init_reference_model"
+            else init_fn
             if name == "init_model"
             else predict_search_fn
             if name == "predict_search"
-            else predict_validation_fn
+            else predict_reference_fn
         ),
     )
 
@@ -57,9 +60,10 @@ def test_load_predictor_reuses_cached_module_entry(monkeypatch) -> None:
     assert first == second
     assert module_calls == [("/tmp/root", "/tmp/predictor_runtime.py")]
     assert function_calls == [
+        (module, "init_reference_model"),
         (module, "init_model"),
         (module, "predict_search"),
-        (module, "predict_validation"),
+        (module, "predict_reference"),
     ]
 
 
@@ -111,6 +115,7 @@ def test_prepare_experiment_paths_builds_save_and_smt_dirs(monkeypatch) -> None:
 
 
 def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> None:
+    reference_init_calls = []
     init_calls = []
     initialized_models = set()
     captured = {}
@@ -119,7 +124,14 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
         init_calls.append((model_path, kwargs))
 
     def fake_load_predictor(module_path, root):
-        return object(), fake_init_model, "search-predict", "validation-predict", initialized_models
+        return (
+            object(),
+            lambda path: reference_init_calls.append(path),
+            fake_init_model,
+            "search-predict",
+            "reference-predict",
+            initialized_models,
+        )
 
     class _FakeEngine:
         extra_meta = None
@@ -180,15 +192,8 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
 
     assert first[0] == 3
     assert second[0] == 3
+    assert reference_init_calls == ["/tmp/demo.h5", "/tmp/demo.h5"]
     assert init_calls == [
-        (
-            "/tmp/demo.h5",
-            {
-                "ternary_simplification": False,
-                "ternary_threshold_scale": 0.75,
-                "role": "validation",
-            },
-        ),
         (
             "/tmp/demo.h5",
             {
@@ -199,8 +204,7 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
         )
     ]
     assert captured["cfg"].execute == "search-predict"
-    assert captured["cfg"].validation_execute == "validation-predict"
-    assert captured["cfg"].reuse_search_result_for_validation is False
+    assert captured["cfg"].reference_execute == "reference-predict"
     assert captured["extra_meta"] == {
         "model_name": "demo",
         "attack_mode": "queue_solver1s",
@@ -211,6 +215,8 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
         "ternary_threshold_scale": 1.5,
         "constraint_build_timeout": True,
         "constraint_build_timeout_seconds": 15,
+        "label_source": "keras_model_predict",
+        "search_model": "NNModel",
         "ton": 1,
         "ton_next": 2,
         "fallback": True,
@@ -227,6 +233,7 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
 
 def test_run_uses_defaults_when_save_exp_and_optional_args_are_missing(monkeypatch) -> None:
     captured = {}
+    reference_init_calls = []
     init_calls = []
 
     class _FakeEngine:
@@ -247,9 +254,10 @@ def test_run_uses_defaults_when_save_exp_and_optional_args_are_missing(monkeypat
         "_load_predictor",
         lambda module_path, root: (
             object(),
+            lambda path: reference_init_calls.append(path),
             lambda model_path, **kwargs: init_calls.append((model_path, kwargs)),
             "search-predict",
-            "validation-predict",
+            "reference-predict",
             set(),
         ),
     )
@@ -273,19 +281,19 @@ def test_run_uses_defaults_when_save_exp_and_optional_args_are_missing(monkeypat
     )
 
     assert result[0] == 1
+    assert reference_init_calls == ["/tmp/demo.h5"]
     assert init_calls == [
         (
             "/tmp/demo.h5",
             {
                 "ternary_simplification": False,
                 "ternary_threshold_scale": 0.75,
-                "role": "validation",
+                "role": "search",
             },
         )
     ]
-    assert captured["cfg"].execute == "validation-predict"
-    assert captured["cfg"].validation_execute == "validation-predict"
-    assert captured["cfg"].reuse_search_result_for_validation is True
+    assert captured["cfg"].execute == "search-predict"
+    assert captured["cfg"].reference_execute == "reference-predict"
     assert captured["extra_meta"] == {
         "model_name": "demo",
         "attack_mode": "unknown",
@@ -296,12 +304,15 @@ def test_run_uses_defaults_when_save_exp_and_optional_args_are_missing(monkeypat
         "ternary_threshold_scale": 0.75,
         "constraint_build_timeout": True,
         "constraint_build_timeout_seconds": 30,
+        "label_source": "keras_model_predict",
+        "search_model": "NNModel",
     }
     assert captured["explore_kwargs"]["collect_constraints_with"] == "stack"
     assert captured["explore_kwargs"]["shap_value_pre_calculated"] is False
 
 
 def test_run_distinguishes_initialized_models_by_ternary_runtime(monkeypatch) -> None:
+    reference_init_calls = []
     init_calls = []
     initialized_models = set()
 
@@ -324,9 +335,10 @@ def test_run_distinguishes_initialized_models_by_ternary_runtime(monkeypatch) ->
         "_load_predictor",
         lambda module_path, root: (
             object(),
+            lambda path: reference_init_calls.append(path),
             fake_init_model,
             "search-predict",
-            "validation-predict",
+            "reference-predict",
             initialized_models,
         ),
     )
@@ -348,8 +360,62 @@ def test_run_distinguishes_initialized_models_by_ternary_runtime(monkeypatch) ->
     executor.run(**base_payload, ternary_simplification=True)
     executor.run(**base_payload, ternary_simplification=True, ternary_threshold_scale=1.5)
 
+    assert reference_init_calls == ["/tmp/demo.h5", "/tmp/demo.h5", "/tmp/demo.h5"]
     assert init_calls == [
-        ("/tmp/demo.h5", {"ternary_simplification": False, "ternary_threshold_scale": 0.75, "role": "validation"}),
+        ("/tmp/demo.h5", {"ternary_simplification": False, "ternary_threshold_scale": 0.75, "role": "search"}),
         ("/tmp/demo.h5", {"ternary_simplification": True, "ternary_threshold_scale": 0.75, "role": "search"}),
         ("/tmp/demo.h5", {"ternary_simplification": True, "ternary_threshold_scale": 1.5, "role": "search"}),
     ]
+
+
+def test_run_fails_closed_when_reference_model_cannot_load(monkeypatch) -> None:
+    def fail_reference(_path):
+        raise ValueError("cannot load Keras model")
+
+    monkeypatch.setattr(
+        executor,
+        "_resolve_model_artifacts",
+        lambda model_name: (
+            f"/tmp/{model_name}.h5",
+            "/tmp/engine/predictor_runtime.py",
+            "/tmp/root",
+        ),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_load_predictor",
+        lambda module_path, root: (
+            object(),
+            fail_reference,
+            lambda *_args, **_kwargs: None,
+            "search-predict",
+            "reference-predict",
+            set(),
+        ),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_prepare_experiment_paths",
+        lambda *args, **kwargs: (None, None, "case_0"),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_build_explorer",
+        lambda _cfg: (_ for _ in ()).throw(AssertionError("unexpected explorer")),
+    )
+
+    iterations, recorder = executor.run(
+        model_name="demo",
+        in_dict={"v_0_0": 1.0},
+        con_dict={"v_0_0": 1},
+        norm=True,
+        solve_order_stack=False,
+        idx=0,
+        collect_constraints_with="queue",
+    )
+
+    assert iterations == 0
+    assert recorder.original_input is not None
+    assert recorder.extra_meta["status"] == "error"
+    assert recorder.extra_meta["error_type"] == "reference_prediction_failure"
+    assert recorder.extra_meta["error_phase"] == "reference_model_load"

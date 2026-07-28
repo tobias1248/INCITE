@@ -60,6 +60,10 @@ class _RecorderStub:
     def save_sat_input(self, _inputs) -> None:
         return None
 
+    def record_reference_prediction(self, _wall_time, *, phase) -> None:
+        counts = self.extra_meta.setdefault("reference_prediction_phase_counts", {})
+        counts[phase] = counts.get(phase, 0) + 1
+
     def find_adversarial_input(self, inputs, attack_label) -> None:
         self.attack_label = attack_label
         self.adversarial_input = dict(inputs)
@@ -92,9 +96,9 @@ class _RecorderStub:
             self.extra_meta["child_pid"] = child_pid
 
 
-def _make_engine(validation_execute):
+def _make_engine(reference_execute):
     engine = explore.ExplorationEngine.__new__(explore.ExplorationEngine)
-    engine.validation_execute = validation_execute
+    engine.reference_execute = reference_execute
     engine.normalize = None
     engine.limit_change_range = None
     engine.constraints_collection_type = "queue"
@@ -142,7 +146,7 @@ class _FakeProcess:
         return self._alive
 
 
-def test_execution_loop_uses_validation_predictor_for_labels(monkeypatch) -> None:
+def test_execution_loop_uses_keras_reference_for_labels(monkeypatch) -> None:
     recorder = _RecorderStub()
     explore.recorder = recorder
     explore.Solver.stats = {
@@ -154,14 +158,14 @@ def test_execution_loop_uses_validation_predictor_for_labels(monkeypatch) -> Non
         "otherwise_time": 0,
     }
 
-    validation_calls = []
+    reference_calls = []
     search_calls = []
 
-    def validation_execute(**data):
-        validation_calls.append(dict(data))
+    def reference_execute(**data):
+        reference_calls.append(dict(data))
         return 0 if data["v_0_0"] == 0.0 else 1
 
-    engine = _make_engine(validation_execute)
+    engine = _make_engine(reference_execute)
 
     def fake_one_execution(all_args, concolic_dict):
         search_calls.append(dict(all_args))
@@ -179,11 +183,15 @@ def test_execution_loop_uses_validation_predictor_for_labels(monkeypatch) -> Non
     assert timed_out is False
     assert recorder.original_label == 0
     assert recorder.attack_label == 1
-    assert validation_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
+    assert reference_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
     assert search_calls == [{"v_0_0": 0.0}]
+    assert recorder.extra_meta["reference_prediction_phase_counts"] == {
+        "original_reference": 1,
+        "candidate_reference": 1,
+    }
 
 
-def test_execution_loop_reuses_search_result_for_non_ternary_candidate(monkeypatch) -> None:
+def test_execution_loop_runs_search_only_after_reference_rejects_candidate(monkeypatch) -> None:
     recorder = _RecorderStub()
     explore.recorder = recorder
     explore.Solver.stats = {
@@ -195,31 +203,19 @@ def test_execution_loop_reuses_search_result_for_non_ternary_candidate(monkeypat
         "otherwise_time": 0,
     }
 
-    validation_calls = []
+    reference_calls = []
 
-    def validation_execute(**data):
-        validation_calls.append(dict(data))
+    def reference_execute(**data):
+        reference_calls.append(dict(data))
         return 0
 
-    engine = _make_engine(validation_execute)
-    engine.reuse_search_result_for_validation = True
-    engine.single_coverage = False
-    old_search_calls = []
-    deferred_search_calls = []
-    applied_payloads = []
-
-    monkeypatch.setattr(engine, "_one_execution", lambda all_args, _concolic_dict: old_search_calls.append(dict(all_args)) or True)
+    engine = _make_engine(reference_execute)
+    search_calls = []
     monkeypatch.setattr(
         engine,
-        "_one_execution_deferred_constraints",
-        lambda all_args, _concolic_dict: deferred_search_calls.append(dict(all_args)) or (0, "payload"),
+        "_one_execution",
+        lambda all_args, _concolic_dict: search_calls.append(dict(all_args)) or True,
     )
-
-    def apply_payload(payload):
-        applied_payloads.append(payload)
-        engine.constraints_to_solve.append("generated")
-
-    monkeypatch.setattr(engine, "_apply_constraint_transfer_payload", apply_payload)
     monkeypatch.setattr(
         explore.Solver,
         "find_model_from_constraint",
@@ -231,15 +227,11 @@ def test_execution_loop_reuses_search_result_for_non_ternary_candidate(monkeypat
     assert timed_out is False
     assert recorder.original_label == 0
     assert recorder.attack_label is None
-    assert validation_calls == []
-    assert old_search_calls == []
-    assert deferred_search_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
-    assert applied_payloads == ["payload", "payload"]
-    assert recorder.gen_constraint == [2, 1]
-    assert engine.in_out == [({"v_0_0": 0.0}, 0), ({"v_0_0": 1.0}, 0)]
+    assert reference_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
+    assert search_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
 
 
-def test_execution_loop_discards_deferred_constraints_for_reused_adversarial_candidate(monkeypatch) -> None:
+def test_execution_loop_ignores_search_label_disagreement(monkeypatch) -> None:
     recorder = _RecorderStub()
     explore.recorder = recorder
     explore.Solver.stats = {
@@ -251,80 +243,17 @@ def test_execution_loop_discards_deferred_constraints_for_reused_adversarial_can
         "otherwise_time": 0,
     }
 
-    validation_calls = []
-
-    def validation_execute(**data):
-        validation_calls.append(dict(data))
+    def reference_execute(**_data):
         return 0
 
-    engine = _make_engine(validation_execute)
-    engine.reuse_search_result_for_validation = True
-    engine.single_coverage = False
-    old_search_calls = []
-    deferred_search_calls = []
-    applied_payloads = []
-    deferred_results = [(0, "initial-payload"), (1, "candidate-payload")]
-
-    monkeypatch.setattr(engine, "_one_execution", lambda all_args, _concolic_dict: old_search_calls.append(dict(all_args)) or True)
-
-    def deferred_execution(all_args, _concolic_dict):
-        deferred_search_calls.append(dict(all_args))
-        return deferred_results.pop(0)
-
-    monkeypatch.setattr(engine, "_one_execution_deferred_constraints", deferred_execution)
-    monkeypatch.setattr(engine, "_apply_constraint_transfer_payload", lambda payload: applied_payloads.append(payload))
-    monkeypatch.setattr(
-        explore.Solver,
-        "find_model_from_constraint",
-        lambda *_args, **_kwargs: {"v_0_0": 1.0},
-    )
-
-    timed_out = engine._execution_loop(0, {"v_0_0": 0.0}, {})
-
-    assert timed_out is False
-    assert recorder.attack_label == 1
-    assert recorder.adversarial_input == {"v_0_0": 1.0}
-    assert validation_calls == []
-    assert old_search_calls == []
-    assert deferred_search_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
-    assert applied_payloads == ["initial-payload"]
-    assert engine.in_out == [({"v_0_0": 0.0}, 0)]
-
-
-def test_execution_loop_does_not_treat_reused_sentinel_as_label_change(monkeypatch) -> None:
-    recorder = _RecorderStub()
-    explore.recorder = recorder
-    explore.Solver.stats = {
-        "sat_number": 0,
-        "sat_time": 0,
-        "unsat_number": 0,
-        "unsat_time": 0,
-        "otherwise_number": 0,
-        "otherwise_time": 0,
-    }
-
-    validation_calls = []
-
-    def validation_execute(**data):
-        validation_calls.append(dict(data))
-        return 0
-
-    engine = _make_engine(validation_execute)
-    engine.reuse_search_result_for_validation = True
-    engine.single_coverage = False
-    deferred_search_calls = []
-
-    monkeypatch.setattr(engine, "_one_execution", lambda _all_args, _concolic_dict: True)
-
-    def deferred_timeout(all_args, _concolic_dict):
-        deferred_search_calls.append(dict(all_args))
-        engine.previous_result = engine.Timeout
-        return engine.Timeout, None
-
+    engine = _make_engine(reference_execute)
+    search_results = iter([0, 1])
+    search_calls = []
     monkeypatch.setattr(
         engine,
-        "_one_execution_deferred_constraints",
-        deferred_timeout,
+        "_one_execution",
+        lambda all_args, _concolic_dict: search_calls.append(dict(all_args))
+        or next(search_results),
     )
     monkeypatch.setattr(
         explore.Solver,
@@ -336,17 +265,11 @@ def test_execution_loop_does_not_treat_reused_sentinel_as_label_change(monkeypat
 
     assert timed_out is False
     assert recorder.attack_label is None
-    assert engine.previous_result is engine.Timeout
     assert recorder.original_label == 0
-    assert validation_calls == [{"v_0_0": 0.0}]
-    assert deferred_search_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
-    assert engine.in_out == [
-        ({"v_0_0": 0.0}, engine.Timeout),
-        ({"v_0_0": 1.0}, engine.Timeout),
-    ]
+    assert search_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
 
 
-def test_execution_loop_single_coverage_disables_initial_result_reuse(monkeypatch) -> None:
+def test_execution_loop_only_first_forward_has_only_original_reference(monkeypatch) -> None:
     recorder = _RecorderStub()
     explore.recorder = recorder
     explore.Solver.stats = {
@@ -358,23 +281,19 @@ def test_execution_loop_single_coverage_disables_initial_result_reuse(monkeypatc
         "otherwise_time": 0,
     }
 
-    validation_calls = []
+    reference_calls = []
 
-    def validation_execute(**data):
-        validation_calls.append(dict(data))
+    def reference_execute(**data):
+        reference_calls.append(dict(data))
         return 0
 
-    engine = _make_engine(validation_execute)
-    engine.reuse_search_result_for_validation = True
-    engine.single_coverage = True
+    engine = _make_engine(reference_execute)
+    engine.only_first_forward = True
     search_calls = []
-    deferred_search_calls = []
-
-    monkeypatch.setattr(engine, "_one_execution", lambda all_args, _concolic_dict: search_calls.append(dict(all_args)) or True)
     monkeypatch.setattr(
         engine,
-        "_one_execution_deferred_constraints",
-        lambda all_args, _concolic_dict: deferred_search_calls.append(dict(all_args)) or (0, "payload"),
+        "_one_execution",
+        lambda all_args, _concolic_dict: search_calls.append(dict(all_args)) or True,
     )
     monkeypatch.setattr(
         explore.Solver,
@@ -386,46 +305,8 @@ def test_execution_loop_single_coverage_disables_initial_result_reuse(monkeypatc
 
     assert timed_out is False
     assert recorder.attack_label is None
-    assert validation_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
-    assert search_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
-    assert deferred_search_calls == []
-
-
-def test_execution_loop_without_reuse_keeps_validation_then_search(monkeypatch) -> None:
-    recorder = _RecorderStub()
-    explore.recorder = recorder
-    explore.Solver.stats = {
-        "sat_number": 0,
-        "sat_time": 0,
-        "unsat_number": 0,
-        "unsat_time": 0,
-        "otherwise_number": 0,
-        "otherwise_time": 0,
-    }
-
-    validation_calls = []
-
-    def validation_execute(**data):
-        validation_calls.append(dict(data))
-        return 0
-
-    engine = _make_engine(validation_execute)
-    engine.reuse_search_result_for_validation = False
-    search_calls = []
-
-    monkeypatch.setattr(engine, "_one_execution", lambda all_args, _concolic_dict: search_calls.append(dict(all_args)) or True)
-    monkeypatch.setattr(
-        explore.Solver,
-        "find_model_from_constraint",
-        lambda *_args, **_kwargs: {"v_0_0": 1.0},
-    )
-
-    timed_out = engine._execution_loop(1, {"v_0_0": 0.0}, {})
-
-    assert timed_out is False
-    assert recorder.attack_label is None
-    assert validation_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
-    assert search_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
+    assert reference_calls == [{"v_0_0": 0.0}]
+    assert search_calls == [{"v_0_0": 0.0}]
 
 
 def test_unpicklable_constraint_transfer_marks_error_and_preserves_queue() -> None:

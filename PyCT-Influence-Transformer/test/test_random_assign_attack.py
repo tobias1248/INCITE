@@ -12,7 +12,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from reporting import experiment_stats
-from libct.random_assign_attack import RandomAssignResult, write_experiment_artifacts
+from libct.random_assign_attack import (
+    RandomAssignResult,
+    run_random_assign_step,
+    write_experiment_artifacts,
+)
+from engine import predictor_runtime
 from tasks.paths import get_save_dir_from_save_exp
 
 
@@ -55,6 +60,45 @@ def test_write_experiment_artifacts_omits_attack_label_on_failed_random_assign(
     assert meta["success"] is False
     assert meta["attack_label"] is None
     assert meta["predicted_label_after"] == 1
+    assert meta["label_source"] == "keras_model_predict"
+
+
+def test_random_assign_success_uses_keras_reference_predictions(monkeypatch) -> None:
+    initialized = []
+    predictions = iter(
+        [
+            (np.array([0.9, 0.1], dtype=np.float32), 0),
+            (np.array([0.8, 0.2], dtype=np.float32), 1),
+        ]
+    )
+    monkeypatch.setattr(
+        predictor_runtime,
+        "init_reference_model",
+        lambda path: initialized.append(path),
+    )
+    monkeypatch.setattr(
+        predictor_runtime,
+        "predict_reference_array",
+        lambda _array: next(predictions),
+    )
+
+    result = run_random_assign_step(
+        {
+            "model_name": "dummy_model",
+            "idx": 0,
+            "con_dict": {"v_0_0_0": 1},
+            "input_for_shap": np.zeros((1, 1, 1), dtype=np.float32),
+            "save_exp": {},
+        },
+        pixel_source="random",
+        base_seed=7,
+        attempt=0,
+    )
+
+    assert initialized == ["model/dummy_model.h5"]
+    assert result.pred_before == 0
+    assert result.pred_after == 1
+    assert result.success is True
 
 
 def test_statistic_prefers_explicit_success_flag_over_attack_label() -> None:

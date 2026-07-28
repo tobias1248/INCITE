@@ -40,6 +40,21 @@ def test_recorder_rejects_non_finite_sat_and_adversarial_inputs() -> None:
     assert recorder.attack_label is None
 
 
+def test_output_stats_dict_reports_reference_prediction_timing() -> None:
+    recorder = ConcolicTestRecorder(None, "case_0")
+    recorder.record_reference_prediction(0.1, phase="original_reference")
+    recorder.record_reference_prediction(0.2, phase="candidate_reference")
+
+    stats = recorder.output_stats_dict()
+
+    assert stats["summary"]["reference_prediction_count"] == 2
+    assert stats["summary"]["reference_prediction_wall_time_total"] == pytest.approx(0.3)
+    assert stats["summary"]["reference_prediction_phase_counts"] == {
+        "original_reference": 1,
+        "candidate_reference": 1,
+    }
+
+
 def test_save_stats_dict_preserves_invalid_model_diagnostic(tmp_path: Path) -> None:
     save_dir = tmp_path / "case_invalid_model"
     recorder = ConcolicTestRecorder(str(save_dir), "case_invalid_model")

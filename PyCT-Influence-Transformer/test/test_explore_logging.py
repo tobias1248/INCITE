@@ -96,6 +96,7 @@ class _DummyRecorder:
     def __init__(self) -> None:
         self.gen_constraint = []
         self.total_iter = 0
+        self.original_label = None
 
     def start(self) -> None: ...
     def iter_start(self, _solver) -> None: ...
@@ -110,6 +111,7 @@ class _DummyRecorder:
     def total_timeout(self) -> None: ...
     def end(self, constraint_complexity=None) -> None: ...
     def find_adversarial_input(self, *_args, **_kwargs) -> None: ...
+    def record_reference_prediction(self, *_args, **_kwargs) -> None: ...
 
 
 class ExploreLoggingTests(unittest.TestCase):
@@ -126,7 +128,7 @@ class ExploreLoggingTests(unittest.TestCase):
 
     def _make_engine(self) -> explore.ExplorationEngine:
         engine = explore.ExplorationEngine.__new__(explore.ExplorationEngine)
-        engine.validation_execute = lambda **_data: 0
+        engine.reference_execute = lambda **_data: 0
         engine.normalize = None
         engine.limit_change_range = None
         engine.constraints_to_solve = []
