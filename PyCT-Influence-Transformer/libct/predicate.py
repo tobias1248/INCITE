@@ -1,6 +1,7 @@
 # Copyright: see copyright.txt
 
 from libct.concolic import Concolic
+from libct.smt_affine import normalize_affine_comparison
 
 def depth(expr):
     if isinstance(expr, Concolic):
@@ -14,6 +15,7 @@ class Predicate:
         # print("line7",expr, value)
         self.expr = expr
         self.value = value
+        self._exact_affine_cache = None
         # print("line10",self.expr, self.value)
 
     def __eq__(self, other):
@@ -32,6 +34,43 @@ class Predicate:
         formula = self.get_formula_deep(self.expr)
         if not self.value: formula = "(not " + formula + ")"
         return "(assert " + formula + ")"
+
+    def get_formula_with_exact_affine(self, variable_types, cache_key=None):
+        if cache_key is None:
+            cache_key = tuple(sorted(variable_types.items()))
+        cached = self._exact_affine_cache
+        if cached is not None and cached[0] == cache_key:
+            assertion, cached_stats = cached[1], cached[2]
+            stats = dict(cached_stats)
+            stats["cache_hit"] = True
+            return assertion, stats
+
+        normalization = normalize_affine_comparison(
+            self.expr,
+            variable_types,
+        )
+        stats = normalization.to_stats()
+        stats["cache_hit"] = False
+        stats["assertion_input_bytes"] = (
+            normalization.input_bytes
+            + len("(assert )")
+            + (len("(not )") if not self.value else 0)
+        )
+        if not normalization.applied:
+            raw_body = self.get_formula_deep(self.expr)
+            raw_formula = raw_body if self.value else "(not " + raw_body + ")"
+            raw_assertion = "(assert " + raw_formula + ")"
+            stats["assertion_output_bytes"] = stats["assertion_input_bytes"]
+            self._exact_affine_cache = (cache_key, raw_assertion, dict(stats))
+            return raw_assertion, stats
+
+        formula = normalization.formula_body
+        if not self.value:
+            formula = "(not " + formula + ")"
+        assertion = "(assert " + formula + ")"
+        stats["assertion_output_bytes"] = len(assertion.encode("utf-8"))
+        self._exact_affine_cache = (cache_key, assertion, dict(stats))
+        return assertion, stats
 
     @staticmethod
     def get_formula_deep(expr):

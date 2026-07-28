@@ -288,6 +288,7 @@ class Solver:
     build_timeout_enabled = True
     build_timeout_seconds: Optional[int] = 30
     run_timeout: Optional[int] = None
+    _last_smt_transform_stats = None
     
 
     @classmethod # similar to our constructor
@@ -514,9 +515,12 @@ class Solver:
                 detail["solver_raw_model_lines"] = solver_raw_model_lines
             if solver_model_diagnostics is not None:
                 detail["solver_model_diagnostics"] = solver_model_diagnostics
+            if cls._last_smt_transform_stats is not None:
+                detail["smt_transform"] = cls._last_smt_transform_stats
             cls.ctr_size['detail'].append(detail)
         #limit_constraint_time_start
         build_elapsed = None
+        cls._last_smt_transform_stats = None
         try:
             build_formula_start = time.time()
             if cls.build_timeout_enabled:
@@ -756,7 +760,90 @@ class Solver:
         #NOTE DNN
         declare_vars = "\n".join(f"(declare-const {name} {engine.var_to_types[name]})"                 
                                 for (name) in engine.concolic_name_list)
-        queries = "\n".join(assertion.get_formula() for assertion in constraint.get_all_asserts())
+        experiment_mode = os.environ.get(
+            "PYCT_SMT_EXPERIMENT_MODE",
+            "exact_affine",
+        ).strip().lower()
+        if experiment_mode not in {"raw", "exact_affine"}:
+            raise ValueError(
+                "PYCT_SMT_EXPERIMENT_MODE must be 'raw' or 'exact_affine', "
+                f"got {experiment_mode!r}"
+            )
+
+        query_formulas = []
+        transform_stats = {
+            "mode": experiment_mode,
+            "assertion_count": 0,
+            "applied_count": 0,
+            "fallback_count": 0,
+            "cache_hit_count": 0,
+            "fallback_reasons": {},
+            "fallback_examples": {},
+            "input_bytes": 0,
+            "output_bytes": 0,
+            "normalization_time_s": 0.0,
+            "node_count": 0,
+            "term_count": 0,
+            "max_variable_count": 0,
+            "max_rational_digits": 0,
+        }
+        variable_type_signature = (
+            tuple(sorted(engine.var_to_types.items()))
+            if experiment_mode == "exact_affine"
+            else None
+        )
+        for assertion in constraint.get_all_asserts():
+            transform_stats["assertion_count"] += 1
+            if experiment_mode == "raw":
+                query = assertion.get_formula()
+                query_bytes = len(query.encode("utf-8"))
+                transform_stats["input_bytes"] += query_bytes
+                transform_stats["output_bytes"] += query_bytes
+            else:
+                normalize_start = time.perf_counter()
+                query, assertion_stats = assertion.get_formula_with_exact_affine(
+                    engine.var_to_types,
+                    cache_key=variable_type_signature,
+                )
+                transform_stats["normalization_time_s"] += (
+                    time.perf_counter() - normalize_start
+                )
+                transform_stats["input_bytes"] += assertion_stats[
+                    "assertion_input_bytes"
+                ]
+                transform_stats["output_bytes"] += assertion_stats[
+                    "assertion_output_bytes"
+                ]
+                transform_stats["node_count"] += assertion_stats["node_count"]
+                transform_stats["term_count"] += assertion_stats["term_count"]
+                transform_stats["max_variable_count"] = max(
+                    transform_stats["max_variable_count"],
+                    assertion_stats["variable_count"],
+                )
+                transform_stats["max_rational_digits"] = max(
+                    transform_stats["max_rational_digits"],
+                    assertion_stats["max_rational_digits"],
+                )
+                if assertion_stats["cache_hit"]:
+                    transform_stats["cache_hit_count"] += 1
+                if assertion_stats["applied"]:
+                    transform_stats["applied_count"] += 1
+                else:
+                    transform_stats["fallback_count"] += 1
+                    reason = assertion_stats["fallback_reason"]
+                    transform_stats["fallback_reasons"][reason] = (
+                        transform_stats["fallback_reasons"].get(reason, 0) + 1
+                    )
+                    detail = assertion_stats["fallback_detail"]
+                    examples = transform_stats["fallback_examples"].setdefault(
+                        reason,
+                        [],
+                    )
+                    if detail is not None and detail not in examples and len(examples) < 3:
+                        examples.append(detail)
+            query_formulas.append(query)
+        queries = "\n".join(query_formulas)
+        Solver._last_smt_transform_stats = transform_stats
         
         norm_queries = ""        
         if Solver.norm: # limit solve range [0,1]
