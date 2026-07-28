@@ -4,7 +4,6 @@ import gc
 import logging
 import multiprocessing
 import os
-import pickle
 import sys
 import time
 from libct.path import PathToConstraint
@@ -128,13 +127,11 @@ class ExplorationEngine:
 
         # consists of the constraints that are going to be solved by the solver
         self.path = PathToConstraint()
-        self.in_out: List[Tuple[Any, Any]] = []
         self.coverage_data = coverage.CoverageData()
         self.coverage_accumulated_missing_lines = {}
         self.var_to_types = {}
         self.concolic_name_list: List[str] = []  # NOTE for DNN testing
         self.concolic_flag_dict: dict[str, int] = {}  # NOTE for DNN testing
-        self.previous_result = None
         self.original_args = None  # used to limit variable range
         self._candidate_execution_runner = CandidateExecutionRunner(self)
         self._concolic_argument_builder = ConcolicArgumentBuilder(self)
@@ -621,9 +618,6 @@ class ExplorationEngine:
         if self.lib:
             del sys.path[0]
         if self.statsdir:
-            with open(self.statsdir + '/inputs.pkl', 'wb') as f:
-                # store only inputs
-                pickle.dump([e[0] for e in self.in_out], f)
             if self.single_coverage:
                 with open(self.statsdir + '/missing_lines.txt', 'w') as f:
                     if self.file_as_total:
@@ -655,9 +649,6 @@ class ExplorationEngine:
 
     def _validate_sat_candidate(self, inputs: Dict[str, Any]) -> bool:
         return self._get_candidate_execution_runner().validate_sat_candidate(inputs)
-
-    def _record_result(self, inputs: Dict[str, Any], result: Any) -> bool:
-        return self._get_candidate_execution_runner().record_result(inputs, result)
 
     def _run_initial_execution(self, all_args: Dict[str, Any], concolic_dict: Dict[str, Any]) -> None:
         self._get_candidate_execution_runner().run_initial_execution(all_args, concolic_dict)

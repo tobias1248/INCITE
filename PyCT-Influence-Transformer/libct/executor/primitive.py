@@ -36,7 +36,6 @@ class PrimitiveExecutionRunner:
             self._engine.coverage_accumulated_missing_lines[
                 self._engine.target_file
             ] = self._engine.module_lines_range
-        self._engine.in_out.append((primitive_inputs.copy(), answer))
         r1.close()
         s1.close()
         r2.close()

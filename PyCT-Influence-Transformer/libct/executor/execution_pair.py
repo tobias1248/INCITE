@@ -71,11 +71,6 @@ class CandidateExecutionRunner:
             return True
         return False
 
-    def record_result(self, inputs: Dict[str, Any], result: Any) -> bool:
-        """Retain search execution results without using them for attack validation."""
-        self._engine.previous_result = result
-        return True
-
     def run_initial_execution(
         self,
         all_args: Dict[str, Any],
@@ -86,7 +81,6 @@ class CandidateExecutionRunner:
             all_args,
             phase="original_reference",
         )
-        self._engine.previous_result = recorder.original_label
         self._engine._one_execution(all_args, concolic_dict)
 
     def one_execution(self, all_args: Dict[str, Any], concolic_dict: Dict[str, Any]) -> bool:
@@ -100,9 +94,7 @@ class CandidateExecutionRunner:
         result = execution_executor.run_concolic(all_args, concolic_dict)
         # We don't measure coverage in primitive mode under the non-single coverage setting.
         if not self._engine.single_coverage:
-            # .copy() is important! Think why.
-            self._engine.in_out.append((all_args.copy(), result))
-            return self._engine._record_result(all_args, result)
+            return True
 
         # Coverage is measured in primitive mode because concolic-mode constraints can become unpicklable.
         answer = execution_executor.run_primitive(primitive_inputs)
@@ -133,7 +125,7 @@ class CandidateExecutionRunner:
             sorted(s) if s else "{}",
         )
 
-        return self._engine._record_result(all_args, result)
+        return True
 
     def complete_primitive_arguments(self, func: Any, all_args: Dict[str, Any]) -> Tuple[list, dict]:
         prim_args = []
