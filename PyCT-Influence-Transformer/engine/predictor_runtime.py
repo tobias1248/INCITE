@@ -1,9 +1,8 @@
 import itertools
 import logging
 from pathlib import Path
-from typing import Dict, Literal, Optional, Tuple, cast
+from typing import Any, Dict, Literal, Optional, Tuple, cast
 
-import keras
 import numpy as np
 from dnnct.myDNN import NNModel
 
@@ -20,15 +19,16 @@ from modeling.keras_loader import load_model_with_compat
 log = logging.getLogger("ct.model")
 
 ModelCacheKey = Tuple[str, bool, float]
-ModelRole = Literal["default", "search", "validation"]
+ModelRole = Literal["default", "search"]
 myModel: Optional[NNModel] = None
 loaded_model_path: Optional[str] = None
 loaded_model_key: Optional[ModelCacheKey] = None
 _MODEL_CACHE: Dict[ModelCacheKey, NNModel] = {}
+_KERAS_MODEL_CACHE: Dict[str, Any] = {}
 searchModel: Optional[NNModel] = None
 search_model_key: Optional[ModelCacheKey] = None
-validationModel: Optional[NNModel] = None
-validation_model_key: Optional[ModelCacheKey] = None
+referenceModel: Optional[Any] = None
+reference_model_path: Optional[str] = None
 
 
 def _get_inbound_layers(layer):
@@ -111,7 +111,7 @@ def _assign_model_for_role(
     model_path: str,
 ) -> None:
     global myModel, loaded_model_key, loaded_model_path
-    global searchModel, search_model_key, validationModel, validation_model_key
+    global searchModel, search_model_key
 
     if role == "default":
         myModel = model
@@ -122,11 +122,28 @@ def _assign_model_for_role(
         searchModel = model
         search_model_key = model_key
         return
-    if role == "validation":
-        validationModel = model
-        validation_model_key = model_key
-        return
     raise ValueError(f"Unsupported model role: {role}")
+
+
+def _load_reference_model(model_path: str) -> Any:
+    global referenceModel, reference_model_path
+
+    cached = _KERAS_MODEL_CACHE.get(model_path)
+    if cached is None:
+        cached = load_model_with_compat(model_path)
+        _KERAS_MODEL_CACHE[model_path] = cached
+        log.info(
+            "Loaded Keras reference model '%s' with input_shape=%s",
+            Path(model_path).stem,
+            cached.input_shape,
+        )
+    referenceModel = cached
+    reference_model_path = model_path
+    return cached
+
+
+def init_reference_model(model_path) -> None:
+    _load_reference_model(str(Path(model_path).resolve()))
 
 
 def init_model(
@@ -136,32 +153,28 @@ def init_model(
     ternary_threshold_scale: float = 0.75,
     role: ModelRole = "default",
 ):
-    global myModel, loaded_model_key, loaded_model_path
-    resolved_model_path = str(model_path)
+    resolved_model_path = str(Path(model_path).resolve())
     model_key: ModelCacheKey = (
         resolved_model_path,
         bool(ternary_simplification),
         float(ternary_threshold_scale),
     )
+    keras_model = _load_reference_model(resolved_model_path)
     cached = _MODEL_CACHE.get(model_key)
     if cached is not None:
         _assign_model_for_role(role, cached, model_key, resolved_model_path)
         return
-    if loaded_model_key is not None and loaded_model_key != model_key:
-        keras.backend.clear_session()
-    model = load_model_with_compat(resolved_model_path)
     model_stem = Path(resolved_model_path).stem
-    model._name = model_stem
-    model.summary()
-    log.info("Loaded model '%s' with input_shape=%s", model_stem, model.input_shape)
-    layers, inbound_map = _collect_layers_and_inbound(model)
+    keras_model._name = model_stem
+    keras_model.summary()
+    layers, inbound_map = _collect_layers_and_inbound(keras_model)
     my_model = NNModel(
         ternary_simplification=ternary_simplification,
         ternary_threshold_scale=ternary_threshold_scale,
     )
-    input_layer_names = _collect_input_names(model)
+    input_layer_names = _collect_input_names(keras_model)
     my_model.register_input_names(input_layer_names)
-    my_model.input_shape = model.input_shape[1:]
+    my_model.input_shape = _get_reference_input_shape(keras_model)
     my_layer_count = 0
     for i, layer in enumerate(layers):
         inbound_names = inbound_map.get(layer.name, [])
@@ -182,26 +195,85 @@ def init_model(
     _assign_model_for_role(role, my_model, model_key, resolved_model_path)
 
 
+def _get_reference_input_shape(model: Any) -> Tuple[int, ...]:
+    input_shape = getattr(model, "input_shape", None)
+    if (
+        not isinstance(input_shape, tuple)
+        or len(input_shape) < 2
+        or any(dim is None for dim in input_shape[1:])
+    ):
+        raise ValueError(
+            "Keras reference prediction requires one fully-defined tensor input; "
+            f"got input_shape={input_shape!r}."
+        )
+    return tuple(int(dim) for dim in input_shape[1:])
+
+
+def _build_tensor_input(input_shape: Tuple[int, ...], data: Dict[str, Any]) -> list:
+    tensor_input = np.zeros(input_shape, dtype=object)
+    for index in itertools.product(*(range(dim) for dim in input_shape)):
+        key = "v_" + "_".join(str(axis) for axis in index)
+        tensor_input[index] = data[key]
+    return tensor_input.tolist()
+
+
+def _prediction_to_label(predictions: np.ndarray) -> int:
+    if not np.isfinite(predictions.astype(np.float64, copy=False)).all():
+        raise ValueError("Keras reference model output contains NaN or Inf")
+    if predictions.ndim == 1 and predictions.shape == (1,):
+        return int(predictions[0] > 0.5)
+    if predictions.ndim == 2 and predictions.shape[0] == 1:
+        if predictions.shape[1] == 1:
+            return int(predictions[0, 0] > 0.5)
+        if predictions.shape[1] > 1:
+            return int(np.argmax(predictions[0]))
+    raise ValueError(
+        "Keras reference model must return one binary or multiclass prediction; "
+        f"got output shape {predictions.shape}."
+    )
+
+
+def predict_reference_array(array: np.ndarray) -> Tuple[np.ndarray, int]:
+    if referenceModel is None:
+        raise RuntimeError("Keras reference model not initialized. Call init_model() first.")
+
+    expected_shape = _get_reference_input_shape(referenceModel)
+    reference_input = np.asarray(array, dtype=np.float32)
+    if reference_input.shape != expected_shape:
+        raise ValueError(
+            f"Keras reference input shape {reference_input.shape} does not match {expected_shape}."
+        )
+    if not np.isfinite(reference_input).all():
+        raise ValueError("Keras reference input contains NaN or Inf")
+
+    predictions = np.asarray(
+        referenceModel.predict(reference_input[np.newaxis, ...], verbose=0),
+    )
+    label = _prediction_to_label(predictions)
+    if predictions.ndim == 2:
+        output = predictions[0]
+    else:
+        output = predictions.copy()
+    log.info("Keras reference prediction complete (class=%s)", label)
+    return np.asarray(output), label
+
+
+def predict_reference(**data):
+    if referenceModel is None:
+        raise RuntimeError("Keras reference model not initialized. Call init_model() first.")
+    input_shape = _get_reference_input_shape(referenceModel)
+    tensor_input = _build_tensor_input(input_shape, data)
+    _, label = predict_reference_array(np.asarray(tensor_input, dtype=np.float32))
+    return label
+
+
 def _predict_with_model(model: Optional[NNModel], *, require_finite: bool = False, **data):
     if model is None or model.input_shape is None:
         raise RuntimeError("Model not initialized. Call init_model() before predict().")
 
     model = cast(NNModel, model)
     input_shape = cast(Tuple[int, ...], model.input_shape)
-    iter_args = (range(dim) for dim in input_shape)
-    tensor_input = np.zeros(input_shape).tolist()
-    data_name_prefix = "v_"
-    for index in itertools.product(*iter_args):
-        if len(index) == 2:
-            tensor_input[index[0]][index[1]] = data[f"{data_name_prefix}{index[0]}_{index[1]}"]
-        elif len(index) == 3:
-            tensor_input[index[0]][index[1]][index[2]] = data[
-                f"{data_name_prefix}{index[0]}_{index[1]}_{index[2]}"
-            ]
-        elif len(index) == 4:
-            tensor_input[index[0]][index[1]][index[2]][index[3]] = data[
-                f"{data_name_prefix}{index[0]}_{index[1]}_{index[2]}_{index[3]}"
-            ]
+    tensor_input = _build_tensor_input(input_shape, data)
 
     if require_finite and not np.isfinite(np.asarray(tensor_input, dtype=np.float64)).all():
         raise ValueError("Validation input contains NaN or Inf")
@@ -235,10 +307,6 @@ def predict_search(**data):
     return _predict_with_model(searchModel, **data)
 
 
-def predict_validation(**data):
-    return _predict_with_model(validationModel, require_finite=True, **data)
-
-
 __all__ = [
     "AddClsToken",
     "AddPositionEmbedding",
@@ -246,7 +314,9 @@ __all__ = [
     "ExtractClsToken",
     "SequencePooling",
     "init_model",
+    "init_reference_model",
     "predict",
+    "predict_reference",
+    "predict_reference_array",
     "predict_search",
-    "predict_validation",
 ]

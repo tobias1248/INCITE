@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import logging
 import inspect
-from typing import Any, Dict, Optional, Tuple
-
-import numpy as np
+import time
+from typing import Any, Dict, Tuple
 
 from libct.executor.legacy import LegacyConcolicExecutor
 from libct.utils import unwrap
@@ -33,38 +32,42 @@ class CandidateExecutionRunner:
 
         return {key: _sanitize(val) for key, val in inputs.items()}
 
-    def predict_validation(self, inputs: Dict[str, Any]) -> Any:
+    def predict_reference(self, inputs: Dict[str, Any], *, phase: str) -> Any:
+        recorder = self._recorder()
         primitive_inputs = self._engine._clone_primitive_inputs(inputs)
-        val_args, val_kwargs = self._engine._complete_primitive_arguments(
-            self._engine.validation_execute,
-            primitive_inputs,
-        )
-        return self._engine.validation_execute(*val_args, **val_kwargs)
+        started_at = time.perf_counter()
+        try:
+            ref_args, ref_kwargs = self._engine._complete_primitive_arguments(
+                self._engine.reference_execute,
+                primitive_inputs,
+            )
+            return self._engine.reference_execute(*ref_args, **ref_kwargs)
+        except Exception as exc:
+            recorder.mark_error(
+                "reference_prediction_failure",
+                str(exc),
+                phase=phase,
+            )
+            raise
+        finally:
+            recorder.record_reference_prediction(
+                time.perf_counter() - started_at,
+                phase=phase,
+            )
 
     def validate_sat_candidate(self, inputs: Dict[str, Any]) -> bool:
         recorder = self._recorder()
-        attack_label = self._engine._predict_validation(inputs)
+        attack_label = self._engine._predict_reference(
+            inputs,
+            phase="candidate_reference",
+        )
         if recorder.original_label != attack_label:
             log.warning(
-                "[RESULT_CHANGE] Original result %s differs from validated candidate %s",
+                "[RESULT_CHANGE] Keras original label %s differs from candidate label %s",
                 recorder.original_label,
                 attack_label,
             )
             recorder.find_adversarial_input(inputs, attack_label)
-            return True
-        return False
-
-    def search_result_changes_label(self, inputs: Dict[str, Any], result: Any) -> bool:
-        recorder = self._recorder()
-        if result in (self._engine.Timeout, self._engine.Exception, self._engine.Unpicklable):
-            return False
-        if recorder.original_label != result:
-            log.warning(
-                "[RESULT_CHANGE] Original result %s differs from search candidate %s",
-                recorder.original_label,
-                result,
-            )
-            recorder.find_adversarial_input(inputs, result)
             return True
         return False
 
@@ -73,68 +76,18 @@ class CandidateExecutionRunner:
         self._engine.previous_result = result
         return True
 
-    def candidate_execution_can_validate(self) -> bool:
-        return bool(getattr(self._engine, "reuse_search_result_for_validation", False)) and not bool(
-            getattr(self._engine, "single_coverage", False)
-        )
-
-    def is_valid_label_result(self, result: Any) -> bool:
-        if (
-            result is self._engine.Timeout
-            or result is self._engine.Exception
-            or result is self._engine.Unpicklable
-        ):
-            return False
-        if result is None:
-            return False
-        if isinstance(result, (bool, np.bool_)):
-            return False
-        return isinstance(result, (int, np.integer))
-
     def run_initial_execution(
         self,
         all_args: Dict[str, Any],
         concolic_dict: Dict[str, Any],
     ) -> None:
         recorder = self._recorder()
-        if not self._engine._candidate_execution_can_validate():
-            recorder.original_label = self._engine._predict_validation(all_args)
-            self._engine.previous_result = recorder.original_label
-            self._engine._one_execution(all_args, concolic_dict)
-            return
-
-        initial_args = all_args.copy()
-        result, constraint_payload = self._engine._one_execution_deferred_constraints(
+        recorder.original_label = self._engine._predict_reference(
             all_args,
-            concolic_dict,
+            phase="original_reference",
         )
-        if self._engine._is_valid_label_result(result):
-            recorder.original_label = result
-            log.info(
-                "[INITIAL-REUSE] idx=%s reused initial search result for original label: %s",
-                self._engine.idx,
-                result,
-            )
-        else:
-            recorder.original_label = self._engine._predict_validation(initial_args)
-            log.warning(
-                "[INITIAL-FALLBACK] idx=%s initial search result was invalid for original label: %s",
-                self._engine.idx,
-                result,
-            )
-
-        if constraint_payload is not None:
-            self._engine._apply_constraint_transfer_payload(constraint_payload)
-        self._engine.in_out.append((all_args.copy(), result))
-        self._engine._record_result(all_args, result)
-
-    def one_execution_deferred_constraints(
-        self,
-        all_args: Dict[str, Any],
-        concolic_dict: Dict[str, Any],
-    ) -> Tuple[Any, Optional[Any]]:
-        envelope = self._engine._one_execution_concolic_deferred(all_args, concolic_dict)
-        return self._engine._handle_child_envelope_deferred_constraints(all_args, envelope)
+        self._engine.previous_result = recorder.original_label
+        self._engine._one_execution(all_args, concolic_dict)
 
     def one_execution(self, all_args: Dict[str, Any], concolic_dict: Dict[str, Any]) -> bool:
         """Run one concolic+primitive execution pair to advance exploration."""

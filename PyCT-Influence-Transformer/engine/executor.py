@@ -9,8 +9,10 @@ from typing import Any, Callable, Dict, Literal, Optional, Set, Tuple
 
 import libct.explore
 
+from libct.record import ConcolicTestRecorder
 from libct.utils import (
     get_function_from_module_and_funcname,
+    get_in_dict_shape,
     get_module_from_rootdir_and_modpath,
 )
 from tasks.paths import get_save_dir_from_save_exp
@@ -20,13 +22,13 @@ MODEL_ROOT = os.path.join(PYCT_ROOT, "model")
 VALID_COLLECT_MODES = {"priority_queue", "queue", "stack"}
 DEFAULT_SOLVER = "cvc5"
 ModelRuntimeKey = Tuple[str, bool, float]
-InitializedPredictorKey = Tuple[str, ModelRuntimeKey]
 PredictorCacheEntry = Tuple[
     ModuleType,
     Callable[..., Any],
     Callable[..., Any],
     Callable[..., Any],
-    Set[InitializedPredictorKey],
+    Callable[..., Any],
+    Set[ModelRuntimeKey],
 ]
 _PREDICTOR_CACHE: Dict[Tuple[str, str], PredictorCacheEntry] = {}
 
@@ -36,7 +38,7 @@ class ExplorerConfig:
     model_path: str
     module: ModuleType
     execute: Callable[..., Any]
-    validation_execute: Callable[..., Any]
+    reference_execute: Callable[..., Any]
     solver: str = DEFAULT_SOLVER
     timeout: int = 900
     constraint_build_timeout: bool = True
@@ -54,7 +56,6 @@ class ExplorerConfig:
     symbolic_path_threshold: Optional[int] = None
     ternary_simplification: bool = False
     ternary_threshold_scale: float = 0.75
-    reuse_search_result_for_validation: bool = False
 
 
 def _resolve_model_artifacts(model_name: str) -> tuple[str, str, str]:
@@ -76,14 +77,19 @@ def _load_predictor(
     if cached is not None:
         return cached
     module = get_module_from_rootdir_and_modpath(root, module_path)
+    func_init_reference_model = get_function_from_module_and_funcname(
+        module,
+        "init_reference_model",
+    )
     func_init_model = get_function_from_module_and_funcname(module, "init_model")
     execute_search = get_function_from_module_and_funcname(module, "predict_search")
-    execute_validation = get_function_from_module_and_funcname(module, "predict_validation")
+    execute_reference = get_function_from_module_and_funcname(module, "predict_reference")
     entry: PredictorCacheEntry = (
         module,
+        func_init_reference_model,
         func_init_model,
         execute_search,
-        execute_validation,
+        execute_reference,
         set(),
     )
     _PREDICTOR_CACHE[cache_key] = entry
@@ -155,12 +161,31 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
         input_name=explorer_cfg.input_name,
         module_=explorer_cfg.module,
         execute_=explorer_cfg.execute,
-        validation_execute_=explorer_cfg.validation_execute,
+        reference_execute_=explorer_cfg.reference_execute,
         only_first_forward=explorer_cfg.only_first_forward,
         shap_score_alpha=explorer_cfg.shap_score_alpha,
         symbolic_path_threshold=explorer_cfg.symbolic_path_threshold,
-        reuse_search_result_for_validation=explorer_cfg.reuse_search_result_for_validation,
     )
+
+
+def _build_initialization_error_result(
+    *,
+    save_dir: Optional[str],
+    input_name: Optional[str],
+    in_dict: Dict[str, Any],
+    extra_meta: Dict[str, Any],
+    error_type: str,
+    error_reason: str,
+    error_phase: str,
+) -> tuple[int, ConcolicTestRecorder]:
+    recorder = ConcolicTestRecorder(save_dir, input_name)
+    recorder.extra_meta.update(extra_meta)
+    recorder.input_shape = get_in_dict_shape(in_dict)
+    recorder.start()
+    recorder.mark_error(error_type, error_reason, phase=error_phase)
+    recorder.save_original_input(in_dict)
+    recorder.end(completed=False)
+    return 0, recorder
 
 
 def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
@@ -187,37 +212,6 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         bool(ternary_simplification),
         float(ternary_threshold_scale),
     )
-    # TODO: 為什麼需要傳這個0.75？
-    # 應該是為了區分search和validation的runtime key，但這樣寫有點奇怪，未來可以考慮改成更明確的方式
-    validation_runtime_key: ModelRuntimeKey = (
-        model_path,
-        False,
-        0.75,
-    )
-
-    module, func_init_model, execute_search, execute_validation, initialized_models = _load_predictor(module_path, root)
-    if ("validation", validation_runtime_key) not in initialized_models:
-        func_init_model(
-            model_path,
-            ternary_simplification=False,
-            ternary_threshold_scale=0.75,
-            role="validation",
-        )
-        initialized_models.add(("validation", validation_runtime_key))
-
-    if ternary_simplification:
-        if ("search", search_runtime_key) not in initialized_models:
-            func_init_model(
-                model_path,
-                ternary_simplification=ternary_simplification,
-                ternary_threshold_scale=ternary_threshold_scale,
-                role="search",
-            )
-            initialized_models.add(("search", search_runtime_key))
-        execute = execute_search
-    else:
-        execute = execute_validation
-
     attack_mode = popped_log_attack_mode or (save_exp.get("attack_mode") if save_exp else "unknown")
     save_dir, smtdir, input_name = _prepare_experiment_paths(
         model_name,
@@ -233,28 +227,6 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         ternary_threshold_scale,
     )
 
-    explorer_cfg = ExplorerConfig(
-        model_path=model_path,
-        module=module,
-        execute=execute,
-        validation_execute=execute_validation,
-        timeout=timeout,
-        constraint_build_timeout=constraint_build_timeout,
-        constraint_build_timeout_seconds=constraint_build_timeout_seconds,
-        solver_run_timeout=solver_run_timeout,
-        verbose=verbose,
-        smtdir=smtdir,
-        save_dir=save_dir,
-        input_name=input_name,
-        only_first_forward=only_first_forward,
-        shap_score_alpha=score_alpha,
-        symbolic_path_threshold=symbolic_path_threshold,
-        ternary_simplification=ternary_simplification,
-        ternary_threshold_scale=ternary_threshold_scale,
-        reuse_search_result_for_validation=not bool(ternary_simplification),
-    )
-
-    engine = _build_explorer(explorer_cfg)
     extra_meta = {
         "model_name": model_name,
         "attack_mode": attack_mode,
@@ -269,6 +241,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
             if constraint_build_timeout_seconds is not None
             else None
         ),
+        "label_source": "keras_model_predict",
+        "search_model": "NNModel",
     }
     if random_seed is not None:
         extra_meta["random_seed"] = int(random_seed)
@@ -287,6 +261,69 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         ):
             if key in save_exp:
                 extra_meta[key] = save_exp.get(key)
+
+    (
+        module,
+        func_init_reference_model,
+        func_init_model,
+        execute_search,
+        execute_reference,
+        initialized_models,
+    ) = _load_predictor(module_path, root)
+    try:
+        func_init_reference_model(model_path)
+    except Exception as exc:
+        return _build_initialization_error_result(
+            save_dir=save_dir,
+            input_name=input_name,
+            in_dict=in_dict,
+            extra_meta=extra_meta,
+            error_type="reference_prediction_failure",
+            error_reason=str(exc),
+            error_phase="reference_model_load",
+        )
+
+    if search_runtime_key not in initialized_models:
+        try:
+            func_init_model(
+                model_path,
+                ternary_simplification=ternary_simplification,
+                ternary_threshold_scale=ternary_threshold_scale,
+                role="search",
+            )
+        except Exception as exc:
+            return _build_initialization_error_result(
+                save_dir=save_dir,
+                input_name=input_name,
+                in_dict=in_dict,
+                extra_meta=extra_meta,
+                error_type="search_model_initialization_failure",
+                error_reason=str(exc),
+                error_phase="search_model_initialization",
+            )
+        initialized_models.add(search_runtime_key)
+
+    explorer_cfg = ExplorerConfig(
+        model_path=model_path,
+        module=module,
+        execute=execute_search,
+        reference_execute=execute_reference,
+        timeout=timeout,
+        constraint_build_timeout=constraint_build_timeout,
+        constraint_build_timeout_seconds=constraint_build_timeout_seconds,
+        solver_run_timeout=solver_run_timeout,
+        verbose=verbose,
+        smtdir=smtdir,
+        save_dir=save_dir,
+        input_name=input_name,
+        only_first_forward=only_first_forward,
+        shap_score_alpha=score_alpha,
+        symbolic_path_threshold=symbolic_path_threshold,
+        ternary_simplification=ternary_simplification,
+        ternary_threshold_scale=ternary_threshold_scale,
+    )
+
+    engine = _build_explorer(explorer_cfg)
     engine.extra_meta = extra_meta
 
     result: tuple[int, Any] = engine.explore(

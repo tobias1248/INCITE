@@ -69,18 +69,15 @@ def _is_coordinate_in_bounds(shape: Tuple[int, ...], coordinate: PixelCoordinate
     return all(0 <= axis < shape[d] for d, axis in enumerate(coordinate))
 
 
-def _forward(array: np.ndarray) -> np.ndarray:
-    """Forward the NNModel and return logits as a 1D numpy array."""
-    outputs = predictor_runtime.myModel.forward(array.tolist())
-    logits = np.asarray(outputs, dtype=np.float32)
-    if logits.ndim > 1:
-        logits = logits.reshape(-1)
-    return logits
+def _forward(array: np.ndarray) -> Tuple[np.ndarray, int]:
+    """Forward the authoritative Keras model and return its output and label."""
+    outputs, label = predictor_runtime.predict_reference_array(array)
+    return np.asarray(outputs, dtype=np.float32).reshape(-1), label
 
 
 def _ensure_model_loaded(model_name: str) -> None:
     model_path = Path("model") / f"{model_name}.h5"
-    predictor_runtime.init_model(str(model_path))
+    predictor_runtime.init_reference_model(str(model_path))
 
 
 def run_random_assign_step(
@@ -124,10 +121,8 @@ def run_random_assign_step(
     if not assignments:
         raise ValueError("No in-bounds attack pixels identified; cannot perform random assign.")
 
-    logits_before = _forward(original)
-    logits_after = _forward(modified)
-    pred_before = int(np.argmax(logits_before))
-    pred_after = int(np.argmax(logits_after))
+    logits_before, pred_before = _forward(original)
+    logits_after, pred_after = _forward(modified)
 
     return RandomAssignResult(
         model_name=model_name,
@@ -200,6 +195,8 @@ def write_experiment_artifacts(result: RandomAssignResult) -> None:
     stats = {
         "meta": {
             "mode": "random_assign",
+            "label_source": "keras_model_predict",
+            "search_model": None,
             "pixel_source": result.pixel_source,
             "ton": result.ton,
             "idx": result.idx,

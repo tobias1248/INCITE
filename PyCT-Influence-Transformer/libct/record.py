@@ -36,6 +36,8 @@ class ConcolicTestRecorder:
         self.execute_cpu_time = []
         self.solve_constraint_wall_time = []
         self.solve_constraint_cpu_time = []
+        self.reference_prediction_wall_time = []
+        self.reference_prediction_phase_counts = {}
         self.sat_inputs = []
         
         # total
@@ -102,6 +104,12 @@ class ConcolicTestRecorder:
     def execution_end(self):
         self.execute_wall_time.append(time.time() - self._execute_wall_time)
         self.execute_cpu_time.append(time.process_time() - self._execute_cpu_time)
+
+    def record_reference_prediction(self, wall_time, *, phase):
+        self.reference_prediction_wall_time.append(float(wall_time))
+        self.reference_prediction_phase_counts[phase] = (
+            self.reference_prediction_phase_counts.get(phase, 0) + 1
+        )
         
 
     def solve_constr_start(self):
@@ -458,6 +466,15 @@ class ConcolicTestRecorder:
         )
         summary["execute_cpu_time_total"] = (
             sum(self.execute_cpu_time) if self.execute_cpu_time else None
+        )
+        summary["reference_prediction_count"] = len(self.reference_prediction_wall_time)
+        summary["reference_prediction_wall_time_total"] = (
+            sum(self.reference_prediction_wall_time)
+            if self.reference_prediction_wall_time
+            else 0.0
+        )
+        summary["reference_prediction_phase_counts"] = dict(
+            self.reference_prediction_phase_counts
         )
         summary["solve_constraint_wall_time_total"] = (
             sum(self.solve_constraint_wall_time) if self.solve_constraint_wall_time else None
