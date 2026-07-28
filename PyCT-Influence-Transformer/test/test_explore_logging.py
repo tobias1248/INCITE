@@ -136,7 +136,6 @@ class ExploreLoggingTests(unittest.TestCase):
         engine.original_args = {}
         engine.only_first_forward = True
         engine.single_coverage = True
-        engine.in_out = []
         engine.path = None
         engine.deadcode = set()
         engine.module_lines_range = set()
@@ -145,7 +144,6 @@ class ExploreLoggingTests(unittest.TestCase):
         engine.target_file = "test.py"
         engine.file_as_total = False
         engine.can_use_concolic_wrapper = False
-        engine.previous_result = None
         engine.original_args = {}
         return engine
 

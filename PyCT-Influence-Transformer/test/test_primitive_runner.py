@@ -63,7 +63,6 @@ class _Engine:
         self.target_file = "target.py"
         self.coverage_data = "old-coverage"
         self.coverage_accumulated_missing_lines = {}
-        self.in_out = []
 
 
 class _PipeFactory:
@@ -112,7 +111,7 @@ def test_primitive_runner_parent_updates_coverage_state_and_cleans_up(monkeypatc
     assert engine.function_lines_range == {2, 3}
     assert engine.coverage_data == "new-coverage"
     assert engine.coverage_accumulated_missing_lines == {"target.py": {3}}
-    assert engine.in_out == [({"x": 1}, "answer")]
+    assert not hasattr(engine, "in_out")
     assert process_holder[0].started is True
     assert process_holder[0].killed is True
     assert all(
@@ -158,7 +157,7 @@ def test_primitive_runner_ready_timeout_returns_timeout_and_preserves_fallback(m
     assert engine.function_lines_range == {2}
     assert engine.coverage_data == "old-coverage"
     assert engine.coverage_accumulated_missing_lines == {"target.py": {1, 2}}
-    assert engine.in_out == [({"x": 1}, engine.Timeout)]
+    assert not hasattr(engine, "in_out")
     assert process_holder[0].killed is True
     assert all(
         conn.closed

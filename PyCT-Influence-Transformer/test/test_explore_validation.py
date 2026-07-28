@@ -108,15 +108,57 @@ def _make_engine(reference_execute):
     engine.symbolic_path_threshold = None
     engine.symbolic_enabled = True
     engine.symbolic_disabled_at_path_len = None
-    engine.previous_result = None
     engine.original_args = {}
     engine.var_to_types = {}
     engine.concolic_name_list = []
     engine.concolic_flag_dict = {}
     engine.input_name = "case_0"
     engine.save_dir = None
-    engine.in_out = []
     return engine
+
+
+def test_statsdir_keeps_solver_stats_without_legacy_inputs_pickle(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    statsdir = tmp_path / "stats"
+    statsdir.mkdir()
+    engine = explore.ExplorationEngine.__new__(explore.ExplorationEngine)
+    engine.save_dir = None
+    engine.input_name = "case_0"
+    engine.only_first_forward = False
+    engine.shap_score_alpha = None
+    engine.symbolic_path_threshold = None
+    engine.reference_execute = lambda **_data: 0
+    engine.statsdir = str(statsdir)
+
+    def fake_execution_loop(*_args, **_kwargs):
+        explore.recorder.start()
+        return False
+
+    monkeypatch.setattr(engine, "_execution_loop", fake_execution_loop)
+    monkeypatch.setattr(engine, "_can_use_concolic_wrapper", lambda *_args: False)
+    monkeypatch.setattr(explore.Solver, "ctr_size", {}, raising=False)
+    explore.Solver.stats = {
+        "sat_number": 0,
+        "sat_time": 0,
+        "unsat_number": 0,
+        "unsat_time": 0,
+        "otherwise_number": 0,
+        "otherwise_time": 0,
+    }
+
+    engine.explore(
+        "test/test_candidate_execution_runner",
+        {},
+        root=str(ROOT),
+        funcname="unused",
+        collect_constraints_with="queue",
+        idx=0,
+    )
+
+    assert (statsdir / "smt.csv").is_file()
+    assert not (statsdir / "inputs.pkl").exists()
 
 
 class _FakeConn:

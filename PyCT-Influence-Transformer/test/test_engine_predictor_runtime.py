@@ -13,9 +13,24 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from engine import predictor_runtime as predictor
+from libct.constraint import Constraint
+from libct.path import PathToConstraint
+from libct.position import register_current_indices, register_current_layer_number
+from libct.utils import ConcolicObject
 
 
 MODEL_PATH = ROOT / 'model' / 'simple_mnist_m6_09585.h5'
+
+
+class _BranchEngine:
+    symbolic_enabled = True
+
+    def __init__(self) -> None:
+        self.path = PathToConstraint()
+        self.pushed = []
+
+    def push_constraint(self, constraint, position) -> None:
+        self.pushed.append((constraint, position))
 
 
 def _reset_predictor_state() -> None:
@@ -323,6 +338,56 @@ def test_predict_search_and_reference_use_role_specific_models() -> None:
     assert predictor.predict_reference(v_0_0=0.1, v_0_1=0.2) == 0
     assert reference_calls[0][0].shape == (1, 1, 2)
     assert reference_calls[0][1] == 0
+
+
+def test_predict_search_runs_forward_through_final_binary_class_branch(monkeypatch) -> None:
+    Constraint.global_constraints.clear()
+    PathToConstraint.root_constraint = None
+    register_current_layer_number(7)
+    register_current_indices((0,))
+    engine = _BranchEngine()
+    forwarded = []
+
+    def forward(tensor_input):
+        forwarded.append(tensor_input)
+        return [tensor_input[0][0]]
+
+    monkeypatch.setattr(
+        predictor,
+        "searchModel",
+        SimpleNamespace(input_shape=(1, 1), forward=forward),
+    )
+    symbolic_input = ConcolicObject(0.8, "x_VAR", engine)
+
+    assert predictor.predict_search(v_0_0=symbolic_input) == 1
+    assert len(forwarded) == 1
+    assert forwarded[0][0][0] is symbolic_input
+    assert [position for _, position in engine.pushed] == [(7, (0,))]
+
+
+def test_predict_search_runs_forward_through_final_multiclass_branch(monkeypatch) -> None:
+    Constraint.global_constraints.clear()
+    PathToConstraint.root_constraint = None
+    register_current_layer_number(8)
+    register_current_indices((1,))
+    engine = _BranchEngine()
+    forwarded = []
+
+    def forward(tensor_input):
+        forwarded.append(tensor_input)
+        return [0.1, tensor_input[0][0]]
+
+    monkeypatch.setattr(
+        predictor,
+        "searchModel",
+        SimpleNamespace(input_shape=(1, 1), forward=forward),
+    )
+    symbolic_input = ConcolicObject(0.9, "x_VAR", engine)
+
+    assert predictor.predict_search(v_0_0=symbolic_input) == 1
+    assert len(forwarded) == 1
+    assert forwarded[0][0][0] is symbolic_input
+    assert [position for _, position in engine.pushed] == [(8, (1,))]
 
 
 def test_predict_reference_binary_output_uses_threshold() -> None:
