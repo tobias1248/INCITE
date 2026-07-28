@@ -8,6 +8,7 @@ import numpy as np
 from datasets.common import enable_attack_pixels
 from datasets.mnist import MnistDataset
 from explainability.pixel_provider import JsonShapPixelProvider
+from explainability.shap_contract import DEFAULT_TARGET_CLASS_SHAP_ROOT
 from explainability.shap_calculator import ShapValuesCalculator
 from tasks.builders.common import (
     QueueMode,
@@ -37,7 +38,7 @@ def mnist_transformer_shap(
 
     pixel_provider = JsonShapPixelProvider(
         model_name=model_name,
-        shap_root="shap_value_all_layer",
+        shap_root=DEFAULT_TARGET_CLASS_SHAP_ROOT,
         coordinate_dims=3,
         coordinate_bounds=sample_shape,
     )
@@ -202,7 +203,7 @@ def mnist_transformer_shap_calculate_all(
     *,
     force_refresh: bool = False,
     explainer_type: str = "gradient",
-    output_root: str = "shap_value_all_layer",
+    output_root: str = DEFAULT_TARGET_CLASS_SHAP_ROOT,
 ) -> List[Dict[str, object]]:
     dataset = MnistDataset()
     indices = normalize_indices(first_n_img)

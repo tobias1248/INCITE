@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence
 
 from datasets.keras_cache import get_keras_datasets_dir
+from explainability.shap_contract import DEFAULT_TARGET_CLASS_SHAP_ROOT
 
 
 FindSpec = Callable[[str], object]
@@ -71,8 +72,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--shap-root",
-        default="shap_value_all_layer",
-        help="Directory containing SHAP artifacts (default: shap_value_all_layer).",
+        default=DEFAULT_TARGET_CLASS_SHAP_ROOT,
+        help=(
+            "Directory containing target-class SHAP artifacts "
+            f"(default: {DEFAULT_TARGET_CLASS_SHAP_ROOT})."
+        ),
     )
     parser.add_argument(
         "--output-dir",

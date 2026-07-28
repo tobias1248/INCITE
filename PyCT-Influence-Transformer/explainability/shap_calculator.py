@@ -15,6 +15,14 @@ from tensorflow.keras import Model
 from tensorflow.keras.layers import Input, Reshape
 from tensorflow.keras.models import Sequential
 
+from explainability.shap_contract import (
+    DEFAULT_TARGET_CLASS_SHAP_ROOT,
+    ShapCacheContractError,
+    build_cache_identity,
+    build_cache_metadata,
+    load_target_class_cache,
+    select_target_class_values,
+)
 from libct.constraint import Constraint
 from modeling.keras_loader import load_model_with_compat as shared_load_model_with_compat
 
@@ -60,7 +68,7 @@ class ShapValuesCalculator:
         input_data: np.ndarray,
         idx: int,
         explainer_type: Literal["gradient", "kernel"] = "gradient",
-        output_root: str = "shap_value_all_layer",
+        output_root: str = DEFAULT_TARGET_CLASS_SHAP_ROOT,
     ) -> None:
         self.model_path = model_path
         self.model_name = Path(model_path).stem
@@ -81,8 +89,20 @@ class ShapValuesCalculator:
             model_path,
             input_shape_override=inferred_input_shape,
         )
+        self._target_class, self._class_count = self._predict_target_class()
         self._shap_values: Dict[str, float] | None = None
-        self._cache_meta = self._read_background_meta()
+        background_settings = self._read_background_settings()
+        self._cache_meta = build_cache_metadata(
+            case_index=self.idx,
+            model_path=self.model_path,
+            input_data=np.asarray(self.input),
+            background_dataset=np.asarray(self.background_dataset),
+            explainer_type=self.explainer_type,
+            target_class=self._target_class,
+            class_count=self._class_count,
+            background_per_class=background_settings.get("background_per_class"),
+            background_seed=background_settings.get("background_seed"),
+        )
         self._tracked_layers = [
             layer
             for layer in self._model.layers
@@ -107,6 +127,10 @@ class ShapValuesCalculator:
     @property
     def layer_count(self) -> int:
         return self._layer_count
+
+    @property
+    def target_class(self) -> int:
+        return self._target_class
 
     @property
     def cache_path(self) -> Path:
@@ -143,9 +167,8 @@ class ShapValuesCalculator:
                     compute_seconds=0.0,
                 )
                 return self._shap_values
-            except (json.JSONDecodeError, OSError):
-                # fall back to recomputing if cache is corrupt
-                pass
+            except ShapCacheContractError as exc:
+                log.warning("Ignoring incompatible SHAP cache %s: %s", self.cache_path, exc)
 
         start = time.perf_counter()
         shap_values = self._compute_shap_values()
@@ -172,29 +195,29 @@ class ShapValuesCalculator:
             "was_cached": bool(was_cached),
             "compute_seconds": float(compute_seconds),
             "output_path": str(self.cache_path),
+            "schema_version": self._cache_meta["schema_version"],
+            "attribution_target": self._cache_meta["attribution_target"],
+            "target_class": self._target_class,
         }
 
     def _load_cache(self) -> Dict[str, float]:
-        with self.cache_path.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        if isinstance(data, dict) and "values" in data:
-            self._cache_meta = data.get("__meta__") or self._cache_meta
-            values = data.get("values", {})
-        else:
-            values = data
-        if not isinstance(values, dict):
-            raise TypeError(f"Expected SHAP cache {self.cache_path} to be a JSON dict.")
-        return {str(k): float(v) for k, v in values.items()}
+        _, values = load_target_class_cache(
+            self.cache_path,
+            expected_identity=self._cache_meta,
+            case_index=self.idx,
+        )
+        return values
 
     def _save_cache(self, shap_values: Dict[str, float]) -> None:
-        with self.cache_path.open("w", encoding="utf-8") as handle:
-            if self._cache_meta:
-                payload = {"__meta__": self._cache_meta, "values": shap_values}
-                json.dump(payload, handle)
-            else:
-                json.dump(shap_values, handle)
+        payload = {"__meta__": self._cache_meta, "values": shap_values}
+        temp_path = self.cache_path.with_name(
+            f".{self.cache_path.name}.{os.getpid()}.tmp"
+        )
+        with temp_path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        temp_path.replace(self.cache_path)
 
-    def _read_background_meta(self) -> Dict[str, int]:
+    def _read_background_settings(self) -> Dict[str, int]:
         meta: Dict[str, int] = {}
         try:
             meta["background_per_class"] = int(os.environ.get("PYCT_BG_PER_CLASS", ""))
@@ -205,6 +228,17 @@ class ShapValuesCalculator:
         except ValueError:
             pass
         return meta
+
+    def _predict_target_class(self) -> Tuple[int, int]:
+        predictions = np.asarray(self._model.predict(self.input, verbose=0))
+        if not np.isfinite(predictions.astype(np.float64, copy=False)).all():
+            raise ValueError("Keras model output contains NaN or Inf")
+        if predictions.ndim != 2 or predictions.shape[0] != 1 or predictions.shape[1] < 2:
+            raise ValueError(
+                "Target-class SHAP requires one multiclass prediction; "
+                f"got output shape {predictions.shape}"
+            )
+        return int(np.argmax(predictions[0])), int(predictions.shape[1])
 
     def _compute_shap_values(self) -> Dict[str, float]:
         shap_values: Dict[str, float] = {}
@@ -289,11 +323,9 @@ class ShapValuesCalculator:
 
             for act in input_acts:
                 tape.watch(act)
-            if logits.shape.rank is not None and logits.shape[-1] == 1:
-                target = tf.reduce_mean(logits[:, 0])
-            else:
-                top_class = tf.cast(tf.argmax(logits[0]), tf.int32)
-                target = tf.reduce_mean(tf.gather(logits, top_class, axis=1))
+            target = tf.reduce_mean(
+                tf.gather(logits, self._target_class, axis=1)
+            )
 
         grads = tape.gradient(target, list(input_acts))
 
@@ -330,9 +362,13 @@ class ShapValuesCalculator:
 
             explainer = shap.GradientExplainer(model, bg_for_shap)
             gradients = explainer.shap_values(input_data)
-            average_gradients = self._reduce_gradient_shap_values(gradients, input_data)
+            target_values = select_target_class_values(
+                gradients,
+                target_class=self._target_class,
+                batched_input_shape=tuple(int(dim) for dim in input_data.shape),
+            )
 
-            for indices, value in np.ndenumerate(average_gradients):
+            for indices, value in np.ndenumerate(target_values):
                 shap_values[
                     self.get_position_key(layer_number - 1, indices)
                 ] = float(value)
@@ -344,7 +380,7 @@ class ShapValuesCalculator:
             kernel_background = background_dataset
 
             if should_flatten:
-                original_shape = input_data.shape
+                original_shape = tuple(int(dim) for dim in input_data.shape[1:])
                 (
                     kernel_model,
                     kernel_input,
@@ -354,33 +390,21 @@ class ShapValuesCalculator:
 
             explainer = shap.KernelExplainer(kernel_model, kernel_background)
             kernel_shap_values = explainer.shap_values(kernel_input)
+            target_values = select_target_class_values(
+                kernel_shap_values,
+                target_class=self._target_class,
+                batched_input_shape=tuple(int(dim) for dim in kernel_input.shape),
+            )
 
-            for idx, value in np.ndenumerate(kernel_shap_values):
-                flat_index = idx[1]
+            for idx, value in np.ndenumerate(target_values):
+                flat_index = idx[0]
                 if should_flatten and original_shape is not None:
                     indices = self._unflatten_index(flat_index, original_shape)
                 else:
-                    indices = (flat_index,)
+                    indices = idx
                 shap_values[
                     self.get_position_key(layer_number - 1, indices)
                 ] = float(value)
-
-    @staticmethod
-    def _reduce_gradient_shap_values(
-        gradients: np.ndarray | list[np.ndarray],
-        input_data: np.ndarray,
-    ) -> np.ndarray:
-        if isinstance(gradients, list):
-            grad_arr = np.asarray(gradients)
-            # average over output dimensions (classes/heads)
-            grad_arr = np.mean(grad_arr, axis=0)
-        else:
-            grad_arr = np.asarray(gradients)
-        # remove batch axis
-        if grad_arr.ndim >= 1 and input_data.ndim >= 1 and grad_arr.shape[0] == input_data.shape[0]:
-            grad_arr = np.mean(grad_arr, axis=0)
-        grad_arr = np.squeeze(grad_arr)
-        return grad_arr
 
     @staticmethod
     def without_first_layer(original_model: Sequential | Model) -> Sequential | Model:
@@ -486,15 +510,8 @@ def _infer_layer_count_from_cached_values(shap_values: Dict[str, float]) -> int:
 
 
 def _load_cached_shap_values(cache_path: Path) -> Dict[str, float]:
-    with cache_path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
-    if isinstance(data, dict) and "values" in data:
-        values = data.get("values", {})
-    else:
-        values = data
-    if not isinstance(values, dict):
-        raise TypeError(f"Expected SHAP cache {cache_path} to be a JSON dict.")
-    return {str(k): float(v) for k, v in values.items()}
+    _, values = load_target_class_cache(cache_path)
+    return values
 
 
 class ShapValuesComparator:
@@ -509,14 +526,25 @@ class ShapValuesComparator:
         idx,
         shap_value_pre_calculated,
         explainer_type: Literal["gradient", "kernel"] = "gradient",
-        output_root: str = "shap_value_all_layer",
+        output_root: str = DEFAULT_TARGET_CLASS_SHAP_ROOT,
     ) -> None:
         lookup_mode = str(os.environ.get("PYCT_SHAP_LOOKUP_MODE", "all")).strip().lower()
         self._input_only_lookup = lookup_mode in {"input-only", "input_only", "inputonly"}
         cache_path = Path(output_root) / Path(model_path).stem / f"shap_value_{idx}.json"
         if shap_value_pre_calculated and cache_path.is_file():
             try:
-                self.shap_values = _load_cached_shap_values(cache_path)
+                expected_identity = build_cache_identity(
+                    case_index=idx,
+                    model_path=model_path,
+                    input_data=np.asarray(input),
+                    background_dataset=np.asarray(background_dataset),
+                    explainer_type=explainer_type,
+                )
+                _, self.shap_values = load_target_class_cache(
+                    cache_path,
+                    expected_identity=expected_identity,
+                    case_index=idx,
+                )
                 self.layer_count = _infer_layer_count_from_cached_values(self.shap_values)
                 self.model = None
                 self.calculator = None
@@ -561,13 +589,15 @@ class ShapValuesComparator:
         indices: tuple[int, ...] | list[tuple[int, ...]],
     ) -> float:
         if layer_number == self.layer_count - 1:
-            return float("-inf")
+            return 0.0
         if isinstance(indices, list):
-            total = 0.0
-            for ids in indices:
-                total += self._lookup(layer_number, ids)
-            return total / len(indices)
-        return self._lookup(layer_number, indices)
+            if not indices:
+                return 0.0
+            signed_mean = sum(
+                self._lookup(layer_number, ids) for ids in indices
+            ) / len(indices)
+            return abs(signed_mean)
+        return abs(self._lookup(layer_number, indices))
 
     def _lookup(self, layer_number: int, indices: tuple[int, ...]) -> float:
         key = self.get_position_key(layer_number, indices)

@@ -7,6 +7,7 @@ import numpy as np
 
 from datasets.cifar10 import Cifar10Dataset
 from explainability.pixel_provider import JsonShapPixelProvider
+from explainability.shap_contract import DEFAULT_TARGET_CLASS_SHAP_ROOT
 from explainability.shap_calculator import ShapValuesCalculator
 from tasks.builders.common import (
     QueueMode,
@@ -39,7 +40,7 @@ def cifar10_transformer_shap(
 
     pixel_provider = JsonShapPixelProvider(
         model_name=model_name,
-        shap_root="shap_value_all_layer",
+        shap_root=DEFAULT_TARGET_CLASS_SHAP_ROOT,
         selector=pixel_selector,
         coordinate_dims=3,
         coordinate_bounds=sample_shape,
@@ -206,7 +207,7 @@ def cifar10_cal_shap_specs(
     *,
     force_refresh: bool = False,
     explainer_type: str = "gradient",
-    output_root: str = "shap_value_all_layer",
+    output_root: str = DEFAULT_TARGET_CLASS_SHAP_ROOT,
 ) -> List[Dict[str, object]]:
     dataset = Cifar10Dataset()
     indices = normalize_indices(first_n_img)

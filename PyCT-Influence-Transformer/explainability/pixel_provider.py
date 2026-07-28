@@ -8,6 +8,11 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 
 import numpy as np
 
+from explainability.shap_contract import (
+    DEFAULT_TARGET_CLASS_SHAP_ROOT,
+    load_target_class_cache,
+)
+
 try:
     import h5py
 except Exception:  # pragma: no cover
@@ -249,7 +254,7 @@ class JsonShapPixelProvider:
         self,
         *,
         model_name: str,
-        shap_root: str = "shap_value_all_layer",
+        shap_root: str = DEFAULT_TARGET_CLASS_SHAP_ROOT,
         pixel_prefix: str = "-1",
         selector: str = "pixel-shap",
         coordinate_dims: int | None = 3,
@@ -357,7 +362,11 @@ class JsonShapPixelProvider:
             return self._cache[idx]
 
         path = self._resolve_json_path(idx)
-        shap_values = self._load_json(path)
+        shap_values = self._load_json(
+            path,
+            case_index=idx,
+            expected_model_name=self.model_name,
+        )
         ranked = self._extract_ranked_pixel_items(shap_values, path)
         if self.selector == "patch-shap":
             coords = self._select_patch_shap_coordinates(ranked, path)
@@ -371,20 +380,28 @@ class JsonShapPixelProvider:
     def _resolve_json_path(self, idx: int) -> Path:
         path = self.shap_root / self.model_name / f"shap_value_{idx}.json"
         if not path.is_file():
-            raise FileNotFoundError(f"Missing SHAP cache: {path}")
+            raise FileNotFoundError(
+                f"Missing target-class SHAP cache: {path}. Generate it with "
+                "python -m pyct.shap --force-refresh"
+            )
         return path
 
     @staticmethod
-    def _load_json(path: Path) -> Dict[str, float]:
-        with path.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        if not isinstance(data, dict):
-            raise TypeError(f"Expected SHAP cache {path} to be a JSON dict.")
-        if "values" in data:
-            data = data.get("values", {})
-        if not isinstance(data, dict):
-            raise TypeError(f"Expected SHAP cache {path} to contain a JSON dict of values.")
-        return {str(k): float(v) for k, v in data.items()}
+    def _load_json(
+        path: Path,
+        *,
+        case_index: int | None = None,
+        expected_model_name: str | None = None,
+    ) -> Dict[str, float]:
+        metadata, values = load_target_class_cache(path, case_index=case_index)
+        if expected_model_name is not None:
+            cached_model_name = Path(metadata["model"]["name"]).stem
+            if cached_model_name != Path(expected_model_name).stem:
+                raise ValueError(
+                    f"SHAP cache model={cached_model_name!r}, expected "
+                    f"{Path(expected_model_name).stem!r}"
+                )
+        return values
 
     def _extract_ranked_pixel_items(
         self,
@@ -483,7 +500,7 @@ def build_shap_tensor_from_json(
     indices: Iterable[int],
     *,
     model_name: str,
-    shap_root: str = "shap_value_all_layer",
+    shap_root: str = DEFAULT_TARGET_CLASS_SHAP_ROOT,
     pixel_prefix: str = "-1",
     coordinate_dims: int = 3,
     coordinate_bounds: Tuple[int, ...] | None = None,

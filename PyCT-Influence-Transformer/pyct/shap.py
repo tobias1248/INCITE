@@ -5,6 +5,12 @@ import statistics
 import time
 from typing import Any, Dict, List, Optional, Sequence
 
+from explainability.shap_contract import (
+    DEFAULT_TARGET_CLASS_SHAP_ROOT,
+    TARGET_CLASS_ATTRIBUTION,
+    TARGET_CLASS_SHAP_SCHEMA_VERSION,
+)
+
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     """Parse CLI arguments for SHAP map calculation workflow."""
@@ -36,8 +42,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-root",
-        default="shap_value_all_layer",
-        help="Root directory where SHAP JSON outputs are stored.",
+        default=DEFAULT_TARGET_CLASS_SHAP_ROOT,
+        help=(
+            "Root directory where target-class SHAP JSON outputs are stored "
+            f"(default: {DEFAULT_TARGET_CLASS_SHAP_ROOT})."
+        ),
     )
     parser.add_argument(
         "--force-refresh",
@@ -86,6 +95,8 @@ def build_timing_summary(
         "dataset": dataset,
         "explainer_type": explainer_type,
         "output_root": output_root,
+        "schema_version": TARGET_CLASS_SHAP_SCHEMA_VERSION,
+        "attribution_target": TARGET_CLASS_ATTRIBUTION,
         "total_inputs": len(artifacts),
         "computed": len(compute_times),
         "cached": cached_count,

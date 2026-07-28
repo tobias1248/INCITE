@@ -23,6 +23,7 @@ popped_constraint_position/
 # SHAP artifacts
 shap_value/
 shap_value_all_layer/
+shap_target_class/
 
 # my scripts
 dnnct_transformer_multi_approved.py
