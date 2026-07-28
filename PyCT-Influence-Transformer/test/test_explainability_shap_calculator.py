@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import explainability.shap_calculator as shap_mod
+from explainability.shap_contract import build_cache_metadata
 
 
 class _FakeLayer:
@@ -22,10 +23,16 @@ class _FakeSequential:
     def __init__(self, layer_count: int = 3) -> None:
         self.layers = [_FakeLayer() for _ in range(layer_count)]
 
+    def predict(self, input_data, verbose=0):
+        return np.array([[0.1, 0.8, 0.1]], dtype=np.float32)
+
 
 class _FakeFunctional:
     def __init__(self, layer_count: int = 3) -> None:
         self.layers = [_FakeLayer() for _ in range(layer_count)]
+
+    def predict(self, input_data, verbose=0):
+        return np.array([[0.1, 0.8, 0.1]], dtype=np.float32)
 
 
 class _Shape:
@@ -63,6 +70,11 @@ class _Tensor:
 def _make_calculator(monkeypatch, tmp_path: Path, model) -> shap_mod.ShapValuesCalculator:
     monkeypatch.setattr(shap_mod, "Sequential", _FakeSequential)
     monkeypatch.setattr(shap_mod, "_load_model_with_compat", lambda *args, **kwargs: model)
+    if not hasattr(model, "predict"):
+        model.predict = lambda input_data, verbose=0: np.array(
+            [[0.1, 0.8, 0.1]], dtype=np.float32
+        )
+    (tmp_path / "demo_model.h5").write_bytes(b"fake-model")
     return shap_mod.ShapValuesCalculator(
         model_path=str(tmp_path / "demo_model.h5"),
         background_dataset=np.zeros((2, 2, 2), dtype=np.float32),
@@ -87,7 +99,12 @@ def test_ensure_returns_in_memory_values_without_refresh(monkeypatch, tmp_path: 
 
 def test_ensure_loads_cache_when_present(monkeypatch, tmp_path: Path) -> None:
     calculator = _make_calculator(monkeypatch, tmp_path, _FakeSequential())
-    calculator.cache_path.write_text(json.dumps({"values": {"0_0": 1.5}}), encoding="utf-8")
+    calculator.cache_path.write_text(
+        json.dumps(
+            {"__meta__": calculator._cache_meta, "values": {"0_0": 1.5}}
+        ),
+        encoding="utf-8",
+    )
 
     result = calculator.ensure(assume_cached=True)
 
@@ -107,7 +124,9 @@ def test_ensure_recomputes_when_cache_is_corrupt(monkeypatch, tmp_path: Path) ->
     result = calculator.ensure()
 
     assert result == {"0_1": 2.0}
-    assert json.loads(calculator.cache_path.read_text(encoding="utf-8")) == {"0_1": 2.0}
+    payload = json.loads(calculator.cache_path.read_text(encoding="utf-8"))
+    assert payload["values"] == {"0_1": 2.0}
+    assert payload["__meta__"]["target_class"] == 1
     assert calculator.last_timing["idx"] == 3
     assert calculator.last_timing["computed"] is True
     assert calculator.last_timing["was_cached"] is False
@@ -115,15 +134,37 @@ def test_ensure_recomputes_when_cache_is_corrupt(monkeypatch, tmp_path: Path) ->
     assert calculator.last_timing["output_path"] == str(calculator.cache_path)
 
 
+def test_ensure_recomputes_legacy_class_averaged_cache(
+    monkeypatch, tmp_path: Path
+) -> None:
+    calculator = _make_calculator(monkeypatch, tmp_path, _FakeSequential())
+    calculator.cache_path.write_text(
+        json.dumps({"0_0": 99.0}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(calculator, "_compute_shap_values", lambda: {"0_0": 1.0})
+
+    result = calculator.ensure(assume_cached=True)
+
+    assert result == {"0_0": 1.0}
+    assert calculator.last_timing["computed"] is True
+    payload = json.loads(calculator.cache_path.read_text(encoding="utf-8"))
+    assert payload["__meta__"]["attribution_target"] == "original_prediction"
+
+
 def test_save_cache_writes_meta_wrapper_when_meta_exists(monkeypatch, tmp_path: Path) -> None:
     calculator = _make_calculator(monkeypatch, tmp_path, _FakeSequential())
     calculator._cache_meta = {"background_seed": 7}
+    monkeypatch.setattr(shap_mod.os, "getpid", lambda: 1234)
 
     calculator._save_cache({"0_0": 0.25})
 
     payload = json.loads(calculator.cache_path.read_text(encoding="utf-8"))
     assert payload["__meta__"] == {"background_seed": 7}
     assert payload["values"] == {"0_0": 0.25}
+    assert not calculator.cache_path.with_name(
+        f".{calculator.cache_path.name}.1234.tmp"
+    ).exists()
 
 
 def test_read_background_meta_ignores_invalid_env_values(monkeypatch, tmp_path: Path) -> None:
@@ -132,7 +173,9 @@ def test_read_background_meta_ignores_invalid_env_values(monkeypatch, tmp_path: 
 
     calculator = _make_calculator(monkeypatch, tmp_path, _FakeSequential())
 
-    assert calculator._cache_meta == {}
+    assert "background_per_class" not in calculator._cache_meta
+    assert "background_seed" not in calculator._cache_meta
+    assert calculator.target_class == 1
 
 
 def test_compute_shap_values_functional_model_uses_input_level_plus_branch_influence(
@@ -177,7 +220,9 @@ def test_compute_shap_values_sequential_model_walks_layers(monkeypatch, tmp_path
     assert calls == [0, 1, 2]
 
 
-def test_calculate_layer_shap_values_gradient_records_reduced_values(monkeypatch, tmp_path: Path) -> None:
+def test_calculate_layer_shap_values_gradient_records_target_class_values(
+    monkeypatch, tmp_path: Path
+) -> None:
     calculator = _make_calculator(monkeypatch, tmp_path, _FakeSequential())
     shap_values = {}
 
@@ -187,7 +232,11 @@ def test_calculate_layer_shap_values_gradient_records_reduced_values(monkeypatch
             assert np.array_equal(background[0], np.array([[0.0, 0.0]], dtype=np.float32))
 
         def shap_values(self, input_data):
-            return np.array([[[1.0, 3.0]]], dtype=np.float32)
+            return [
+                np.array([[1.0, 3.0]], dtype=np.float32),
+                np.array([[2.0, 4.0]], dtype=np.float32),
+                np.array([[5.0, 6.0]], dtype=np.float32),
+            ]
 
     monkeypatch.setattr(shap_mod.shap, "GradientExplainer", _FakeGradientExplainer)
 
@@ -199,7 +248,7 @@ def test_calculate_layer_shap_values_gradient_records_reduced_values(monkeypatch
         layer_number=1,
     )
 
-    assert shap_values == {"0_0": 1.0, "0_1": 3.0}
+    assert shap_values == {"0_0": 2.0, "0_1": 4.0}
 
 
 def test_calculate_layer_shap_values_kernel_flattens_multidim_input(monkeypatch, tmp_path: Path) -> None:
@@ -214,7 +263,11 @@ def test_calculate_layer_shap_values_kernel_flattens_multidim_input(monkeypatch,
 
         def shap_values(self, kernel_input):
             assert kernel_input.shape == (1, 4)
-            return np.array([[10.0, 11.0, 12.0, 13.0]], dtype=np.float32)
+            return [
+                np.array([[1.0, 2.0, 3.0, 4.0]], dtype=np.float32),
+                np.array([[10.0, 11.0, 12.0, 13.0]], dtype=np.float32),
+                np.array([[20.0, 21.0, 22.0, 23.0]], dtype=np.float32),
+            ]
 
     monkeypatch.setattr(shap_mod.shap, "KernelExplainer", _FakeKernelExplainer)
     monkeypatch.setattr(
@@ -231,7 +284,9 @@ def test_calculate_layer_shap_values_kernel_flattens_multidim_input(monkeypatch,
         shap_values,
         model="model",
         background_dataset=np.zeros((1, 2, 2, 1), dtype=np.float32),
-        input_data=np.array([[[1.0], [2.0]], [[3.0], [4.0]]], dtype=np.float32),
+        input_data=np.array(
+            [[[[1.0], [2.0]], [[3.0], [4.0]]]], dtype=np.float32
+        ),
         layer_number=1,
     )
 
@@ -243,18 +298,14 @@ def test_calculate_layer_shap_values_kernel_flattens_multidim_input(monkeypatch,
     }
 
 
-def test_reduce_gradient_shap_values_averages_list_and_batch_axes() -> None:
-    gradients = [
-        np.array([[[1.0, 3.0], [5.0, 7.0]]], dtype=np.float32),
-        np.array([[[2.0, 4.0], [6.0, 8.0]]], dtype=np.float32),
-    ]
+def test_predict_target_class_rejects_non_multiclass_output(
+    monkeypatch, tmp_path: Path
+) -> None:
+    model = _FakeSequential()
+    model.predict = lambda input_data, verbose=0: np.array([[0.7]], dtype=np.float32)
 
-    reduced = shap_mod.ShapValuesCalculator._reduce_gradient_shap_values(
-        gradients,
-        input_data=np.zeros((1, 2, 2), dtype=np.float32),
-    )
-
-    assert np.array_equal(reduced, np.array([[1.5, 3.5], [5.5, 7.5]], dtype=np.float32))
+    with np.testing.assert_raises_regex(ValueError, "multiclass prediction"):
+        _make_calculator(monkeypatch, tmp_path, model)
 
 
 def test_calculate_functional_layer_branch_influence_records_per_neuron_values(monkeypatch, tmp_path: Path) -> None:
@@ -271,7 +322,7 @@ def test_calculate_functional_layer_branch_influence_records_per_neuron_values(m
         def __call__(self, tensor, training=False):
             if tensor.array.shape[0] == 2:
                 return [_Tensor([[1.0, 2.0], [3.0, 4.0]]), _Tensor([[0.1, 0.9]])]
-            return [_Tensor([[5.0, 7.0]]), _Tensor([[0.2, 0.8]])]
+            return [_Tensor([[5.0, 7.0]]), _Tensor([[0.8, 0.2]])]
 
     class _FakeGradientTape:
         def __enter__(self):
@@ -284,14 +335,13 @@ def test_calculate_functional_layer_branch_influence_records_per_neuron_values(m
             return None
 
         def gradient(self, target, acts):
+            assert np.isclose(float(target.array), 0.2)
             return [_Tensor([[0.5, 2.0]])]
 
     monkeypatch.setattr(shap_mod, "Model", lambda inputs, outputs: _FakeFeatureModel())
     monkeypatch.setattr(shap_mod.tf, "convert_to_tensor", lambda array, dtype=None: _Tensor(array))
     monkeypatch.setattr(shap_mod.tf, "GradientTape", _FakeGradientTape)
     monkeypatch.setattr(shap_mod.tf, "reduce_mean", lambda tensor, axis=None: _Tensor(np.mean(tensor.array, axis=axis)))
-    monkeypatch.setattr(shap_mod.tf, "argmax", lambda tensor: int(np.argmax(tensor.array)))
-    monkeypatch.setattr(shap_mod.tf, "cast", lambda value, dtype=None: value)
     monkeypatch.setattr(
         shap_mod.tf,
         "gather",
@@ -351,20 +401,43 @@ def test_infer_layer_count_from_cached_values_uses_max_prefix() -> None:
     assert shap_mod._infer_layer_count_from_cached_values({"foo": 1.0}) == 1
 
 
-def test_load_cached_shap_values_supports_plain_and_wrapped_payloads(tmp_path: Path) -> None:
-    plain_path = tmp_path / "plain.json"
-    wrapped_path = tmp_path / "wrapped.json"
-    plain_path.write_text(json.dumps({"0_0": 1, "1_0": 2.5}), encoding="utf-8")
-    wrapped_path.write_text(json.dumps({"values": {"0_0": 1, "1_0": 3}}), encoding="utf-8")
+def test_load_cached_shap_values_requires_target_class_contract(
+    monkeypatch, tmp_path: Path
+) -> None:
+    calculator = _make_calculator(monkeypatch, tmp_path, _FakeSequential())
+    calculator._save_cache({"0_0": 1.0, "1_0": 3.0})
 
-    assert shap_mod._load_cached_shap_values(plain_path) == {"0_0": 1.0, "1_0": 2.5}
-    assert shap_mod._load_cached_shap_values(wrapped_path) == {"0_0": 1.0, "1_0": 3.0}
+    assert shap_mod._load_cached_shap_values(calculator.cache_path) == {
+        "0_0": 1.0,
+        "1_0": 3.0,
+    }
 
 
 def test_shap_values_comparator_fast_path_uses_cached_values(monkeypatch, tmp_path: Path) -> None:
+    model_path = tmp_path / "demo_model.h5"
+    model_path.write_bytes(b"fake-model")
+    input_data = np.zeros((1, 1), dtype=np.float32)
+    background = np.zeros((1, 1), dtype=np.float32)
     cache_dir = tmp_path / "demo_model"
     cache_dir.mkdir(parents=True)
-    (cache_dir / "shap_value_4.json").write_text(json.dumps({"values": {"0_1": 1.25, "1_0_0": 2.0}}), encoding="utf-8")
+    metadata = build_cache_metadata(
+        case_index=4,
+        model_path=model_path,
+        input_data=input_data,
+        background_dataset=background,
+        explainer_type="gradient",
+        target_class=1,
+        class_count=2,
+    )
+    (cache_dir / "shap_value_4.json").write_text(
+        json.dumps(
+            {
+                "__meta__": metadata,
+                "values": {"0_1": 1.25, "1_0_0": 2.0},
+            }
+        ),
+        encoding="utf-8",
+    )
 
     class _UnexpectedCalculator:
         get_position_key = staticmethod(shap_mod.ShapValuesCalculator.get_position_key)
@@ -375,9 +448,9 @@ def test_shap_values_comparator_fast_path_uses_cached_values(monkeypatch, tmp_pa
     monkeypatch.setattr(shap_mod, "ShapValuesCalculator", _UnexpectedCalculator)
 
     comparator = shap_mod.ShapValuesComparator(
-        model_path=str(tmp_path / "demo_model.h5"),
-        background_dataset=np.zeros((1, 1), dtype=np.float32),
-        input=np.zeros((1, 1), dtype=np.float32),
+        model_path=str(model_path),
+        background_dataset=background,
+        input=input_data,
         idx=4,
         shap_value_pre_calculated=True,
         output_root=str(tmp_path),
@@ -430,7 +503,13 @@ def test_shap_values_comparator_lookup_falls_back_to_alt_and_spatial_keys(monkey
             self.layer_count = 4
 
         def ensure(self, assume_cached: bool, force_refresh: bool):
-            return {"0_2_3": 1.0, "1_2_9": 2.0, "2_5": 3.0}
+            return {
+                "0_2_3": 1.0,
+                "0_4_5": -1.0,
+                "0_6": 3.0,
+                "1_2_9": 2.0,
+                "2_5": 3.0,
+            }
 
     monkeypatch.setattr(shap_mod, "ShapValuesCalculator", _FakeCalculator)
     comparator = shap_mod.ShapValuesComparator(
@@ -444,8 +523,11 @@ def test_shap_values_comparator_lookup_falls_back_to_alt_and_spatial_keys(monkey
 
     assert comparator.get_shap_influence(1, (2, 3)) == 1.0
     assert comparator.get_shap_influence(2, (2, 9, 1)) == 2.0
-    assert comparator.get_shap_influence(3, (5, 7)) == float("-inf")
+    assert comparator.get_shap_influence(3, (5, 7)) == 0.0
     assert comparator.get_shap_influence(0, [(2, 3), (9,)]) == 0.5
+    assert comparator.get_shap_influence(0, [(2, 3), (4, 5)]) == 0.0
+    assert comparator.get_shap_influence(0, [(2, 3), (6,)]) == 2.0
+    assert comparator.get_shap_influence(0, []) == 0.0
 
 
 def test_shap_values_comparator_compare_and_pop_helpers(monkeypatch, tmp_path: Path) -> None:
@@ -457,7 +539,7 @@ def test_shap_values_comparator_compare_and_pop_helpers(monkeypatch, tmp_path: P
             self.layer_count = 3
 
         def ensure(self, assume_cached: bool, force_refresh: bool):
-            return {"0_0": 0.1, "0_1": 0.9}
+            return {"0_0": 0.1, "0_1": -0.9}
 
     monkeypatch.setattr(shap_mod, "ShapValuesCalculator", _FakeCalculator)
     comparator = shap_mod.ShapValuesComparator(
@@ -472,6 +554,7 @@ def test_shap_values_comparator_compare_and_pop_helpers(monkeypatch, tmp_path: P
     high = ("c2", (0, (1,)))
     positioned = [high, low]
 
+    assert comparator.get_shap_influence(0, (1,)) == 0.9
     assert comparator.compare(high, low) == 0.8
     assert shap_mod.pop_first_constraint(positioned[:]) == "c2"
     assert shap_mod.pop_last_constraint(positioned[:]) == "c1"

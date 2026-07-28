@@ -15,6 +15,12 @@ def _present_spec(_module_name):
     return object()
 
 
+def test_parse_args_defaults_to_target_class_shap_root() -> None:
+    args = doctor_mod.parse_args([])
+
+    assert args.shap_root == "shap_target_class"
+
+
 def test_run_checks_passes_with_local_prerequisites(tmp_path) -> None:
     model_dir = tmp_path / "model"
     model_dir.mkdir()

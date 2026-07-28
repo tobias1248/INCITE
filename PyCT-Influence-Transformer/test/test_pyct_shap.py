@@ -21,6 +21,7 @@ def test_parse_args_accepts_required_dataset_options() -> None:
     assert args.dataset == "mnist"
     assert args.first_n == 100
     assert args.explainer_type == "gradient"
+    assert args.output_root == "shap_target_class"
 
 
 def test_importing_pyct_shap_does_not_import_task_builders() -> None:
@@ -147,7 +148,7 @@ def test_main_sets_background_env_vars_before_dispatch(monkeypatch, capsys) -> N
                 "first_n_img": 2,
                 "force_refresh": True,
                 "explainer_type": "gradient",
-                "output_root": "shap_value_all_layer",
+                "output_root": "shap_target_class",
             },
         )
     ]
@@ -158,6 +159,7 @@ def test_main_sets_background_env_vars_before_dispatch(monkeypatch, capsys) -> N
     assert summary == {
         "cached": 1,
         "computed": 1,
+        "attribution_target": "original_prediction",
         "dataset": "mnist",
         "explainer_type": "gradient",
         "max_seconds": 2.0,
@@ -165,7 +167,8 @@ def test_main_sets_background_env_vars_before_dispatch(monkeypatch, capsys) -> N
         "median_seconds": 2.0,
         "min_seconds": 2.0,
         "model": "demo",
-        "output_root": "shap_value_all_layer",
+        "output_root": "shap_target_class",
+        "schema_version": 2,
         "total_compute_seconds": 2.0,
         "total_inputs": 2,
     }

@@ -24,13 +24,51 @@ from explainability.pixel_provider import (
     infer_patch_size_for_model,
     infer_tokenizer_spec_for_model,
 )
+from explainability.shap_contract import (
+    DEFAULT_TARGET_CLASS_SHAP_ROOT,
+    ShapCacheContractError,
+)
+
+
+def _target_class_payload(
+    idx: int,
+    values: object,
+    *,
+    model_name: str = "dummy",
+) -> dict[str, object]:
+    return {
+        "__meta__": {
+            "schema_version": 2,
+            "attribution_target": "original_prediction",
+            "case_index": idx,
+            "target_class": 1,
+            "class_count": 3,
+            "explainer_type": "gradient",
+            "model": {
+                "name": f"{model_name}.h5",
+                "size": 1,
+                "sha256": "model-hash",
+            },
+            "input": {
+                "shape": [1, 2, 2, 1],
+                "dtype": "<f4",
+                "sha256": "input-hash",
+            },
+            "background": {
+                "shape": [3, 2, 2, 1],
+                "dtype": "<f4",
+                "sha256": "background-hash",
+            },
+        },
+        "values": values,
+    }
 
 
 def _write_shap_json(root: Path, model: str, idx: int, payload: dict[str, float]) -> None:
     path = root / "shap_value_all_layer" / model / f"shap_value_{idx}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle)
+        json.dump(_target_class_payload(idx, payload, model_name=model), handle)
 
 
 def _write_model_config(root: Path, model: str, layers: list[dict[str, object]]) -> None:
@@ -98,6 +136,28 @@ def test_top_pixels_sorted_and_padded(tmp_path: Path) -> None:
     )
     coords = provider.top_pixels(0, ton=2)
     assert coords == [(1, 2, 0), (5, 5, 0)]
+
+
+def test_pixel_provider_defaults_to_target_class_root() -> None:
+    provider = JsonShapPixelProvider(model_name="demo")
+
+    assert provider.shap_root == Path(DEFAULT_TARGET_CLASS_SHAP_ROOT)
+
+
+def test_pixel_provider_rejects_cache_for_different_model(tmp_path: Path) -> None:
+    path = tmp_path / "shap_value_all_layer" / "cache_folder" / "shap_value_0.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(_target_class_payload(0, {"-1_0_0": 1.0})),
+        encoding="utf-8",
+    )
+    provider = JsonShapPixelProvider(
+        model_name="cache_folder",
+        shap_root=str(tmp_path / "shap_value_all_layer"),
+    )
+
+    with pytest.raises(ValueError, match="expected 'cache_folder'"):
+        provider.top_pixels(0, ton=1)
 
 
 def test_build_tensor_matches_topk(tmp_path: Path) -> None:
@@ -723,7 +783,12 @@ def test_load_sorted_uses_cache_and_json_failures_are_reported(tmp_path: Path) -
     model = "dummy"
     path = tmp_path / "shap_value_all_layer" / model / "shap_value_0.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"values": {"-1_1_1": 0.9, "-1_0_0": 0.1}}), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            _target_class_payload(0, {"-1_1_1": 0.9, "-1_0_0": 0.1})
+        ),
+        encoding="utf-8",
+    )
     provider = JsonShapPixelProvider(
         model_name=model,
         shap_root=str(tmp_path / "shap_value_all_layer"),
@@ -731,13 +796,16 @@ def test_load_sorted_uses_cache_and_json_failures_are_reported(tmp_path: Path) -
     )
 
     first = provider.top_pixels(0, ton=1)
-    path.write_text(json.dumps({"values": {"-1_9_9": 9.9}}), encoding="utf-8")
+    path.write_text(
+        json.dumps(_target_class_payload(0, {"-1_9_9": 9.9})),
+        encoding="utf-8",
+    )
     second = provider.top_pixels(0, ton=1)
 
     assert first == second == [(1, 1, 0)]
 
     missing = JsonShapPixelProvider(model_name="missing", shap_root=str(tmp_path / "shap_value_all_layer"))
-    with pytest.raises(FileNotFoundError, match="Missing SHAP cache"):
+    with pytest.raises(FileNotFoundError, match="Missing target-class SHAP cache"):
         missing.top_pixels(3)
 
 
@@ -748,9 +816,9 @@ def test_load_json_and_extract_ranked_items_validate_payloads(tmp_path: Path) ->
     nested_bad.write_text(json.dumps({"values": [1, 2, 3]}), encoding="utf-8")
     provider = JsonShapPixelProvider(model_name="demo", shap_root=str(tmp_path), coordinate_dims=3, coordinate_bounds=(4, 4, 2))
 
-    with pytest.raises(TypeError, match="JSON dict"):
+    with pytest.raises(ShapCacheContractError, match="not a JSON object"):
         provider._load_json(bad_json)
-    with pytest.raises(TypeError, match="JSON dict of values"):
+    with pytest.raises(ShapCacheContractError, match="no target-class metadata"):
         provider._load_json(nested_bad)
     with pytest.raises(ValueError, match="No pixel-level SHAP entries found"):
         provider._extract_ranked_pixel_items({"0_0": 1.0}, Path("demo.json"))

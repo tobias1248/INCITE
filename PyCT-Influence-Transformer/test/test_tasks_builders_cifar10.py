@@ -57,6 +57,7 @@ def test_cifar10_transformer_shap_patch_selector_builds_single_channel(monkeypat
     ton_plan = inputs[0]["ton_plans"][0]
     assert ton_plan["con_dict"] == {"v_4_5_2": 1}
     assert _DummyPixelProvider.last_init["selector"] == "patch-shap"
+    assert _DummyPixelProvider.last_init["shap_root"] == "shap_target_class"
 
 
 def test_cifar10_transformer_shap_patch_selector_rejects_multi_ton() -> None:

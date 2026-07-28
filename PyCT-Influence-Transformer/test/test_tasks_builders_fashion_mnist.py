@@ -29,8 +29,11 @@ class _DummyFashionDataset:
 
 
 class _DummyPixelProvider:
+    last_kwargs = None
+
     def __init__(self, **kwargs) -> None:
         self.kwargs = kwargs
+        type(self).last_kwargs = kwargs
 
     def top_pixels(self, idx, ton):
         return [(0, 0, 0)] * ton
@@ -66,6 +69,7 @@ def test_fashion_mnist_transformer_shap_builds_ton_plans(monkeypatch) -> None:
     assert len(inputs) == 1
     assert [plan['ton'] for plan in inputs[0]['ton_plans']] == [1, 2]
     assert inputs[0]['ton_plans'][0]['con_dict'] == {'v_0_0_0': 1}
+    assert _DummyPixelProvider.last_kwargs['shap_root'] == 'shap_target_class'
 
 
 def test_fashion_mnist_transformer_random_uses_coordinate_provider(monkeypatch) -> None:
