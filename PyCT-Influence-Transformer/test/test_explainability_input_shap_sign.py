@@ -13,7 +13,7 @@ from explainability.input_shap_sign import (
     derive_valid_shift_interval,
     materialize_shifted_input,
 )
-from explainability.shap_contract import build_cache_metadata
+from explainability.shap_contract import ShapCacheContractError, build_cache_metadata
 
 
 def _input_values(values: np.ndarray):
@@ -141,6 +141,100 @@ def test_provider_loads_canonical_target_class_cache(tmp_path: Path) -> None:
     assert artifact.target_class == 1
     assert artifact.metadata["attribution_target"] == "original_prediction"
     np.testing.assert_array_equal(artifact.values, expected_values)
+
+
+def test_provider_load_cached_uses_target_class_from_metadata(tmp_path: Path) -> None:
+    model_path = tmp_path / "model" / "demo.h5"
+    model_path.parent.mkdir()
+    model_path.write_bytes(b"model-v1")
+    sample = np.array([[[0.2], [0.8]]], dtype=np.float32)
+    background = np.stack([sample, sample])
+    expected_values = np.array([[[2.0], [-5.0]]], dtype=np.float64)
+    output_root = tmp_path / "shap_target_class"
+    cache_path = output_root / "demo" / "shap_value_3.json"
+    _write_canonical_cache(
+        cache_path,
+        model_path=model_path,
+        case_index=3,
+        sample=sample,
+        background=background,
+        target_class=1,
+        values=expected_values,
+    )
+    provider = TargetClassInputShapProvider(
+        model_path=model_path,
+        output_root=output_root,
+        calculator_factory=lambda **kwargs: pytest.fail("calculator must not run"),
+    )
+
+    artifact = provider.load_cached(
+        case_index=3,
+        sample=sample,
+        background=background,
+    )
+
+    assert artifact.was_cached is True
+    assert artifact.target_class == 1
+    np.testing.assert_array_equal(artifact.values, expected_values)
+
+
+def test_provider_load_cached_fails_closed_when_cache_is_missing(
+    tmp_path: Path,
+) -> None:
+    model_path = tmp_path / "model" / "demo.h5"
+    model_path.parent.mkdir()
+    model_path.write_bytes(b"model-v1")
+    sample = np.array([[[0.2], [0.8]]], dtype=np.float32)
+    provider = TargetClassInputShapProvider(
+        model_path=model_path,
+        output_root=tmp_path / "shap_target_class",
+        calculator_factory=lambda **kwargs: pytest.fail("calculator must not run"),
+    )
+
+    with pytest.raises(
+        ShapCacheContractError,
+        match=r"python -m pyct\.shap_sign_sweep",
+    ):
+        provider.load_cached(
+            case_index=3,
+            sample=sample,
+            background=np.stack([sample, sample]),
+        )
+
+
+def test_provider_load_cached_fails_closed_when_identity_is_incompatible(
+    tmp_path: Path,
+) -> None:
+    model_path = tmp_path / "model" / "demo.h5"
+    model_path.parent.mkdir()
+    model_path.write_bytes(b"model-v1")
+    sample = np.array([[[0.2], [0.8]]], dtype=np.float32)
+    background = np.stack([sample, sample])
+    output_root = tmp_path / "shap_target_class"
+    _write_canonical_cache(
+        output_root / "demo" / "shap_value_3.json",
+        model_path=model_path,
+        case_index=3,
+        sample=sample,
+        background=background,
+        target_class=1,
+        values=np.ones_like(sample),
+    )
+    provider = TargetClassInputShapProvider(
+        model_path=model_path,
+        output_root=output_root,
+        calculator_factory=lambda **kwargs: pytest.fail("calculator must not run"),
+    )
+
+    with pytest.raises(
+        ShapCacheContractError,
+        match=r"python -m pyct\.shap_sign_sweep",
+    ):
+        provider.load_cached(
+            case_index=3,
+            sample=sample + np.float32(0.01),
+            background=background,
+        )
 
 
 def test_provider_refreshes_cache_with_wrong_target_class(tmp_path: Path) -> None:

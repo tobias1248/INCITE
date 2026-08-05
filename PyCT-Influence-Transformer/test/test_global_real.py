@@ -216,24 +216,23 @@ def test_cifar10_global_real_builder_creates_shared_x_payload(monkeypatch) -> No
             in_dict, con_dict = self.get_cifar10_test_data(idx)
             return in_dict, con_dict, sample, background
 
-    class _Model:
-        @staticmethod
-        def predict(inputs, verbose=0):
-            return np.array([[0.1, 0.9]])
-
     class _Provider:
         def __init__(self, **kwargs):
             pass
 
         @staticmethod
-        def ensure(**kwargs):
+        def load_cached(**kwargs):
             return SimpleNamespace(
                 values=np.array([[[0.3], [-0.4]]]),
+                target_class=1,
                 cache_path="cache.json",
             )
 
+        @staticmethod
+        def ensure(**kwargs):
+            pytest.fail("builder must not generate SHAP or initialize Keras")
+
     monkeypatch.setattr(global_real_builder, "Cifar10Dataset", _Dataset)
-    monkeypatch.setattr(global_real_builder, "load_model_with_compat", lambda _path: _Model())
     monkeypatch.setattr(global_real_builder, "TargetClassInputShapProvider", _Provider)
     monkeypatch.setattr(global_real_builder, "get_save_dir_from_save_exp", lambda *a, **k: "unused")
 
