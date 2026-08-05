@@ -11,6 +11,56 @@ if str(ROOT) not in sys.path:
 from pyct.args import parse_args
 
 
+def test_parse_args_accepts_global_real_configuration() -> None:
+    args = parse_args(
+        [
+            "--attack-mode",
+            "global-real",
+            "--dataset",
+            "cifar10",
+            "--score-alpha",
+            "0.8",
+            "--global-x-min",
+            "-0.2",
+            "--global-x-max",
+            "0.05",
+            "--global-x-bounds-mode",
+            "strict",
+            "--shap-sign-epsilon",
+            "0.001",
+        ]
+    )
+
+    assert args.global_x_min == pytest.approx(-0.2)
+    assert args.global_x_max == pytest.approx(0.05)
+    assert args.global_x_bounds_mode == "strict"
+    assert args.shap_sign_epsilon == pytest.approx(0.001)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--dataset", "mnist"],
+        ["--global-x-min", "0.01"],
+        ["--global-x-max", "-0.01"],
+        ["--shap-sign-epsilon", "-1"],
+    ],
+)
+def test_parse_args_rejects_invalid_global_real_configuration(extra) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "global-real",
+                "--dataset",
+                "cifar10",
+                "--score-alpha",
+                "0.8",
+                *extra,
+            ]
+        )
+
+
 def test_parse_args_accepts_patch_shap_for_cifar10_single_ton() -> None:
     args = parse_args(
         [
