@@ -17,21 +17,8 @@ from explainability.input_shap_sign import (
     derive_valid_shift_interval,
 )
 from libct.global_real import GLOBAL_X_INPUT_NAME
-from modeling.keras_loader import load_model_with_compat
 from tasks.builders.common import log, normalize_indices
 from tasks.paths import get_save_dir_from_save_exp
-
-
-def _predict_class(model, sample: np.ndarray) -> int:
-    predictions = np.asarray(model.predict(sample[np.newaxis, ...], verbose=0))
-    if predictions.ndim != 2 or predictions.shape[0] != 1 or predictions.shape[1] < 2:
-        raise ValueError(
-            "global-real requires one multiclass prediction row; "
-            f"got {predictions.shape}"
-        )
-    if not np.isfinite(predictions).all():
-        raise ValueError("global-real reference predictions contain NaN or Inf")
-    return int(np.argmax(predictions[0]))
 
 
 def _sign_mapping(sign_mask: np.ndarray) -> Dict[str, int]:
@@ -67,7 +54,6 @@ def cifar10_global_real(
     dataset = Cifar10Dataset()
     indices = normalize_indices(first_n_img)
     model_path = Path("model") / f"{model_name}.h5"
-    model = load_model_with_compat(str(model_path))
     provider = TargetClassInputShapProvider(
         model_path=model_path,
         output_root=Path(shap_output_root),
@@ -95,13 +81,12 @@ def cifar10_global_real(
             continue
 
         sample = np.asarray(dataset.x_test[idx], dtype=np.float32)
-        target_class = _predict_class(model, sample)
-        attribution = provider.ensure(
+        attribution = provider.load_cached(
             case_index=idx,
             sample=sample,
             background=background,
-            target_class=target_class,
         )
+        target_class = attribution.target_class
         sign_mask = build_sign_mask(
             attribution.values,
             epsilon=shap_sign_epsilon,

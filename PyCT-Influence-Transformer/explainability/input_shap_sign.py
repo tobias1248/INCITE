@@ -206,7 +206,7 @@ class TargetClassInputShapProvider:
         path: Path,
         identity: Mapping[str, Any],
         case_index: int,
-        target_class: int,
+        target_class: Optional[int],
         sample_shape: Sequence[int],
         was_cached: bool,
     ) -> TargetClassInputShap:
@@ -215,17 +215,51 @@ class TargetClassInputShapProvider:
             expected_identity=identity,
             case_index=case_index,
         )
-        if metadata["target_class"] != int(target_class):
+        resolved_target_class = int(metadata["target_class"])
+        if target_class is not None and resolved_target_class != int(target_class):
             raise ShapCacheContractError(
                 f"SHAP cache target_class={metadata['target_class']}, expected {target_class}"
             )
         return TargetClassInputShap(
             values=_mapping_to_input_values(values, sample_shape),
-            target_class=int(target_class),
+            target_class=resolved_target_class,
             cache_path=path,
             was_cached=bool(was_cached),
             metadata=metadata,
         )
+
+    def load_cached(
+        self,
+        *,
+        case_index: int,
+        sample: np.ndarray,
+        background: np.ndarray,
+    ) -> TargetClassInputShap:
+        """Load a compatible cache without initializing the SHAP/model runtime."""
+        sample_array = np.asarray(sample)
+        identity = self._identity(
+            case_index=case_index,
+            sample=sample_array,
+            background=np.asarray(background),
+        )
+        path = self.cache_path(case_index)
+        try:
+            if not path.is_file():
+                raise ShapCacheContractError(f"SHAP cache is unavailable: {path}")
+            return self._load(
+                path=path,
+                identity=identity,
+                case_index=case_index,
+                target_class=None,
+                sample_shape=sample_array.shape,
+                was_cached=True,
+            )
+        except ShapCacheContractError as exc:
+            raise ShapCacheContractError(
+                "global-real requires a compatible target-class SHAP cache; "
+                "generate it first with python -m pyct.shap_sign_sweep. "
+                f"Cache validation failed: {exc}"
+            ) from exc
 
     def ensure(
         self,
