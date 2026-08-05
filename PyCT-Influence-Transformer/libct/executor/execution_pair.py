@@ -6,6 +6,7 @@ import time
 from typing import Any, Dict, Tuple
 
 from libct.executor.legacy import LegacyConcolicExecutor
+from libct.global_real import materialize_global_real_arguments
 from libct.utils import unwrap
 
 
@@ -136,7 +137,20 @@ class CandidateExecutionRunner:
             if v.kind in (inspect.Parameter.VAR_KEYWORD,):
                 # only support 1 **kwargs and no other arguments.
                 assert len(inspect.signature(func).parameters.values()) == 1
-                prim_kwargs = all_args.copy()
+                global_real_config = getattr(
+                    self._engine,
+                    "global_real_config",
+                    None,
+                )
+                if global_real_config is None:
+                    prim_kwargs = all_args.copy()
+                else:
+                    prim_kwargs, _shift, _clipped_count = (
+                        materialize_global_real_arguments(
+                            all_args,
+                            global_real_config,
+                        )
+                    )
                 break
 
             value = v.default if (t := all_args[v.name]) is self._engine.LazyLoading else t

@@ -6,6 +6,8 @@ import json
 import shutil
 from pathlib import Path
 
+from libct.global_real import materialize_global_real_arguments
+
 
 def _json_default(value):
     if isinstance(value, np.generic):
@@ -39,6 +41,8 @@ class ConcolicTestRecorder:
         self.reference_prediction_wall_time = []
         self.reference_prediction_phase_counts = {}
         self.sat_inputs = []
+        self.global_real_sat_x = []
+        self.global_real_sat_clipped_count = []
         
         # total
         self.total_wall_time = None
@@ -172,6 +176,7 @@ class ConcolicTestRecorder:
         adv_input = self._build_input_from_dict(input_dict)
         if adv_input is not None:
             self.adversarial_input = adv_input
+        self._record_global_real_candidate(input_dict, prefix="global_real_solved")
         self.attack_label = attack_label
         
         
@@ -180,6 +185,14 @@ class ConcolicTestRecorder:
         sat_input = self._build_input_from_dict(input_dict)
         if sat_input is not None:
             self.sat_inputs.append(sat_input)
+        candidate = self._record_global_real_candidate(
+            input_dict,
+            prefix="global_real_last_sat",
+        )
+        if candidate is not None:
+            shift, clipped_count = candidate
+            self.global_real_sat_x.append(shift)
+            self.global_real_sat_clipped_count.append(clipped_count)
     
     def save_original_input(self, input_dict):
         if self.original_input is not None:
@@ -191,6 +204,12 @@ class ConcolicTestRecorder:
     def _build_input_from_dict(self, input_dict):
         if self.input_shape is None:
             return None
+        global_real_config = getattr(self, "global_real_config", None)
+        if global_real_config is not None:
+            input_dict, _shift, _clipped_count = materialize_global_real_arguments(
+                input_dict,
+                global_real_config,
+            )
         built = np.zeros(self.input_shape, dtype=np.float32)
         dims = len(self.input_shape)
         for key, value in input_dict.items():
@@ -209,6 +228,18 @@ class ConcolicTestRecorder:
         if not np.isfinite(built).all():
             raise ValueError("Refusing to record an input containing NaN or Inf")
         return built
+
+    def _record_global_real_candidate(self, input_dict, *, prefix):
+        global_real_config = getattr(self, "global_real_config", None)
+        if global_real_config is None:
+            return None
+        _materialized, shift, clipped_count = materialize_global_real_arguments(
+            input_dict,
+            global_real_config,
+        )
+        self.extra_meta[f"{prefix}_x"] = shift
+        self.extra_meta[f"{prefix}_clipped_count"] = clipped_count
+        return shift, clipped_count
         
     
     def save_adversarial_input_as_image(self, save_path):
@@ -576,3 +607,12 @@ class ConcolicTestRecorder:
             else:
                 np.save(os.path.join(self.save_dir, "sat_inputs.npy"),
                         np.stack(self.sat_inputs).astype(np.float32))
+            if getattr(self, "global_real_config", None) is not None:
+                np.save(
+                    os.path.join(self.save_dir, "sat_global_x.npy"),
+                    np.asarray(self.global_real_sat_x, dtype=np.float64),
+                )
+                np.save(
+                    os.path.join(self.save_dir, "sat_global_clipped_count.npy"),
+                    np.asarray(self.global_real_sat_clipped_count, dtype=np.int64),
+                )

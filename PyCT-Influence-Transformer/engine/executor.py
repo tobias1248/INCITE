@@ -203,7 +203,9 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         score_alpha: Optional[float] = None,
         symbolic_path_threshold: Optional[int] = None,
         ternary_simplification: bool = False,
-        ternary_threshold_scale: float = 0.75) -> tuple[int, Any]:
+        ternary_threshold_scale: float = 0.75,
+        global_real_config=None,
+        shap_output_root=None) -> tuple[int, Any]:
 
     collect_mode: Literal["priority_queue", "queue", "stack"] = _validate_collect_mode(collect_constraints_with)
     model_path, module_path, root = _resolve_model_artifacts(model_name)
@@ -246,6 +248,25 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
     }
     if random_seed is not None:
         extra_meta["random_seed"] = int(random_seed)
+    if global_real_config is not None:
+        extra_meta.update(
+            {
+                "global_real_requested_min": global_real_config.get("requested_min"),
+                "global_real_requested_max": global_real_config.get("requested_max"),
+                "global_real_effective_min": global_real_config.get("effective_min"),
+                "global_real_effective_max": global_real_config.get("effective_max"),
+                "global_real_bounds_mode": global_real_config.get("bounds_mode"),
+                "global_real_shap_sign_epsilon": global_real_config.get(
+                    "shap_sign_epsilon"
+                ),
+                "global_real_nonzero_sign_count": global_real_config.get(
+                    "nonzero_sign_count"
+                ),
+                "global_real_shap_target_class": global_real_config.get(
+                    "shap_target_class"
+                ),
+            }
+        )
     if save_exp:
         if "ton" in save_exp:
             extra_meta["ton"] = save_exp.get("ton")
@@ -349,6 +370,8 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         shap_value_pre_calculated=bool(shap_value_pre_calculated) if shap_value_pre_calculated is not None else False,
         collect_constraints_with=collect_mode,
         popped_log_attack_mode=popped_log_attack_mode or "unknown",
+        global_real_config=global_real_config,
+        shap_output_root=shap_output_root,
     )
 
     libct.explore.clear_global_context()

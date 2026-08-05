@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 from types import ModuleType
 from libct.constraint import Constraint
 from explainability.shap_calculator import ShapValuesComparator
+from libct.global_real import solver_variable_bounds
 
 
 log = logging.getLogger("ct.explore")
@@ -132,6 +133,7 @@ class ExplorationEngine:
         self.var_to_types = {}
         self.concolic_name_list: List[str] = []  # NOTE for DNN testing
         self.concolic_flag_dict: dict[str, int] = {}  # NOTE for DNN testing
+        self.solver_variable_bounds = {}
         self.original_args = None  # used to limit variable range
         self._candidate_execution_runner = CandidateExecutionRunner(self)
         self._concolic_argument_builder = ConcolicArgumentBuilder(self)
@@ -506,7 +508,9 @@ class ExplorationEngine:
             norm=False, limit_change_range=None,
             model_path=None, input_for_shap=None, background_dataset_for_shap=None,idx=None, shap_value_pre_calculated = False,
             collect_constraints_with: Literal['stack', 'queue', 'priority_queue'] = 'priority_queue',
-            popped_log_attack_mode: str = "unknown"):
+            popped_log_attack_mode: str = "unknown",
+            global_real_config=None,
+            shap_output_root=None):
 
         self.model_path = model_path
         self.modpath = modpath
@@ -525,6 +529,8 @@ class ExplorationEngine:
         self.limit_change_range = limit_change_range
         self.shap_value_pre_calculated = shap_value_pre_calculated
         self.popped_log_attack_mode = popped_log_attack_mode
+        self.global_real_config = global_real_config
+        self.shap_output_root = shap_output_root
         self.constraints_collection_type: Literal['stack',
                                                 'queue', 'priority_queue'] = collect_constraints_with
         if self.constraints_collection_type == 'priority_queue':
@@ -533,7 +539,8 @@ class ExplorationEngine:
                 background_dataset = self.background_dataset_for_shap,
                 input = np.expand_dims(self.input_for_shap, axis=0),
                 idx = self.idx,
-                shap_value_pre_calculated = self.shap_value_pre_calculated)
+                shap_value_pre_calculated = self.shap_value_pre_calculated,
+                **({"output_root": self.shap_output_root} if self.shap_output_root else {}))
             self.compare = self.comparator.compare
         else:
             self.comparator = None
@@ -543,6 +550,11 @@ class ExplorationEngine:
             self.funcname = self.modpath.split('.')[-1]
 
         self.__init2__()
+        if self.global_real_config is not None:
+            self.solver_variable_bounds = solver_variable_bounds(
+                self.global_real_config
+            )
+            recorder.global_real_config = self.global_real_config
         if hasattr(self, "extra_meta") and isinstance(self.extra_meta, dict):
             recorder.extra_meta.update(self.extra_meta)
 

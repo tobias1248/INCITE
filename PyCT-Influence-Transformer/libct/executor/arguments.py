@@ -4,6 +4,7 @@ import inspect
 import logging
 from typing import Any, Dict, Tuple
 
+from libct.global_real import build_concolic_global_real_kwargs
 from libct.utils import ConcolicObject, unwrap
 
 
@@ -35,8 +36,14 @@ class ConcolicArgumentBuilder:
             if param.kind in (inspect.Parameter.VAR_KEYWORD,):
                 # only support 1 **kwargs and no other arguments.
                 assert len(inspect.signature(func).parameters.values()) == 1
-                for name, value in prim_args.items():
-                    ccc_kwargs[name] = self._wrap_kwarg(name, value, concolic_dict)
+                if getattr(self._engine, "global_real_config", None) is not None:
+                    ccc_kwargs = build_concolic_global_real_kwargs(
+                        self._engine,
+                        prim_args,
+                    )
+                else:
+                    for name, value in prim_args.items():
+                        ccc_kwargs[name] = self._wrap_kwarg(name, value, concolic_dict)
                 break
 
             value = self._resolve_argument_value(param, prim_args)
@@ -49,7 +56,11 @@ class ConcolicArgumentBuilder:
             else:
                 ccc_args.append(value)
 
-        self._record_var_types(prim_args)
+        if getattr(self._engine, "global_real_config", None) is not None:
+            if not self._engine.var_to_types:
+                self._engine.var_to_types["__pyct_global_x_VAR"] = "Real"
+        else:
+            self._record_var_types(prim_args)
         log.info(
             "[WRAP] idx=%s concolic=%s primitive=%s queue_type=%s",
             self._engine.idx,

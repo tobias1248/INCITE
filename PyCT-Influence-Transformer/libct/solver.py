@@ -845,15 +845,27 @@ class Solver:
         queries = "\n".join(query_formulas)
         Solver._last_smt_transform_stats = transform_stats
         
-        norm_queries = ""        
-        if Solver.norm: # limit solve range [0,1]
-            norm_queries = "\n".join(f"(assert (and (<= {name} 1) (>= {name} 0)))"
-                            for (name) in engine.concolic_name_list)
+        explicit_bounds = getattr(engine, "solver_variable_bounds", {}) or {}
+        range_queries = []
+        for name in engine.concolic_name_list:
+            if name in explicit_bounds:
+                lower, upper = explicit_bounds[name]
+                range_queries.append(
+                    f"(assert (and (<= {name} {py2smt(upper)}) "
+                    f"(>= {name} {py2smt(lower)})))"
+                )
+            elif Solver.norm:  # limit ordinary image variables to [0,1]
+                range_queries.append(
+                    f"(assert (and (<= {name} 1) (>= {name} 0)))"
+                )
+        norm_queries = "\n".join(range_queries)
             
         if Solver.limit_change_range is not None:
             # limit solve range x +- p%, e.g. p=0.1, [100 * (1-p), 100 * (1+p)]
             limit_queries = []
             for name in engine.concolic_name_list:
+                if name in explicit_bounds:
+                    continue
                 x = ori_args[name[:-4]] # not including _VAR
                 lb = x * (1-Solver.limit_change_range) 
                 ub = x * (1+Solver.limit_change_range)
@@ -864,6 +876,8 @@ class Solver:
                 else:
                     limit_queries.append(f"(assert (and (<= {name} {ub}) (>= {name} {lb})))")
             
+            if norm_queries and limit_queries:
+                norm_queries += "\n"
             norm_queries += "\n".join(limit_queries)
 
         
