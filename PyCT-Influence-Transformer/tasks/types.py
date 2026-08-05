@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, TypedDict
 
-AttackMode = Literal["shap", "random", "random-assign", "queue"]
+AttackMode = Literal["shap", "random", "random-assign", "queue", "global-real"]
 PixelSelector = Literal["pixel-shap", "patch-shap", "token-shap"]
 
 
@@ -54,6 +54,8 @@ class TaskPayload(TypedDict, total=False):
     ternary_simplification: bool
     ternary_threshold_scale: float
     ternary_fallback: bool
+    global_real_config: Dict[str, Any]
+    shap_output_root: str
 
 
 @dataclass(frozen=True)

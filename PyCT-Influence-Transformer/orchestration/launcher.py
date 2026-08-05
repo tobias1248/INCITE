@@ -27,6 +27,7 @@ from tasks.builders.fashion_mnist import (
     fashion_mnist_transformer_shap,
 )
 from tasks.builders.mnist import mnist_transformer_random, mnist_transformer_shap
+from tasks.builders.global_real import cifar10_global_real
 from tasks.paths import get_save_dir_from_save_exp
 
 logger = logging.getLogger("ct.cli")
@@ -184,7 +185,7 @@ def _write_worker_failure_stats(task: Dict[str, Any], attack_mode: str, reason: 
 def _resolve_experiment_layout(attack_mode: str, ton_values) -> str:
     if not ton_values:
         raise ValueError("ton_values must be non-empty.")
-    if attack_mode not in ("shap", "random", "random-assign", "queue"):
+    if attack_mode not in ("shap", "random", "random-assign", "queue", "global-real"):
         raise ValueError(f"Unsupported attack mode: {attack_mode}")
     return attack_mode
 
@@ -362,6 +363,16 @@ def run_launcher(args: Any) -> None:
         attack_mode_parts.append("tokenshap")
     if args.attack_mode == "random-assign":
         attack_mode_parts.append(args.pixel_source)
+    if args.attack_mode == "global-real":
+        def _range_component(value: float) -> str:
+            return f"{value:g}".replace("-", "m").replace(".", "p")
+
+        attack_mode_parts.extend(
+            [
+                args.global_x_bounds_mode,
+                f"x{_range_component(args.global_x_min)}_{_range_component(args.global_x_max)}",
+            ]
+        )
     if args.solver_run_timeout and args.solver_run_timeout > 0:
         attack_mode_parts.append(f"solver{args.solver_run_timeout}s")
     attack_mode_for_paths = "_".join(attack_mode_parts)
@@ -431,6 +442,18 @@ def run_launcher(args: Any) -> None:
             exp_prefix="queue",
             attack_mode=attack_mode_for_paths,
             **shap_kwargs,
+        )
+    elif args.attack_mode == "global-real":
+        inputs = cifar10_global_real(
+            args.model_name,
+            first_n_img=first_n_range,
+            force=True,
+            attack_mode=attack_mode_for_paths,
+            requested_min=args.global_x_min,
+            requested_max=args.global_x_max,
+            bounds_mode=args.global_x_bounds_mode,
+            shap_sign_epsilon=args.shap_sign_epsilon,
+            shap_output_root=args.shap_output_root,
         )
     else:
         raise ValueError(f"Unsupported attack mode: {args.attack_mode}")

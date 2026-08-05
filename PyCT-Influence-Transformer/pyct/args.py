@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 from pyct.config import (
@@ -143,8 +144,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--attack-mode",
         default="shap",
-        choices=("shap", "random", "random-assign", "queue"),
-        help="Attack strategy: shap/random/random-assign/queue.",
+        choices=("shap", "random", "random-assign", "queue", "global-real"),
+        help="Attack strategy: shap/random/random-assign/queue/global-real.",
     )
     parser.add_argument(
         "--dataset",
@@ -240,6 +241,38 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "(default: 2)."
         ),
     )
+    parser.add_argument(
+        "--global-x-min",
+        type=float,
+        default=-0.1,
+        help="Lower bound for the shared GlobalReal X variable (default: -0.1).",
+    )
+    parser.add_argument(
+        "--global-x-max",
+        type=float,
+        default=0.1,
+        help="Upper bound for the shared GlobalReal X variable (default: 0.1).",
+    )
+    parser.add_argument(
+        "--global-x-bounds-mode",
+        choices=("clip", "strict"),
+        default="clip",
+        help=(
+            "GlobalReal input bounds: clip uses per-element clipping; strict "
+            "shrinks X so every shifted element remains in [0,1]."
+        ),
+    )
+    parser.add_argument(
+        "--shap-sign-epsilon",
+        type=float,
+        default=0.0,
+        help="Treat target-class SHAP magnitudes <= epsilon as zero (default: 0).",
+    )
+    parser.add_argument(
+        "--shap-output-root",
+        default="shap_target_class",
+        help="Root directory for canonical target-class SHAP caches.",
+    )
     args = parser.parse_args(argv)
     if args.attack_mode != "queue" and args.score_alpha is None:
         parser.error("--score-alpha is required unless --attack-mode queue")
@@ -253,6 +286,17 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "assume normalized model inputs in [0, 1] and must bind solver-generated "
             "input variables to that range."
         )
+    if args.attack_mode == "global-real":
+        if args.dataset != "cifar10":
+            parser.error("--attack-mode global-real currently requires --dataset cifar10")
+        if not math.isfinite(args.global_x_min) or not math.isfinite(args.global_x_max):
+            parser.error("--global-x-min and --global-x-max must be finite")
+        if args.global_x_min > args.global_x_max:
+            parser.error("--global-x-min must be <= --global-x-max")
+        if not args.global_x_min <= 0.0 <= args.global_x_max:
+            parser.error("GlobalReal X bounds must include 0")
+        if not math.isfinite(args.shap_sign_epsilon) or args.shap_sign_epsilon < 0:
+            parser.error("--shap-sign-epsilon must be finite and >= 0")
     if args.pixel_selector in {"patch-shap", "token-shap"}:
         if args.attack_mode != "shap":
             parser.error(f"--pixel-selector {args.pixel_selector} requires --attack-mode shap")
