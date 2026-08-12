@@ -31,13 +31,14 @@ class _FakeQueue:
 
     def __init__(self) -> None:
         self.items = []
+        self.join_calls = 0
         type(self).created.append(self)
 
     def put(self, item) -> None:
         self.items.append(item)
 
     def join(self) -> None:
-        return None
+        self.join_calls += 1
 
 
 class _FakeProcess:
@@ -48,6 +49,8 @@ class _FakeProcess:
         self.args = args
         self.started = False
         self.pid = 4321
+        self.join_calls = []
+        self.terminate_count = 0
         _FakeProcess.created.append(self)
 
     def start(self) -> None:
@@ -57,10 +60,10 @@ class _FakeProcess:
         return False
 
     def join(self, timeout=None) -> None:
-        return None
+        self.join_calls.append(timeout)
 
     def terminate(self) -> None:
-        return None
+        self.terminate_count += 1
 
 
 class _WorkerQueue:
@@ -622,3 +625,75 @@ def test_worker_uses_random_assign_runner_and_handles_interrupt(monkeypatch, cap
         }
     ]
     assert "[WORKER-INTERRUPT]" in caplog.text
+
+
+def test_worker_sigterm_handler_only_requests_local_shutdown(monkeypatch) -> None:
+    handlers = {}
+    event = _FakeEvent()
+    monkeypatch.setattr(
+        launcher.signal,
+        "signal",
+        lambda signum, handler: handlers.setdefault(signum, handler),
+    )
+
+    launcher._install_worker_signal_handlers(event)
+
+    assert set(handlers) == {launcher.signal.SIGINT, launcher.signal.SIGTERM}
+    with pytest.raises(KeyboardInterrupt):
+        handlers[launcher.signal.SIGTERM](launcher.signal.SIGTERM, None)
+    assert event.is_set()
+
+
+def test_run_launcher_does_not_drain_queue_after_sigterm(monkeypatch) -> None:
+    payload = {
+        "model_name": "demo",
+        "idx": 0,
+        "save_exp": {"input_name": "case_0", "attack_mode": "queue_solver1s"},
+        "in_dict": {"v_0_0": 1.0},
+        "con_dict": {"v_0_0": 1},
+        "solve_order_stack": False,
+    }
+    handlers = {}
+    sent_signals = []
+
+    _install_runtime_fakes(monkeypatch)
+    monkeypatch.setattr(
+        _FakeProcess,
+        "is_alive",
+        lambda process: process.terminate_count == 0,
+    )
+    monkeypatch.setattr(
+        launcher.os,
+        "kill",
+        lambda pid, signum: sent_signals.append((pid, signum)),
+    )
+    monkeypatch.setattr(
+        launcher.signal,
+        "signal",
+        lambda signum, handler: handlers.setdefault(signum, handler),
+    )
+    monkeypatch.setattr(launcher, "collect_stage_cases", lambda inputs: [])
+    monkeypatch.setattr(launcher, "should_run_payload", lambda payload, force_refresh: True)
+    monkeypatch.setattr(
+        launcher,
+        "mnist_transformer_shap",
+        lambda *args, **kwargs: [dict(payload)],
+    )
+    monkeypatch.setattr(launcher, "mnist_transformer_random", lambda *args, **kwargs: [])
+
+    def interrupting_join(queue) -> None:
+        queue.join_calls += 1
+        if queue.join_calls == 1:
+            handlers[launcher.signal.SIGTERM](launcher.signal.SIGTERM, None)
+
+    monkeypatch.setattr(_FakeQueue, "join", interrupting_join)
+
+    launcher.run_launcher(_make_args())
+
+    task_queue = _FakeQueue.created[0]
+    process = _FakeProcess.created[0]
+    assert task_queue.join_calls == 1
+    assert None not in task_queue.items
+    assert sent_signals == [(process.pid, launcher.signal.SIGTERM)]
+    assert process.terminate_count == 1
+    assert process.join_calls == [3, None]

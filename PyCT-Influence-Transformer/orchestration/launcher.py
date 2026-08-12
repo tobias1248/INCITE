@@ -190,6 +190,18 @@ def _resolve_experiment_layout(attack_mode: str, ton_values) -> str:
     return attack_mode
 
 
+def _install_worker_signal_handlers(shutdown_event: Event) -> None:
+    def _handle_worker_signal(_signum, _frame):
+        shutdown_event.set()
+        raise KeyboardInterrupt
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(sig, _handle_worker_signal)
+        except ValueError:
+            pass
+
+
 def _worker(
     task_queue: JoinableQueue,
     timeout: int,
@@ -205,7 +217,7 @@ def _worker(
     base_seed: int,
     shutdown_event: Event,
 ) -> None:
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    _install_worker_signal_handlers(shutdown_event)
     worker_pid = os.getpid()
     runner = None
     try:
@@ -297,8 +309,12 @@ def run_launcher(args: Any) -> None:
     interrupted = False
     shutdown_event = Event()
     running_processes: List[Process] = []
+    launcher_pid = os.getpid()
 
     def _handle_signal(signum, _frame):
+        if os.getpid() != launcher_pid:
+            shutdown_event.set()
+            raise KeyboardInterrupt
         try:
             signame = signal.Signals(signum).name
         except ValueError:
@@ -522,6 +538,20 @@ def run_launcher(args: Any) -> None:
             process.join()
         running_processes.clear()
 
+    def _terminate_workers() -> None:
+        for process in running_processes:
+            if process.is_alive():
+                process.terminate()
+        for process in running_processes:
+            process.join(timeout=3)
+            if process.is_alive():
+                try:
+                    os.kill(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            process.join()
+        running_processes.clear()
+
     def _run_stage_tasks(stage_inputs: List[Dict[str, Any]]) -> None:
         if not stage_inputs or shutdown_event.is_set():
             return
@@ -611,7 +641,15 @@ def run_launcher(args: Any) -> None:
             interrupted = True
             shutdown_event.set()
 
-    _stop_workers()
+    if interrupted or shutdown_event.is_set():
+        _terminate_workers()
+    else:
+        try:
+            _stop_workers()
+        except KeyboardInterrupt:
+            interrupted = True
+            shutdown_event.set()
+            _terminate_workers()
 
     if interrupted or shutdown_event.is_set():
         logger.info("Tasks interrupted; shutdown requested")
