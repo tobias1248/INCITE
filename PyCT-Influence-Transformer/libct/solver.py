@@ -13,6 +13,7 @@ from tasks.paths import get_repo_output_subdir
 
 log = logging.getLogger("ct.solver")
 _SMTLIB2_REGISTERED = False
+_MODEL_BOUND_TOLERANCE = 1e-9
 
 
 class InvalidSolverModelError(ValueError):
@@ -75,6 +76,43 @@ def _parse_real_model_value(value: str) -> float:
     if not math.isfinite(parsed):
         raise InvalidSolverModelError("SMT Real decoded to a non-finite float")
     return parsed
+
+
+def _resolve_real_model_bounds(engine, name: str, *, norm: bool):
+    explicit_bounds = getattr(engine, "solver_variable_bounds", {}) or {}
+    if name in explicit_bounds:
+        try:
+            lower, upper = explicit_bounds[name]
+            lower = float(lower)
+            upper = float(upper)
+        except (TypeError, ValueError) as exc:
+            raise InvalidSolverModelError(
+                f"invalid explicit bounds for SMT Real {name}"
+            ) from exc
+        if not math.isfinite(lower) or not math.isfinite(upper) or lower > upper:
+            raise InvalidSolverModelError(
+                f"invalid explicit bounds for SMT Real {name}"
+            )
+        return lower, upper, "explicit"
+    if norm:
+        return 0.0, 1.0, "normalized"
+    return None
+
+
+def _validate_real_model_bounds(engine, name: str, value: float, *, norm: bool) -> float:
+    bounds = _resolve_real_model_bounds(engine, name, norm=norm)
+    if bounds is None:
+        return value
+    lower, upper, source = bounds
+    if value < lower - _MODEL_BOUND_TOLERANCE or value > upper + _MODEL_BOUND_TOLERANCE:
+        if source == "normalized":
+            raise InvalidSolverModelError(
+                "SMT Real is outside the normalized [0, 1] range"
+            )
+        raise InvalidSolverModelError(
+            f"SMT Real is outside explicit bounds [{lower:g}, {upper:g}]"
+        )
+    return min(max(value, lower), upper)
 
 
 def _float_debug(value: str):
@@ -163,7 +201,7 @@ def _describe_real_parse_error(exc: InvalidSolverModelError):
     return detail, None
 
 
-def _describe_real_model_value(value: str):
+def _describe_real_model_value(value: str, *, bounds=None):
     raw_value = value.strip()
     diagnostic = {
         "raw_value": raw_value,
@@ -224,6 +262,16 @@ def _describe_real_model_value(value: str):
     else:
         diagnostic["exact_float"] = _float_result_debug(exact_float)
     diagnostic["exact_in_norm_range"] = bool(0 <= fraction <= 1)
+    if bounds is not None:
+        lower, upper, source = bounds
+        diagnostic["bounds_source"] = source
+        diagnostic["expected_bounds"] = {"lower": lower, "upper": upper}
+        tolerance = Fraction(str(_MODEL_BOUND_TOLERANCE))
+        diagnostic["exact_in_expected_bounds"] = bool(
+            Fraction(str(lower)) - tolerance
+            <= fraction
+            <= Fraction(str(upper)) + tolerance
+        )
     return diagnostic
 
 
@@ -251,7 +299,16 @@ def _build_model_diagnostics(engine, model_lines):
             }
         )
         if value_type == "Real":
-            entry["real"] = _describe_real_model_value(value)
+            try:
+                bounds = _resolve_real_model_bounds(
+                    engine,
+                    name,
+                    norm=Solver.norm,
+                )
+            except InvalidSolverModelError as exc:
+                entry["bounds_error"] = str(exc)
+                bounds = None
+            entry["real"] = _describe_real_model_value(value, bounds=bounds)
         diagnostics.append(entry)
     return diagnostics
 
@@ -728,8 +785,12 @@ class Solver:
                 else: raise InvalidSolverModelError("invalid SMT Bool value")
             elif value_type == "Real":
                 value = _parse_real_model_value(value)
-                if Solver.norm and not 0.0 <= value <= 1.0:
-                    raise InvalidSolverModelError("SMT Real is outside the normalized [0, 1] range")
+                value = _validate_real_model_bounds(
+                    engine,
+                    name,
+                    value,
+                    norm=Solver.norm,
+                )
             elif value_type == "Int":
                 try:
                     if "(" in value:

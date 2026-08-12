@@ -152,6 +152,33 @@ def test_solver_uses_explicit_global_real_bounds(monkeypatch) -> None:
     assert f"(>= {GLOBAL_X_SMT_NAME} 0)" not in formula
 
 
+def test_solver_accepts_negative_global_real_model_and_materializes_image(monkeypatch) -> None:
+    monkeypatch.setattr(Solver, "norm", True)
+    engine = SimpleNamespace(
+        var_to_types={GLOBAL_X_SMT_NAME: "Real"},
+        solver_variable_bounds={GLOBAL_X_SMT_NAME: (-0.1, 0.1)},
+    )
+
+    model = Solver._get_model(
+        engine,
+        [f"(({GLOBAL_X_SMT_NAME} (- (/ 1 20))))"],
+    )
+    materialized, shift, clipped_count = materialize_global_real_arguments(
+        {
+            "v_0": 0.2,
+            "v_1": 0.8,
+            "v_2": 0.4,
+            **model,
+        },
+        _config(),
+    )
+
+    assert shift == pytest.approx(-0.05)
+    assert clipped_count == 0
+    assert materialized == pytest.approx({"v_0": 0.15, "v_1": 0.85, "v_2": 0.4})
+    assert all(0.0 <= value <= 1.0 for value in materialized.values())
+
+
 def test_recorder_saves_materialized_adversarial_input_and_x() -> None:
     recorder = ConcolicTestRecorder(None, "case_0")
     recorder.input_shape = (3,)

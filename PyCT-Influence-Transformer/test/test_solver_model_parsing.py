@@ -19,6 +19,7 @@ def _engine() -> SimpleNamespace:
         var_to_types={"x_VAR": "Real"},
         popped_log_attack_mode="shap",
         concolic_name_list=["x_VAR"],
+        solver_variable_bounds={},
     )
 
 
@@ -161,3 +162,71 @@ def test_find_model_discards_invalid_sat_binding_and_records_diagnostic(
     assert solver.Solver.ctr_size["detail"][0]["model_error"] == expected_error
     assert solver.Solver.ctr_size["detail"][0]["solver_stdout"] == f"sat\n((x_VAR {raw_value}))\n"
     assert solver.Solver.ctr_size["detail"][0]["solver_model_diagnostics"][0]["raw_value"] == raw_value
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [
+        ("(- (/ 1 20))", -0.05),
+        ("(- (/ 1 10))", -0.1),
+        ("(/ 1 10)", 0.1),
+    ],
+)
+def test_get_model_accepts_real_within_explicit_bounds(
+    raw_value: str,
+    expected: float,
+) -> None:
+    _configure_solver()
+    engine = _engine()
+    engine.solver_variable_bounds = {"x_VAR": (-0.1, 0.1)}
+
+    model = solver.Solver._get_model(engine, [f"((x_VAR {raw_value}))"])
+
+    assert model == {"x": pytest.approx(expected)}
+
+
+def test_get_model_clamps_tiny_rounding_error_at_explicit_bound() -> None:
+    _configure_solver()
+    engine = _engine()
+    engine.solver_variable_bounds = {"x_VAR": (-0.1, 0.1)}
+
+    model = solver.Solver._get_model(engine, ["((x_VAR -0.1000000005))"])
+
+    assert model == {"x": -0.1}
+
+
+def test_get_model_rejects_real_outside_explicit_bounds() -> None:
+    _configure_solver()
+    engine = _engine()
+    engine.solver_variable_bounds = {"x_VAR": (-0.1, 0.1)}
+
+    with pytest.raises(
+        solver.InvalidSolverModelError,
+        match=r"outside explicit bounds \[-0.1, 0.1\]",
+    ):
+        solver.Solver._get_model(engine, ["((x_VAR (- (/ 11 100))))"])
+
+
+def test_get_model_still_rejects_negative_normalized_image_value() -> None:
+    _configure_solver()
+
+    with pytest.raises(
+        solver.InvalidSolverModelError,
+        match=r"outside the normalized \[0, 1\] range",
+    ):
+        solver.Solver._get_model(_engine(), ["((x_VAR (- (/ 1 20))))"])
+
+
+def test_model_diagnostics_report_explicit_bounds() -> None:
+    _configure_solver()
+    engine = _engine()
+    engine.solver_variable_bounds = {"x_VAR": (-0.1, 0.1)}
+
+    diagnostic = solver._build_model_diagnostics(
+        engine,
+        ["((x_VAR (- (/ 1 20))))"],
+    )[0]["real"]
+
+    assert diagnostic["bounds_source"] == "explicit"
+    assert diagnostic["expected_bounds"] == {"lower": -0.1, "upper": 0.1}
+    assert diagnostic["exact_in_expected_bounds"] is True
