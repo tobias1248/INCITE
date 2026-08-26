@@ -259,6 +259,10 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
                 "global_real_shap_sign_epsilon": global_real_config.get(
                     "shap_sign_epsilon"
                 ),
+                "global_real_shift_kind": global_real_config.get("global_shift_kind"),
+                "global_real_contrast_channel_means": global_real_config.get(
+                    "contrast_channel_means"
+                ),
                 "global_real_nonzero_sign_count": global_real_config.get(
                     "nonzero_sign_count"
                 ),

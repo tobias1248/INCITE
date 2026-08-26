@@ -42,6 +42,13 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+
+def _requires_shap_comparator(global_real_config: Optional[Dict[str, Any]]) -> bool:
+    """Return whether priority scheduling needs a SHAP comparator."""
+    if global_real_config is None:
+        return True
+    return global_real_config.get("global_shift_kind", "shap-sign") == "shap-sign"
+
 def prepare():
     prepare_child_environment()
 
@@ -533,17 +540,22 @@ class ExplorationEngine:
         self.shap_output_root = shap_output_root
         self.constraints_collection_type: Literal['stack',
                                                 'queue', 'priority_queue'] = collect_constraints_with
-        if self.constraints_collection_type == 'priority_queue':
+        if (
+            self.constraints_collection_type == 'priority_queue'
+            and _requires_shap_comparator(self.global_real_config)
+        ):
             self.comparator = ShapValuesComparator(
-                model_path= self.model_path ,
-                background_dataset = self.background_dataset_for_shap,
-                input = np.expand_dims(self.input_for_shap, axis=0),
-                idx = self.idx,
-                shap_value_pre_calculated = self.shap_value_pre_calculated,
-                **({"output_root": self.shap_output_root} if self.shap_output_root else {}))
+                model_path=self.model_path,
+                background_dataset=self.background_dataset_for_shap,
+                input=np.expand_dims(self.input_for_shap, axis=0),
+                idx=self.idx,
+                shap_value_pre_calculated=self.shap_value_pre_calculated,
+                **({"output_root": self.shap_output_root} if self.shap_output_root else {}),
+            )
             self.compare = self.comparator.compare
         else:
             self.comparator = None
+            self.compare = None
         self.constraints_to_solve = create_constraint_searcher(self.constraints_collection_type)
 
         if self.funcname is None:

@@ -216,3 +216,11 @@ class ExploreLoggingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AppearanceShiftComparatorTests(unittest.TestCase):
+    def test_structured_global_shifts_skip_shap_comparator(self) -> None:
+        self.assertFalse(explore._requires_shap_comparator({"global_shift_kind": "brightness"}))
+        self.assertFalse(explore._requires_shap_comparator({"global_shift_kind": "contrast"}))
+        self.assertTrue(explore._requires_shap_comparator({"global_shift_kind": "shap-sign"}))
+        self.assertTrue(explore._requires_shap_comparator(None))
