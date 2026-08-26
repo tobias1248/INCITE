@@ -242,11 +242,30 @@ class ConcolicTestRecorder:
         return shift, clipped_count
         
     
+    @staticmethod
+    def _save_input_as_image(input_array, save_path):
+        if input_array is None:
+            return
+        image = np.asarray(input_array)
+        if not np.isfinite(image).all():
+            raise ValueError("Refusing to save an image containing NaN or Inf")
+        image = (np.clip(image, 0.0, 1.0) * 255.0).astype(np.uint8)
+        if image.ndim == 3 and image.shape[-1] == 1:
+            image = image[..., 0]
+        elif image.ndim == 3 and image.shape[-1] == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        elif image.ndim != 2:
+            raise ValueError(
+                f"Unsupported image shape for JPG output: {image.shape}"
+            )
+        if not cv2.imwrite(str(save_path), image):
+            raise OSError(f"Failed to write image artifact: {save_path}")
+
+    def save_original_input_as_image(self, save_path):
+        self._save_input_as_image(self.original_input, save_path)
+
     def save_adversarial_input_as_image(self, save_path):
-        if self.adversarial_input is not None:
-            img_0_255 = self.adversarial_input.copy()
-            img_0_255 = (img_0_255*255).astype(int)
-            cv2.imwrite(save_path, img_0_255)
+        self._save_input_as_image(self.adversarial_input, save_path)
 
     @staticmethod
     def _summarize_numeric(values):
@@ -586,18 +605,22 @@ class ConcolicTestRecorder:
                 json.dump(stats_dict, f, default=_json_default) # 最節省儲存空間但不容易讀懂
             self._write_solver_iter1_top3_artifacts(constraint_complexity)
             
-            img_name = f"adv_{self.original_label}_to_{self.attack_label}.jpg"
-            self.save_adversarial_input_as_image(os.path.join(self.save_dir, img_name))
-
             if self.original_input is not None:
                 np.save(
                     os.path.join(self.save_dir, "ori_input.npy"),
                     self.original_input.astype(np.float32, copy=False),
                 )
+                self.save_original_input_as_image(
+                    os.path.join(self.save_dir, "ori_input.jpg")
+                )
             if self.adversarial_input is not None:
                 np.save(
                     os.path.join(self.save_dir, "adv_input.npy"),
                     self.adversarial_input.astype(np.float32, copy=False),
+                )
+                img_name = f"adv_{self.original_label}_to_{self.attack_label}.jpg"
+                self.save_adversarial_input_as_image(
+                    os.path.join(self.save_dir, img_name)
                 )
                         
             # 取代原本的 np.save(..., np.array(self.sat_inputs))

@@ -556,6 +556,7 @@ current_height >= symbolic_path_threshold
 - `stats.json`
 - `stats_history.jsonl`
 - `ori_input.npy`
+- `ori_input.jpg`
 - `adv_input.npy`
 - `sat_inputs.npy`
 - `adv_<label_from>_to_<label_to>.jpg`

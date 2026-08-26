@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import libct.record as record_module
 from libct.record import ConcolicTestRecorder
 
 
@@ -38,6 +39,66 @@ def test_recorder_rejects_non_finite_sat_and_adversarial_inputs() -> None:
     assert recorder.sat_inputs == []
     assert recorder.adversarial_input is None
     assert recorder.attack_label is None
+
+
+def test_save_stats_dict_writes_original_jpg_without_adversarial(
+    tmp_path: Path,
+) -> None:
+    if not hasattr(record_module.cv2, "imread"):
+        pytest.skip("OpenCV image decoding is unavailable")
+    save_dir = tmp_path / "case_original_only"
+    recorder = ConcolicTestRecorder(str(save_dir), "case_original_only")
+    recorder.input_shape = (8, 8, 1)
+    recorder.original_label = 3
+    recorder.original_input = np.full((8, 8, 1), 0.25, dtype=np.float32)
+
+    recorder.save_stats_dict()
+
+    original_npy = np.load(save_dir / "ori_input.npy")
+    original_jpg = record_module.cv2.imread(
+        str(save_dir / "ori_input.jpg"),
+        record_module.cv2.IMREAD_GRAYSCALE,
+    )
+    assert original_npy.dtype == np.float32
+    np.testing.assert_array_equal(original_npy, recorder.original_input)
+    assert original_jpg.shape == (8, 8)
+    assert np.max(np.abs(original_jpg.astype(int) - 63)) <= 2
+    assert list(save_dir.glob("adv_*.jpg")) == []
+
+
+def test_save_stats_dict_writes_rgb_ori_and_adv_with_correct_color_order(
+    tmp_path: Path,
+) -> None:
+    if not hasattr(record_module.cv2, "imread"):
+        pytest.skip("OpenCV image decoding is unavailable")
+    save_dir = tmp_path / "case_rgb"
+    recorder = ConcolicTestRecorder(str(save_dir), "case_rgb")
+    recorder.input_shape = (8, 8, 3)
+    recorder.original_label = 1
+    recorder.attack_label = 2
+    recorder.original_input = np.zeros((8, 8, 3), dtype=np.float32)
+    recorder.original_input[..., 0] = 1.0
+    recorder.adversarial_input = np.zeros((8, 8, 3), dtype=np.float32)
+    recorder.adversarial_input[..., 2] = 1.0
+
+    recorder.save_stats_dict()
+
+    original_jpg = record_module.cv2.imread(str(save_dir / "ori_input.jpg"))
+    adversarial_jpg = record_module.cv2.imread(
+        str(save_dir / "adv_1_to_2.jpg")
+    )
+    assert original_jpg.shape == (8, 8, 3)
+    assert adversarial_jpg.shape == (8, 8, 3)
+    np.testing.assert_allclose(
+        original_jpg.mean(axis=(0, 1)),
+        [0, 0, 255],
+        atol=3,
+    )
+    np.testing.assert_allclose(
+        adversarial_jpg.mean(axis=(0, 1)),
+        [255, 0, 0],
+        atol=3,
+    )
 
 
 def test_output_stats_dict_reports_reference_prediction_timing() -> None:
