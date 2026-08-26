@@ -71,16 +71,59 @@ def derive_valid_shift_interval(
         raise ValueError("requested_min must be <= requested_max")
 
     image, signs = _validated_shift_inputs(sample, sign_mask)
+    return derive_valid_affine_shift_interval(
+        image,
+        signs,
+        requested_min=requested_min,
+        requested_max=requested_max,
+    )
+
+
+def derive_valid_affine_shift_interval(
+    sample: np.ndarray,
+    coefficient_mask: np.ndarray,
+    *,
+    requested_min: float = -0.1,
+    requested_max: float = 0.1,
+) -> Tuple[float, float]:
+    """Return the shared-X interval for ``sample + coefficient_mask * X``.
+
+    Unlike :func:`derive_valid_shift_interval`, coefficients may be arbitrary
+    finite real values. This supports structured directions such as global
+    brightness (all ones) and contrast (``sample - channel_mean``).
+    """
     lower = float(requested_min)
     upper = float(requested_max)
-    positive = signs == 1
-    negative = signs == -1
+    if not math.isfinite(lower) or not math.isfinite(upper):
+        raise ValueError("requested shift bounds must be finite")
+    if lower > upper:
+        raise ValueError("requested_min must be <= requested_max")
+
+    image = np.asarray(sample, dtype=np.float64)
+    coefficients = np.asarray(coefficient_mask, dtype=np.float64)
+    if image.shape != coefficients.shape:
+        raise ValueError(
+            f"sample shape {image.shape} does not match coefficient mask {coefficients.shape}"
+        )
+    if not np.isfinite(image).all() or not np.isfinite(coefficients).all():
+        raise ValueError("sample and coefficient mask must contain finite values")
+    if np.any(image < 0.0) or np.any(image > 1.0):
+        raise ValueError("sample must be inside [0, 1]")
+
+    positive = coefficients > 0.0
+    negative = coefficients < 0.0
     if np.any(positive):
-        lower = max(lower, float(np.max(-image[positive])))
-        upper = min(upper, float(np.min(1.0 - image[positive])))
+        lower = max(lower, float(np.max(-image[positive] / coefficients[positive])))
+        upper = min(
+            upper,
+            float(np.min((1.0 - image[positive]) / coefficients[positive])),
+        )
     if np.any(negative):
-        lower = max(lower, float(np.max(image[negative] - 1.0)))
-        upper = min(upper, float(np.min(image[negative])))
+        lower = max(
+            lower,
+            float(np.max((1.0 - image[negative]) / coefficients[negative])),
+        )
+        upper = min(upper, float(np.min(-image[negative] / coefficients[negative])))
     if lower > upper + 1e-12:
         raise ValueError(f"valid shift interval is empty: [{lower}, {upper}]")
     return max(lower, requested_min), min(upper, requested_max)
@@ -334,6 +377,7 @@ __all__ = [
     "TargetClassInputShap",
     "TargetClassInputShapProvider",
     "build_sign_mask",
+    "derive_valid_affine_shift_interval",
     "count_clipped_values",
     "derive_valid_shift_interval",
     "materialize_shifted_input",

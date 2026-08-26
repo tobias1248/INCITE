@@ -668,3 +668,12 @@ current_height >= symbolic_path_threshold
 - post-run statistical analysis
 
 因此，這個 repo 最適合作為「研究型測試框架」來介紹，而不是單一攻擊演算法實作。若要對外說明其亮點，建議聚焦在「結構感知的 SHAP-guided concolic testing pipeline」這個主軸。
+
+## 13. 全域外觀 shift
+
+`--attack-mode global-real` 以單一 solver real `X` 套用 `input + coefficient * X`。預設的 `--global-shift-kind shap-sign` 使用每個輸入位置的 target-class SHAP 正負號；這可能呈現高頻的像素級紋理。CIFAR10 也可選擇兩個不需讀取 SHAP cache 的結構化方向：
+
+- `brightness`：所有 RGB 值套用相同位移 `X`。
+- `contrast`：每一 channel 以該圖片的 channel mean 為中心，套用 `input + (input - channel_mean) * X`。
+
+`--global-x-bounds-mode strict` 會交集所有 affine input range，使候選不會依賴 clipping；`clip` 則保留原本逐元素截斷的行為。實驗輸出路徑包含 direction、bounds mode 與 X 範圍，payload metadata 同時記錄所選 direction、coefficient map 與 contrast channel means。

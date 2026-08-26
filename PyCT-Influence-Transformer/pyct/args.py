@@ -263,6 +263,16 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--global-shift-kind",
+        choices=("shap-sign", "brightness", "contrast"),
+        default="shap-sign",
+        help=(
+            "Shared GlobalReal direction: shap-sign follows per-pixel SHAP signs; "
+            "brightness shifts all channels equally; contrast scales deviations "
+            "from each image's RGB channel mean."
+        ),
+    )
+    parser.add_argument(
         "--shap-sign-epsilon",
         type=float,
         default=0.0,

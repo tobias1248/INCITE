@@ -386,6 +386,7 @@ def run_launcher(args: Any) -> None:
         attack_mode_parts.extend(
             [
                 args.global_x_bounds_mode,
+                args.global_shift_kind,
                 f"x{_range_component(args.global_x_min)}_{_range_component(args.global_x_max)}",
             ]
         )
@@ -468,6 +469,7 @@ def run_launcher(args: Any) -> None:
             requested_min=args.global_x_min,
             requested_max=args.global_x_max,
             bounds_mode=args.global_x_bounds_mode,
+            shift_kind=args.global_shift_kind,
             shap_sign_epsilon=args.shap_sign_epsilon,
             shap_output_root=args.shap_output_root,
         )

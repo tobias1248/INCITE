@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import os
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
 
@@ -14,18 +14,29 @@ from explainability.input_shap_sign import (
     BOUNDS_MODES,
     TargetClassInputShapProvider,
     build_sign_mask,
-    derive_valid_shift_interval,
+    derive_valid_affine_shift_interval,
 )
 from libct.global_real import GLOBAL_X_INPUT_NAME
 from tasks.builders.common import log, normalize_indices
 from tasks.paths import get_save_dir_from_save_exp
 
 
-def _sign_mapping(sign_mask: np.ndarray) -> Dict[str, int]:
+GLOBAL_SHIFT_KINDS: Tuple[str, ...] = ("shap-sign", "brightness", "contrast")
+
+
+def _coefficient_mapping(coefficients: np.ndarray) -> Dict[str, float]:
     return {
-        "v_" + "_".join(str(int(part)) for part in index): int(sign_mask[index])
-        for index in np.ndindex(sign_mask.shape)
+        "v_" + "_".join(str(int(part)) for part in index): float(coefficients[index])
+        for index in np.ndindex(coefficients.shape)
     }
+
+
+def _contrast_coefficients(sample: np.ndarray) -> Tuple[np.ndarray, List[float]]:
+    if sample.ndim < 1 or sample.shape[-1] < 1:
+        raise ValueError(f"contrast shift requires a channel axis, got {sample.shape}")
+    spatial_axes = tuple(range(sample.ndim - 1))
+    channel_means = np.mean(sample, axis=spatial_axes, keepdims=True, dtype=np.float64)
+    return np.asarray(sample, dtype=np.float64) - channel_means, channel_means.reshape(-1).tolist()
 
 
 def cifar10_global_real(
@@ -37,6 +48,7 @@ def cifar10_global_real(
     requested_min: float = -0.1,
     requested_max: float = 0.1,
     bounds_mode: str = BOUNDS_MODE_CLIP,
+    shift_kind: str = "shap-sign",
     shap_sign_epsilon: float = 0.0,
     shap_output_root: str = "shap_target_class",
 ) -> List[Dict[str, object]]:
@@ -48,17 +60,22 @@ def cifar10_global_real(
         raise ValueError("global X bounds must include 0")
     if bounds_mode not in BOUNDS_MODES:
         raise ValueError(f"global X bounds_mode must be one of {', '.join(BOUNDS_MODES)}")
+    if shift_kind not in GLOBAL_SHIFT_KINDS:
+        raise ValueError(f"global shift kind must be one of {', '.join(GLOBAL_SHIFT_KINDS)}")
     if not math.isfinite(shap_sign_epsilon) or shap_sign_epsilon < 0:
         raise ValueError("SHAP sign epsilon must be finite and non-negative")
 
     dataset = Cifar10Dataset()
     indices = normalize_indices(first_n_img)
-    model_path = Path("model") / f"{model_name}.h5"
-    provider = TargetClassInputShapProvider(
-        model_path=model_path,
-        output_root=Path(shap_output_root),
-    )
-    background = dataset.get_cifar10_test_data_and_set_condict(0, [])[3]
+    provider = None
+    background = None
+    if shift_kind == "shap-sign":
+        model_path = Path("model") / f"{model_name}.h5"
+        provider = TargetClassInputShapProvider(
+            model_path=model_path,
+            output_root=Path(shap_output_root),
+        )
+        background = dataset.get_cifar10_test_data_and_set_condict(0, [])[3]
 
     inputs: List[Dict[str, object]] = []
     skipped = 0
@@ -81,22 +98,38 @@ def cifar10_global_real(
             continue
 
         sample = np.asarray(dataset.x_test[idx], dtype=np.float32)
-        attribution = provider.load_cached(
-            case_index=idx,
-            sample=sample,
-            background=background,
-        )
-        target_class = attribution.target_class
-        sign_mask = build_sign_mask(
-            attribution.values,
-            epsilon=shap_sign_epsilon,
-        )
+        extra_metadata: Dict[str, object] = {"global_shift_kind": shift_kind}
+        if shift_kind == "shap-sign":
+            assert provider is not None
+            attribution = provider.load_cached(
+                case_index=idx,
+                sample=sample,
+                background=background,
+            )
+            coefficients = build_sign_mask(
+                attribution.values,
+                epsilon=shap_sign_epsilon,
+            ).astype(np.float64)
+            extra_metadata.update(
+                {
+                    "shap_sign_epsilon": float(shap_sign_epsilon),
+                    "shap_target_class": attribution.target_class,
+                    "shap_cache_path": str(attribution.cache_path),
+                    "nonzero_sign_count": int(np.count_nonzero(coefficients)),
+                }
+            )
+        elif shift_kind == "brightness":
+            coefficients = np.ones_like(sample, dtype=np.float64)
+        else:
+            coefficients, channel_means = _contrast_coefficients(sample)
+            extra_metadata["contrast_channel_means"] = channel_means
+
         effective_min = float(requested_min)
         effective_max = float(requested_max)
         if bounds_mode == BOUNDS_MODE_STRICT:
-            effective_min, effective_max = derive_valid_shift_interval(
+            effective_min, effective_max = derive_valid_affine_shift_interval(
                 sample,
-                sign_mask,
+                coefficients,
                 requested_min=requested_min,
                 requested_max=requested_max,
             )
@@ -110,11 +143,9 @@ def cifar10_global_real(
             "effective_min": float(effective_min),
             "effective_max": float(effective_max),
             "bounds_mode": bounds_mode,
-            "shap_sign_epsilon": float(shap_sign_epsilon),
-            "shap_target_class": target_class,
-            "shap_cache_path": str(attribution.cache_path),
-            "nonzero_sign_count": int(np.count_nonzero(sign_mask)),
-            "sign_by_input": _sign_mapping(sign_mask),
+            "global_shift_kind": shift_kind,
+            "coefficient_by_input": _coefficient_mapping(coefficients),
+            **extra_metadata,
         }
         inputs.append(
             {
@@ -133,8 +164,8 @@ def cifar10_global_real(
             }
         )
 
-    log.info("built global-real inputs=%s skipped=%s", len(inputs), skipped)
+    log.info("built global-real inputs=%s skipped=%s kind=%s", len(inputs), skipped, shift_kind)
     return inputs
 
 
-__all__ = ["cifar10_global_real"]
+__all__ = ["GLOBAL_SHIFT_KINDS", "cifar10_global_real"]

@@ -36,30 +36,47 @@ def validate_global_real_config(config: Mapping[str, Any]) -> Dict[str, Any]:
     if not lower <= 0.0 <= upper:
         raise ValueError("global real effective bounds must include X=0")
 
+    raw_coefficients = config.get("coefficient_by_input")
     raw_signs = config.get("sign_by_input")
-    if not isinstance(raw_signs, Mapping) or not raw_signs:
-        raise ValueError("global real sign_by_input must be a non-empty mapping")
-    signs: Dict[str, int] = {}
-    for name, value in raw_signs.items():
-        if not isinstance(name, str) or not name.startswith("v_"):
-            raise ValueError(f"invalid global real input name: {name!r}")
-        sign = int(value)
-        if sign not in (-1, 0, 1):
-            raise ValueError(f"global real sign for {name!r} must be -1, 0, or 1")
-        signs[name] = sign
+    if raw_coefficients is not None and raw_signs is not None:
+        raise ValueError("global real config cannot define both coefficient_by_input and sign_by_input")
+
+    coefficients: Dict[str, float] = {}
+    if raw_coefficients is None:
+        if not isinstance(raw_signs, Mapping) or not raw_signs:
+            raise ValueError(
+                "global real coefficient_by_input or sign_by_input must be a non-empty mapping"
+            )
+        for name, value in raw_signs.items():
+            if not isinstance(name, str) or not name.startswith("v_"):
+                raise ValueError(f"invalid global real input name: {name!r}")
+            sign = int(value)
+            if sign not in (-1, 0, 1):
+                raise ValueError(f"global real sign for {name!r} must be -1, 0, or 1")
+            coefficients[name] = float(sign)
+    else:
+        if not isinstance(raw_coefficients, Mapping) or not raw_coefficients:
+            raise ValueError("global real coefficient_by_input must be a non-empty mapping")
+        for name, value in raw_coefficients.items():
+            if not isinstance(name, str) or not name.startswith("v_"):
+                raise ValueError(f"invalid global real input name: {name!r}")
+            coefficient = float(value)
+            if not math.isfinite(coefficient):
+                raise ValueError(f"global real coefficient for {name!r} must be finite")
+            coefficients[name] = coefficient
 
     normalized = dict(config)
+    normalized.pop("sign_by_input", None)
     normalized.update(
         {
             "variable_name": variable_name,
             "bounds_mode": bounds_mode,
             "effective_min": lower,
             "effective_max": upper,
-            "sign_by_input": signs,
+            "coefficient_by_input": coefficients,
         }
     )
     return normalized
-
 
 def solver_variable_bounds(config: Mapping[str, Any]) -> Dict[str, Tuple[float, float]]:
     normalized = validate_global_real_config(config)
@@ -85,15 +102,15 @@ def build_concolic_global_real_kwargs(
     engine.concolic_name_list.append(GLOBAL_X_SMT_NAME)
     engine.concolic_flag_dict[GLOBAL_X_SMT_NAME] = 1
 
-    signs = config["sign_by_input"]
+    coefficients = config["coefficient_by_input"]
     pixel_names = {
         name for name in primitive_inputs if isinstance(name, str) and name.startswith("v_")
     }
-    if pixel_names != set(signs):
-        missing = sorted(pixel_names - set(signs))[:3]
-        extra = sorted(set(signs) - pixel_names)[:3]
+    if pixel_names != set(coefficients):
+        missing = sorted(pixel_names - set(coefficients))[:3]
+        extra = sorted(set(coefficients) - pixel_names)[:3]
         raise ValueError(
-            "global real sign mapping does not match predictor inputs "
+            "global real coefficient mapping does not match predictor inputs "
             f"(missing={missing}, extra={extra})"
         )
 
@@ -101,17 +118,17 @@ def build_concolic_global_real_kwargs(
     for name, raw_value in primitive_inputs.items():
         if name == variable_name:
             continue
-        if name not in signs:
+        if name not in coefficients:
             kwargs[name] = raw_value
             continue
 
         engine.concolic_flag_dict[f"{name}_VAR"] = 0
         base = float(raw_value)
-        sign = signs[name]
-        if sign == 0:
+        coefficient = coefficients[name]
+        if coefficient == 0.0:
             kwargs[name] = base
             continue
-        affine = shared_x * float(sign) + base
+        affine = shared_x * coefficient + base
         if config["bounds_mode"] == BOUNDS_MODE_STRICT:
             kwargs[name] = affine
             continue
@@ -144,16 +161,16 @@ def materialize_global_real_arguments(
     if shift < lower - 1e-9 or shift > upper + 1e-9:
         raise ValueError(f"global real X={shift} is outside [{lower}, {upper}]")
 
-    signs = normalized["sign_by_input"]
+    coefficients = normalized["coefficient_by_input"]
     materialized: MutableMapping[str, Any] = {}
     clipped_count = 0
     for name, raw_value in primitive_inputs.items():
         if name == variable_name:
             continue
-        if name not in signs:
+        if name not in coefficients:
             materialized[name] = unwrap(raw_value)
             continue
-        shifted = float(unwrap(raw_value)) + signs[name] * shift
+        shifted = float(unwrap(raw_value)) + coefficients[name] * shift
         if shifted < 0.0 or shifted > 1.0:
             clipped_count += 1
         if normalized["bounds_mode"] == BOUNDS_MODE_STRICT and (

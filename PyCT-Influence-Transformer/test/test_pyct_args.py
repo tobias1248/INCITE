@@ -28,6 +28,8 @@ def test_parse_args_accepts_global_real_configuration() -> None:
             "strict",
             "--shap-sign-epsilon",
             "0.001",
+            "--global-shift-kind",
+            "contrast",
         ]
     )
 
@@ -35,6 +37,7 @@ def test_parse_args_accepts_global_real_configuration() -> None:
     assert args.global_x_max == pytest.approx(0.05)
     assert args.global_x_bounds_mode == "strict"
     assert args.shap_sign_epsilon == pytest.approx(0.001)
+    assert args.global_shift_kind == "contrast"
 
 
 @pytest.mark.parametrize(

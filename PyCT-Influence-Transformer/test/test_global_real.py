@@ -276,4 +276,68 @@ def test_cifar10_global_real_builder_creates_shared_x_payload(monkeypatch) -> No
     assert payload["in_dict"][GLOBAL_X_INPUT_NAME] == 0.0
     config = payload["global_real_config"]
     assert config["shap_target_class"] == 1
-    assert config["sign_by_input"] == {"v_0_0_0": 1, "v_0_1_0": -1}
+    assert config["coefficient_by_input"] == pytest.approx(
+        {"v_0_0_0": 1.0, "v_0_1_0": -1.0}
+    )
+
+
+def test_materialize_global_real_accepts_affine_coefficients() -> None:
+    config = {
+        "variable_name": GLOBAL_X_INPUT_NAME,
+        "effective_min": -0.5,
+        "effective_max": 0.5,
+        "bounds_mode": "strict",
+        "coefficient_by_input": {"v_0": 1.0, "v_1": -0.5, "v_2": 0.0},
+    }
+
+    materialized, shift, clipped_count = materialize_global_real_arguments(
+        {"v_0": 0.2, "v_1": 0.8, "v_2": 0.4, GLOBAL_X_INPUT_NAME: 0.2},
+        config,
+    )
+
+    assert shift == pytest.approx(0.2)
+    assert clipped_count == 0
+    assert materialized == pytest.approx({"v_0": 0.4, "v_1": 0.7, "v_2": 0.4})
+
+
+def test_cifar10_global_real_brightness_and_contrast_do_not_load_shap(monkeypatch) -> None:
+    sample = np.array([[[0.2], [0.8]]], dtype=np.float32)
+
+    class _Dataset:
+        x_test = np.stack([sample])
+
+        def get_cifar10_test_data(self, idx):
+            return {"v_0_0_0": 0.2, "v_0_1_0": 0.8}, {}
+
+    class _Provider:
+        def __init__(self, **kwargs):
+            pytest.fail("appearance shifts must not initialize a SHAP provider")
+
+    monkeypatch.setattr(global_real_builder, "Cifar10Dataset", _Dataset)
+    monkeypatch.setattr(global_real_builder, "TargetClassInputShapProvider", _Provider)
+    monkeypatch.setattr(global_real_builder, "get_save_dir_from_save_exp", lambda *a, **k: "unused")
+
+    brightness = global_real_builder.cifar10_global_real(
+        "demo", [0], force=True, shift_kind="brightness"
+    )[0]["global_real_config"]
+    contrast = global_real_builder.cifar10_global_real(
+        "demo", [0], force=True, shift_kind="contrast"
+    )[0]["global_real_config"]
+
+    assert brightness["coefficient_by_input"] == pytest.approx(
+        {"v_0_0_0": 1.0, "v_0_1_0": 1.0}
+    )
+    assert contrast["coefficient_by_input"] == pytest.approx(
+        {"v_0_0_0": -0.3, "v_0_1_0": 0.3}
+    )
+    assert contrast["contrast_channel_means"] == pytest.approx([0.5])
+
+
+def test_validate_global_real_config_normalizes_legacy_sign_mapping_once() -> None:
+    normalized = validate_global_real_config(_config())
+    revalidated = validate_global_real_config(normalized)
+
+    assert "sign_by_input" not in normalized
+    assert revalidated["coefficient_by_input"] == pytest.approx(
+        {"v_0": 1.0, "v_1": -1.0, "v_2": 0.0}
+    )

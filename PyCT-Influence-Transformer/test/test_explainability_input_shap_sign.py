@@ -11,6 +11,7 @@ from explainability.input_shap_sign import (
     build_sign_mask,
     count_clipped_values,
     derive_valid_shift_interval,
+    derive_valid_affine_shift_interval,
     materialize_shifted_input,
 )
 from explainability.shap_contract import ShapCacheContractError, build_cache_metadata
@@ -77,6 +78,21 @@ def test_derive_valid_shift_interval_intersects_all_input_bounds() -> None:
 
     assert lower == pytest.approx(-0.02)
     assert upper == pytest.approx(0.02)
+
+
+def test_derive_valid_affine_shift_interval_supports_contrast_coefficients() -> None:
+    sample = np.array([0.2, 0.8], dtype=np.float32)
+    coefficients = np.array([-0.3, 0.3], dtype=np.float64)
+
+    lower, upper = derive_valid_affine_shift_interval(
+        sample,
+        coefficients,
+        requested_min=-1.0,
+        requested_max=1.0,
+    )
+
+    assert lower == pytest.approx(-1.0)
+    assert upper == pytest.approx(2.0 / 3.0)
 
 
 def test_strict_materialization_rejects_out_of_range_candidate() -> None:
