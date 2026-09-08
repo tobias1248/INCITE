@@ -5,6 +5,11 @@ import logging
 import math
 from typing import Any, Dict, Optional, Sequence, Tuple
 
+from libct.aces_like import (
+    DEFAULT_PWL_ERROR_TOLERANCE,
+    DEFAULT_PWL_MAX_SEGMENTS,
+)
+
 from pyct.config import (
     _DEFAULT_PIXEL_SEARCH,
     _LOG_LEVEL_CHOICES,
@@ -49,7 +54,7 @@ def _parse_case_indices(value: str) -> Tuple[int, ...]:
 
 def _parse_non_negative_float(value: str) -> float:
     parsed = float(value)
-    if parsed < 0.0:
+    if not math.isfinite(parsed) or parsed < 0.0:
         raise argparse.ArgumentTypeError("value must be >= 0.")
     return parsed
 
@@ -94,7 +99,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--constraint-build-timeout-seconds",
         type=int,
         default=30,
-        help="Timeout in seconds for SMT formula construction when build timeout is enabled (default: 30).",
+        help=(
+            "Timeout in seconds for SMT formula construction when build timeout "
+            "is enabled (default: 30)."
+        ),
     )
     parser.add_argument(
         "--solver-run-timeout",
@@ -106,7 +114,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--score-alpha",
         type=float,
         default=None,
-        help="Weight of path_len penalty in priority score (0..1). Required unless --attack-mode queue.",
+        help=(
+            "Weight of path_len penalty in priority score (0..1). Required "
+            "unless --attack-mode queue."
+        ),
     )
     parser.add_argument(
         "--symbolic-path-threshold",
@@ -128,7 +139,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--ternary-threshold-scale",
         type=_parse_non_negative_float,
         default=0.75,
-        help="Non-negative scale for ternary delta: threshold_scale * mean(abs(W)) (default: 0.75).",
+        help=(
+            "Non-negative scale for ternary delta: threshold_scale * "
+            "mean(abs(W)) (default: 0.75)."
+        ),
     )
     parser.add_argument(
         "--ternary-fallback",
@@ -169,7 +183,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--pixel-selector",
         default="pixel-shap",
         choices=("pixel-shap", "patch-shap", "token-shap"),
-        help="Coordinate selector for SHAP attacks (default: pixel-shap). patch-shap/token-shap are CIFAR10-only and require --pixel-search 1.",
+        help=(
+            "Coordinate selector for SHAP attacks (default: pixel-shap). "
+            "patch-shap/token-shap are CIFAR10-only and require "
+            "--pixel-search 1."
+        ),
     )
     parser.add_argument(
         "--norm-01",
@@ -264,7 +282,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--global-shift-kind",
-        choices=("shap-sign", "brightness", "contrast", "aces-brightness", "aces-contrast"),
+        choices=(
+            "shap-sign",
+            "brightness",
+            "contrast",
+            "aces-brightness",
+            "aces-contrast",
+        ),
         default="shap-sign",
         help=(
             "Shared GlobalReal direction: shap-sign follows per-pixel SHAP signs; "
@@ -286,13 +310,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--aces-pwl-max-segments",
         type=_parse_non_negative_int,
-        default=8,
-        help="Maximum number of segments for ACES-like shared-X PWL (default: 8).",
+        default=DEFAULT_PWL_MAX_SEGMENTS,
+        help="Maximum number of segments for ACES-like shared-X PWL (default: 32).",
     )
     parser.add_argument(
         "--aces-pwl-error-tolerance",
         type=_parse_non_negative_float,
-        default=1.0 / 255.0,
+        default=DEFAULT_PWL_ERROR_TOLERANCE,
         help="Maximum sampled RGB error for ACES-like PWL (default: 1/255).",
     )
     args = parser.parse_args(argv)
@@ -319,15 +343,27 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             parser.error("GlobalReal X bounds must include 0")
         if not math.isfinite(args.shap_sign_epsilon) or args.shap_sign_epsilon < 0:
             parser.error("--shap-sign-epsilon must be finite and >= 0")
-        if args.global_shift_kind.startswith("aces-") and args.aces_pwl_max_segments < 1:
-            parser.error("--aces-pwl-max-segments must be >= 1 for ACES-like shifts")
-        if args.global_shift_kind.startswith("aces-") and args.aces_pwl_error_tolerance <= 0:
-            parser.error("--aces-pwl-error-tolerance must be > 0 for ACES-like shifts")
+        if args.global_shift_kind.startswith("aces-"):
+            if args.global_x_bounds_mode != "clip":
+                parser.error("ACES-like shifts require --global-x-bounds-mode clip")
+            if args.global_x_min >= args.global_x_max:
+                parser.error("ACES-like GlobalReal X bounds must satisfy min < max")
+            if args.aces_pwl_max_segments < 1:
+                parser.error("--aces-pwl-max-segments must be >= 1 for ACES-like shifts")
+            if (
+                not math.isfinite(args.aces_pwl_error_tolerance)
+                or args.aces_pwl_error_tolerance <= 0
+            ):
+                parser.error(
+                    "--aces-pwl-error-tolerance must be finite and > 0 for ACES-like shifts"
+                )
     if args.pixel_selector in {"patch-shap", "token-shap"}:
         if args.attack_mode != "shap":
             parser.error(f"--pixel-selector {args.pixel_selector} requires --attack-mode shap")
         if args.dataset != "cifar10":
-            parser.error(f"--pixel-selector {args.pixel_selector} requires --dataset cifar10")
+            parser.error(
+                f"--pixel-selector {args.pixel_selector} requires --dataset cifar10"
+            )
         if tuple(args.pixel_search) != (1,):
             parser.error(f"--pixel-selector {args.pixel_selector} requires --pixel-search 1")
     return args

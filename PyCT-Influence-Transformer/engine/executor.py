@@ -137,10 +137,15 @@ def _prepare_experiment_paths(
     return save_dir, smt_dir, input_name
 
 
-def _validate_collect_mode(collect_mode: str) -> Literal["priority_queue", "queue", "stack"]:
+def _validate_collect_mode(
+    collect_mode: str,
+) -> Literal["priority_queue", "queue", "stack"]:
     if collect_mode not in VALID_COLLECT_MODES:
         valid = ", ".join(sorted(VALID_COLLECT_MODES))
-        raise ValueError(f"Unsupported collect_constraints_with='{collect_mode}'. Expected one of: {valid}")
+        raise ValueError(
+            f"Unsupported collect_constraints_with='{collect_mode}'. "
+            f"Expected one of: {valid}"
+        )
     return collect_mode
 
 
@@ -198,16 +203,21 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         limit_change_range=None,
         only_first_forward=False,
         collect_constraints_with='priority_queue',
-        input_for_shap=None, background_dataset_for_shap=None, shap_value_pre_calculated: Optional[bool] = None,
+        input_for_shap=None,
+        background_dataset_for_shap=None,
+        shap_value_pre_calculated: Optional[bool] = None,
         popped_log_attack_mode=None,
         score_alpha: Optional[float] = None,
         symbolic_path_threshold: Optional[int] = None,
         ternary_simplification: bool = False,
         ternary_threshold_scale: float = 0.75,
         global_real_config=None,
-        shap_output_root=None) -> tuple[int, Any]:
+        shap_output_root=None,
+) -> tuple[int, Any]:
 
-    collect_mode: Literal["priority_queue", "queue", "stack"] = _validate_collect_mode(collect_constraints_with)
+    collect_mode: Literal["priority_queue", "queue", "stack"] = (
+        _validate_collect_mode(collect_constraints_with)
+    )
     model_path, module_path, root = _resolve_model_artifacts(model_name)
     search_runtime_key: ModelRuntimeKey = (
         model_path,
@@ -256,6 +266,37 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
                 "global_real_effective_min": global_real_config.get("effective_min"),
                 "global_real_effective_max": global_real_config.get("effective_max"),
                 "global_real_bounds_mode": global_real_config.get("bounds_mode"),
+                "global_real_transform_mode": global_real_config.get(
+                    "transform_mode", "affine"
+                ),
+                "global_real_pwl_knots": global_real_config.get("pwl_knots"),
+                "global_real_pwl_max_segments": global_real_config.get(
+                    "pwl_max_segments"
+                ),
+                "global_real_pwl_segment_count": global_real_config.get(
+                    "pwl_segment_count"
+                ),
+                "global_real_pwl_error_tolerance": global_real_config.get(
+                    "pwl_error_tolerance"
+                ),
+                "global_real_pwl_max_abs_error": global_real_config.get(
+                    "pwl_max_abs_error"
+                ),
+                "global_real_pwl_error_metric": global_real_config.get(
+                    "pwl_error_metric"
+                ),
+                "global_real_pwl_validator_version": global_real_config.get(
+                    "pwl_validator_version"
+                ),
+                "global_real_aces_like_color_space": global_real_config.get(
+                    "aces_like_color_space"
+                ),
+                "global_real_aces_like_curve_version": global_real_config.get(
+                    "aces_like_curve_version"
+                ),
+                "global_real_aces_like_gamut_mapper": global_real_config.get(
+                    "aces_like_gamut_mapper"
+                ),
                 "global_real_shap_sign_epsilon": global_real_config.get(
                     "shap_sign_epsilon"
                 ),
@@ -371,7 +412,11 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         model_path=model_path,
         input_for_shap=input_for_shap,
         background_dataset_for_shap=background_dataset_for_shap,
-        shap_value_pre_calculated=bool(shap_value_pre_calculated) if shap_value_pre_calculated is not None else False,
+        shap_value_pre_calculated=(
+            bool(shap_value_pre_calculated)
+            if shap_value_pre_calculated is not None
+            else False
+        ),
         collect_constraints_with=collect_mode,
         popped_log_attack_mode=popped_log_attack_mode or "unknown",
         global_real_config=global_real_config,

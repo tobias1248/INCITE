@@ -9,6 +9,8 @@ from libct.aces_like import (
     ACES_LIKE_COLOR_SPACE,
     ACES_LIKE_CURVE_VERSION,
     ACES_LIKE_GAMUT_MAPPER,
+    ACES_LIKE_PWL_ERROR_METRIC,
+    ACES_LIKE_PWL_VALIDATOR_VERSION,
     ACES_LIKE_SHIFT_KINDS,
     AcesLikeTransformError,
     DEFAULT_PWL_ERROR_TOLERANCE,
@@ -27,6 +29,18 @@ BOUNDS_MODES = (BOUNDS_MODE_CLIP, BOUNDS_MODE_STRICT)
 TRANSFORM_MODE_AFFINE = "affine"
 TRANSFORM_MODE_ACES_LIKE_PWL = "aces-like-pwl"
 TRANSFORM_MODES = (TRANSFORM_MODE_AFFINE, TRANSFORM_MODE_ACES_LIKE_PWL)
+
+
+def _coerce_exact_int(value: Any, name: str) -> int:
+    if isinstance(value, bool) or isinstance(value, (str, bytes)):
+        raise ValueError(f"ACES-like {name} must be an integer")
+    try:
+        integer = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"ACES-like {name} must be an integer") from exc
+    if integer != value:
+        raise ValueError(f"ACES-like {name} must be an integer")
+    return integer
 
 
 def validate_global_real_config(config: Mapping[str, Any]) -> Dict[str, Any]:
@@ -70,6 +84,10 @@ def validate_global_real_config(config: Mapping[str, Any]) -> Dict[str, Any]:
     )
 
     if transform_mode == TRANSFORM_MODE_ACES_LIKE_PWL:
+        if bounds_mode != BOUNDS_MODE_CLIP:
+            raise ValueError(
+                "ACES-like transform requires bounds_mode='clip'; strict is not defined"
+            )
         kind = str(config.get("global_shift_kind", ""))
         if kind not in ACES_LIKE_SHIFT_KINDS:
             raise ValueError(
@@ -91,29 +109,56 @@ def validate_global_real_config(config: Mapping[str, Any]) -> Dict[str, Any]:
         if not any(math.isclose(value, 0.0, abs_tol=1e-12) for value in knots):
             raise ValueError("ACES-like pwl_knots must include X=0")
         tolerance = float(config.get("pwl_error_tolerance", DEFAULT_PWL_ERROR_TOLERANCE))
-        max_segments = config.get("pwl_max_segments", DEFAULT_PWL_MAX_SEGMENTS)
+        max_segments = _coerce_exact_int(
+            config.get("pwl_max_segments", DEFAULT_PWL_MAX_SEGMENTS),
+            "pwl_max_segments",
+        )
         max_abs_error = float(config.get("pwl_max_abs_error", 0.0))
+        if "pwl_segment_count" not in config:
+            raise ValueError("ACES-like transform requires pwl_segment_count metadata")
+        segment_count = _coerce_exact_int(
+            config["pwl_segment_count"], "pwl_segment_count"
+        )
         if not math.isfinite(tolerance) or tolerance <= 0.0:
             raise ValueError("ACES-like pwl_error_tolerance must be finite and positive")
-        if isinstance(max_segments, bool) or int(max_segments) != max_segments or int(max_segments) < 1:
+        if max_segments < 1:
             raise ValueError("ACES-like pwl_max_segments must be an integer >= 1")
+        if segment_count < 1 or segment_count != len(knots) - 1:
+            raise ValueError(
+                "ACES-like pwl_segment_count must match the recorded table"
+            )
+        if max_segments < segment_count:
+            raise ValueError(
+                "ACES-like pwl_max_segments is smaller than the recorded table"
+            )
         if not math.isfinite(max_abs_error) or max_abs_error < 0.0:
             raise ValueError("ACES-like pwl_max_abs_error must be finite and non-negative")
+
+        expected_metadata = {
+            "aces_like_color_space": ACES_LIKE_COLOR_SPACE,
+            "aces_like_curve_version": ACES_LIKE_CURVE_VERSION,
+            "aces_like_gamut_mapper": ACES_LIKE_GAMUT_MAPPER,
+            "pwl_error_metric": ACES_LIKE_PWL_ERROR_METRIC,
+            "pwl_validator_version": ACES_LIKE_PWL_VALIDATOR_VERSION,
+        }
+        normalized_metadata = {}
+        for key, expected in expected_metadata.items():
+            if key not in config:
+                raise ValueError(f"ACES-like transform requires {key} metadata")
+            actual = str(config[key])
+            if actual != expected:
+                raise ValueError(
+                    f"ACES-like {key} must be {expected!r}, got {actual!r}"
+                )
+            normalized_metadata[key] = actual
         normalized.update(
             {
                 "pwl_knots": knots,
                 "pwl_error_tolerance": tolerance,
                 "pwl_max_segments": int(max_segments),
                 "pwl_max_abs_error": max_abs_error,
-                "aces_like_color_space": str(
-                    config.get("aces_like_color_space", ACES_LIKE_COLOR_SPACE)
-                ),
-                "aces_like_curve_version": str(
-                    config.get("aces_like_curve_version", ACES_LIKE_CURVE_VERSION)
-                ),
-                "aces_like_gamut_mapper": str(
-                    config.get("aces_like_gamut_mapper", ACES_LIKE_GAMUT_MAPPER)
-                ),
+                "pwl_segment_count": int(segment_count),
+                **normalized_metadata,
                 "coefficient_by_input": {},
             }
         )
@@ -123,7 +168,10 @@ def validate_global_real_config(config: Mapping[str, Any]) -> Dict[str, Any]:
     raw_coefficients = config.get("coefficient_by_input")
     raw_signs = config.get("sign_by_input")
     if raw_coefficients is not None and raw_signs is not None:
-        raise ValueError("global real config cannot define both coefficient_by_input and sign_by_input")
+        raise ValueError(
+            "global real config cannot define both coefficient_by_input "
+            "and sign_by_input"
+        )
 
     coefficients: Dict[str, float] = {}
     if raw_coefficients is None:
@@ -152,6 +200,8 @@ def validate_global_real_config(config: Mapping[str, Any]) -> Dict[str, Any]:
     normalized.pop("sign_by_input", None)
     normalized["coefficient_by_input"] = coefficients
     return normalized
+
+
 def _input_mapping_to_rgb(
     primitive_inputs: Mapping[str, Any],
 ) -> Tuple[np.ndarray, Dict[str, Tuple[int, ...]]]:
@@ -163,7 +213,8 @@ def _input_mapping_to_rgb(
     shape = get_in_dict_shape(pixel_inputs)
     if len(shape) < 1 or shape[-1] != 3:
         raise ValueError(
-            "ACES-like global real transform requires predictor inputs with a final RGB channel axis"
+            "ACES-like global real transform requires predictor inputs with a "
+            "final RGB channel axis"
         )
     expected_names = {
         "v_" + "_".join(str(index) for index in indices)
@@ -214,17 +265,27 @@ def _build_aces_like_approximation(
         atol=1e-12,
     ):
         raise ValueError(
-            "ACES-like PWL knots do not match the deterministic approximation built from the input"
+            "ACES-like PWL knots do not match the deterministic approximation "
+            "built from the input"
         )
     configured_error = float(config.get("pwl_max_abs_error", 0.0))
-    if configured_error > 0.0 and approximation.max_abs_error > configured_error + 1e-12:
+    if not math.isclose(
+        approximation.max_abs_error,
+        configured_error,
+        rel_tol=0.0,
+        abs_tol=1e-12,
+    ):
         raise ValueError(
-            "ACES-like PWL approximation error exceeds the recorded configuration bound"
+            "ACES-like PWL sampled error does not match the recorded configuration"
         )
     return approximation, rgb, coordinates
 
 
-def _pwl_symbolic_expression(shared_x: Any, approximation: Any, coordinates: Tuple[int, ...]):
+def _pwl_symbolic_expression(
+    shared_x: Any,
+    approximation: Any,
+    coordinates: Tuple[int, ...],
+):
     branch = None
     for index in range(approximation.segment_count - 1, -1, -1):
         slope, intercept = approximation.affine_for_segment(index)
@@ -238,12 +299,17 @@ def _pwl_symbolic_expression(shared_x: Any, approximation: Any, coordinates: Tup
         else:
             branch = [
                 "ite",
-                ["<=", shared_x, f"{float(approximation.knots[index + 1]):.15f}"],
+                [
+                    "<=",
+                    shared_x,
+                    f"{float(approximation.knots[index + 1]):.15f}",
+                ],
                 candidate,
                 branch,
             ]
     assert branch is not None
     return branch
+
 
 def solver_variable_bounds(config: Mapping[str, Any]) -> Dict[str, Tuple[float, float]]:
     normalized = validate_global_real_config(config)
@@ -341,8 +407,7 @@ def materialize_global_real_details(
     normalized = validate_global_real_config(config)
     if normalized["transform_mode"] != TRANSFORM_MODE_ACES_LIKE_PWL:
         materialized, shift, clipped_count = materialize_global_real_arguments(
-            primitive_inputs,
-            normalized,
+            primitive_inputs, normalized
         )
         return materialized, shift, clipped_count, {
             "transform_mode": TRANSFORM_MODE_AFFINE,
@@ -361,7 +426,9 @@ def materialize_global_real_details(
     lower = normalized["effective_min"]
     upper = normalized["effective_max"]
     if shift < lower - 1e-9 or shift > upper + 1e-9:
-        raise ValueError(f"global real X={shift} is outside [{lower}, {upper}]")
+        raise ValueError(
+            f"global real X={shift} is outside [{lower}, {upper}]"
+        )
 
     approximation, rgb, coordinates = _build_aces_like_approximation(
         primitive_inputs,
@@ -376,6 +443,15 @@ def materialize_global_real_details(
     except AcesLikeTransformError as exc:
         raise ValueError(f"unable to materialize ACES-like transform: {exc}") from exc
     approximated_rgb = approximation.evaluate(shift)
+    error_at_x = float(np.max(np.abs(exact.rgb - approximated_rgb)))
+    if error_at_x > normalized["pwl_error_tolerance"] + 1e-12:
+        raise ValueError(
+            "ACES-like PWL error at X={} exceeds tolerance {} (observed {})".format(
+                shift,
+                normalized["pwl_error_tolerance"],
+                error_at_x,
+            )
+        )
     materialized: MutableMapping[str, Any] = {}
     for name, raw_value in primitive_inputs.items():
         if name == variable_name:
@@ -388,7 +464,7 @@ def materialize_global_real_details(
     return dict(materialized), shift, diagnostics.hard_clipped_channel_count, {
         "transform_mode": TRANSFORM_MODE_ACES_LIKE_PWL,
         "pwl_segment_index": approximation.segment_index(shift),
-        "pwl_error_at_x": float(np.max(np.abs(exact.rgb - approximated_rgb))),
+        "pwl_error_at_x": error_at_x,
         "gamut_mapped_pixel_count": diagnostics.gamut_mapped_pixel_count,
         "hard_clipped_channel_count": diagnostics.hard_clipped_channel_count,
         "mean_hue_drift_degrees": diagnostics.mean_hue_drift_degrees,
@@ -398,43 +474,6 @@ def materialize_global_real_details(
         "mean_luminance_delta": diagnostics.mean_luminance_delta,
         "max_abs_luminance_delta": diagnostics.max_abs_luminance_delta,
     }
-
-
-def materialize_global_real_arguments(
-    primitive_inputs: Mapping[str, Any],
-    config: Mapping[str, Any],
-) -> Tuple[Dict[str, Any], float, int]:
-    normalized = validate_global_real_config(config)
-    variable_name = normalized["variable_name"]
-    if variable_name not in primitive_inputs:
-        raise ValueError(f"global real input is missing {variable_name!r}")
-    shift = float(unwrap(primitive_inputs[variable_name]))
-    if not math.isfinite(shift):
-        raise ValueError("global real X must be finite")
-
-    lower = normalized["effective_min"]
-    upper = normalized["effective_max"]
-    if shift < lower - 1e-9 or shift > upper + 1e-9:
-        raise ValueError(f"global real X={shift} is outside [{lower}, {upper}]")
-
-    coefficients = normalized["coefficient_by_input"]
-    materialized: MutableMapping[str, Any] = {}
-    clipped_count = 0
-    for name, raw_value in primitive_inputs.items():
-        if name == variable_name:
-            continue
-        if name not in coefficients:
-            materialized[name] = unwrap(raw_value)
-            continue
-        shifted = float(unwrap(raw_value)) + coefficients[name] * shift
-        if shifted < 0.0 or shifted > 1.0:
-            clipped_count += 1
-        if normalized["bounds_mode"] == BOUNDS_MODE_STRICT and (
-            shifted < -1e-7 or shifted > 1.0 + 1e-7
-        ):
-            raise ValueError("global real strict-mode input is outside [0, 1]")
-        materialized[name] = min(max(shifted, 0.0), 1.0)
-    return dict(materialized), shift, clipped_count
 
 
 def _materialize_global_real_affine_arguments(
@@ -450,7 +489,9 @@ def _materialize_global_real_affine_arguments(
     lower = normalized["effective_min"]
     upper = normalized["effective_max"]
     if shift < lower - 1e-9 or shift > upper + 1e-9:
-        raise ValueError(f"global real X={shift} is outside [{lower}, {upper}]")
+        raise ValueError(
+            f"global real X={shift} is outside [{lower}, {upper}]"
+        )
     coefficients = normalized["coefficient_by_input"]
     materialized: MutableMapping[str, Any] = {}
     clipped_count = 0

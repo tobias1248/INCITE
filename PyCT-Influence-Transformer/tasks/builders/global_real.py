@@ -6,7 +6,17 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
-from libct.aces_like import ACES_LIKE_SHIFT_KINDS, DEFAULT_PWL_ERROR_TOLERANCE, DEFAULT_PWL_MAX_SEGMENTS, build_adaptive_pwl_approximation
+from libct.aces_like import (
+    ACES_LIKE_COLOR_SPACE,
+    ACES_LIKE_CURVE_VERSION,
+    ACES_LIKE_GAMUT_MAPPER,
+    ACES_LIKE_PWL_ERROR_METRIC,
+    ACES_LIKE_PWL_VALIDATOR_VERSION,
+    ACES_LIKE_SHIFT_KINDS,
+    DEFAULT_PWL_ERROR_TOLERANCE,
+    DEFAULT_PWL_MAX_SEGMENTS,
+    build_adaptive_pwl_approximation,
+)
 
 from datasets.cifar10 import Cifar10Dataset
 from explainability.input_shap_sign import (
@@ -22,7 +32,11 @@ from tasks.builders.common import log, normalize_indices
 from tasks.paths import get_save_dir_from_save_exp
 
 
-GLOBAL_SHIFT_KINDS: Tuple[str, ...] = ("shap-sign", "brightness", "contrast") + ACES_LIKE_SHIFT_KINDS
+GLOBAL_SHIFT_KINDS: Tuple[str, ...] = (
+    "shap-sign",
+    "brightness",
+    "contrast",
+) + ACES_LIKE_SHIFT_KINDS
 
 
 def _coefficient_mapping(coefficients: np.ndarray) -> Dict[str, float]:
@@ -37,10 +51,13 @@ def _contrast_coefficients(sample: np.ndarray) -> Tuple[np.ndarray, List[float]]
         raise ValueError(f"contrast shift requires a channel axis, got {sample.shape}")
     spatial_axes = tuple(range(sample.ndim - 1))
     channel_means = np.mean(sample, axis=spatial_axes, keepdims=True, dtype=np.float64)
-    return np.asarray(sample, dtype=np.float64) - channel_means, channel_means.reshape(-1).tolist()
+    return (
+        np.asarray(sample, dtype=np.float64) - channel_means,
+        channel_means.reshape(-1).tolist(),
+    )
 
 
-def cifar10_global_real(
+def _cifar10_global_real_affine(
     model_name: str,
     first_n_img: Iterable[int],
     *,
@@ -165,11 +182,13 @@ def cifar10_global_real(
             }
         )
 
-    log.info("built global-real inputs=%s skipped=%s kind=%s", len(inputs), skipped, shift_kind)
+    log.info(
+        "built global-real inputs=%s skipped=%s kind=%s",
+        len(inputs),
+        skipped,
+        shift_kind,
+    )
     return inputs
-
-
-_legacy_cifar10_global_real = cifar10_global_real
 
 
 def cifar10_global_real(
@@ -188,7 +207,7 @@ def cifar10_global_real(
     pwl_error_tolerance: float = DEFAULT_PWL_ERROR_TOLERANCE,
 ) -> List[Dict[str, object]]:
     if shift_kind not in ACES_LIKE_SHIFT_KINDS:
-        return _legacy_cifar10_global_real(
+        return _cifar10_global_real_affine(
             model_name,
             first_n_img,
             force=force,
@@ -200,11 +219,17 @@ def cifar10_global_real(
             shap_sign_epsilon=shap_sign_epsilon,
             shap_output_root=shap_output_root,
         )
+    if bounds_mode != BOUNDS_MODE_CLIP:
+        raise ValueError("ACES-like global shifts require bounds_mode='clip'")
     if not math.isfinite(requested_min) or not math.isfinite(requested_max):
         raise ValueError("global X bounds must be finite")
     if requested_min >= requested_max or not requested_min <= 0.0 <= requested_max:
-        raise ValueError("ACES-like global X bounds must satisfy min < 0 < max")
-    if not isinstance(pwl_max_segments, int) or isinstance(pwl_max_segments, bool) or pwl_max_segments < 1:
+        raise ValueError("ACES-like global X bounds must satisfy min < max and include 0")
+    if (
+        not isinstance(pwl_max_segments, int)
+        or isinstance(pwl_max_segments, bool)
+        or pwl_max_segments < 1
+    ):
         raise ValueError("ACES-like PWL max_segments must be an integer >= 1")
     if not math.isfinite(pwl_error_tolerance) or pwl_error_tolerance <= 0.0:
         raise ValueError("ACES-like PWL error_tolerance must be finite and positive")
@@ -253,9 +278,12 @@ def cifar10_global_real(
             "pwl_max_segments": int(pwl_max_segments),
             "pwl_error_tolerance": float(pwl_error_tolerance),
             "pwl_max_abs_error": float(approximation.max_abs_error),
-            "aces_like_color_space": "OKLCh-sRGB",
-            "aces_like_curve_version": "oklch-logit-v1",
-            "aces_like_gamut_mapper": "constant-L-h-chroma-bisection-v1",
+            "pwl_error_metric": ACES_LIKE_PWL_ERROR_METRIC,
+            "pwl_validator_version": ACES_LIKE_PWL_VALIDATOR_VERSION,
+            "pwl_segment_count": approximation.segment_count,
+            "aces_like_color_space": ACES_LIKE_COLOR_SPACE,
+            "aces_like_curve_version": ACES_LIKE_CURVE_VERSION,
+            "aces_like_gamut_mapper": ACES_LIKE_GAMUT_MAPPER,
         }
         inputs.append(
             {

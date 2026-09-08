@@ -9,6 +9,8 @@ lightness and hue.
 
 from __future__ import annotations
 
+import bisect
+import heapq
 import math
 from dataclasses import dataclass
 from typing import Tuple
@@ -22,9 +24,11 @@ ACES_LIKE_SHIFT_KINDS: Tuple[str, str] = (
 )
 ACES_LIKE_COLOR_SPACE = "OKLCh-sRGB"
 ACES_LIKE_CURVE_VERSION = "oklch-logit-v1"
-ACES_LIKE_GAMUT_MAPPER = "constant-L-h-chroma-bisection-v1"
+ACES_LIKE_GAMUT_MAPPER = "css-color-4-local-minde-v1"
+ACES_LIKE_PWL_ERROR_METRIC = "sampled-max-abs-rgb"
+ACES_LIKE_PWL_VALIDATOR_VERSION = "adaptive-31-point-v1"
 DEFAULT_PWL_ERROR_TOLERANCE = 1.0 / 255.0
-DEFAULT_PWL_MAX_SEGMENTS = 8
+DEFAULT_PWL_MAX_SEGMENTS = 32
 
 
 class AcesLikeTransformError(ValueError):
@@ -71,7 +75,9 @@ class PiecewiseLinearApproximation:
         knots = np.asarray(self.knots, dtype=np.float64)
         values = np.asarray(self.rgb_at_knots, dtype=np.float64)
         if knots.ndim != 1 or knots.size < 2:
-            raise AcesLikeTransformError("PWL knots must be a one-dimensional array of length >= 2")
+            raise AcesLikeTransformError(
+                "PWL knots must be a one-dimensional array of length >= 2"
+            )
         if values.ndim < 2 or values.shape[0] != knots.size or values.shape[-1] != 3:
             raise AcesLikeTransformError("PWL RGB table must have shape (knots, ..., 3)")
         if not np.all(np.isfinite(knots)) or not np.all(np.isfinite(values)):
@@ -95,7 +101,10 @@ class PiecewiseLinearApproximation:
             raise AcesLikeTransformError(
                 "PWL X={} is outside [{}, {}]".format(value, self.knots[0], self.knots[-1])
             )
-        return min(int(np.searchsorted(self.knots, value, side="right") - 1), self.segment_count - 1)
+        return min(
+            int(np.searchsorted(self.knots, value, side="right") - 1),
+            self.segment_count - 1,
+        )
 
     def affine_for_segment(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
         if not 0 <= int(index) < self.segment_count:
@@ -148,7 +157,10 @@ _LMS_TO_LINEAR_RGB = np.asarray(
 _LUMINANCE = np.asarray((0.2126, 0.7152, 0.0722), dtype=np.float64)
 _BRIGHTNESS_LOGIT_STRENGTH = 2.0
 _CONTRAST_LOG_SLOPE = math.log(2.0)
-_GAMUT_BISECTION_STEPS = 24
+_GAMUT_JND = 0.02
+_GAMUT_SEARCH_EPSILON = 0.0001
+_GAMUT_BISECTION_STEPS = 32
+_PWL_VALIDATION_FRACTIONS = tuple(index / 32.0 for index in range(1, 32))
 
 
 def _finite_scalar(value: float, name: str) -> float:
@@ -250,7 +262,9 @@ def _sigmoid(values: np.ndarray) -> np.ndarray:
     return result
 
 
-def _logit_tone_curve(lightness: np.ndarray, *, offset: float = 0.0, slope: float = 1.0) -> np.ndarray:
+def _logit_tone_curve(
+    lightness: np.ndarray, *, offset: float = 0.0, slope: float = 1.0
+) -> np.ndarray:
     """A bounded display curve with exact endpoints and a toe/shoulder."""
 
     result = np.empty_like(lightness, dtype=np.float64)
@@ -277,7 +291,9 @@ def _transformed_lightness(lightness: np.ndarray, x: float, kind: str) -> np.nda
             raise AcesLikeTransformError("ACES-like contrast X is too large") from exc
         return _logit_tone_curve(lightness, slope=slope)
     raise AcesLikeTransformError(
-        "unknown ACES-like shift kind {!r}; expected one of {}".format(kind, ACES_LIKE_SHIFT_KINDS)
+        "unknown ACES-like shift kind {!r}; expected one of {}".format(
+            kind, ACES_LIKE_SHIFT_KINDS
+        )
     )
 
 
@@ -285,8 +301,16 @@ def _in_linear_srgb_gamut(linear_rgb: np.ndarray) -> np.ndarray:
     return np.all((linear_rgb >= 0.0) & (linear_rgb <= 1.0), axis=-1)
 
 
-def _constant_lightness_hue_gamut_map(oklch: np.ndarray) -> Tuple[np.ndarray, np.ndarray, int]:
-    """Compress chroma by bisection, preserving OKLCh lightness and hue."""
+def _constant_lightness_hue_gamut_map(
+    oklch: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, int]:
+    """Map to sRGB with constant-L/h chroma reduction and local MINDE.
+
+    A strict in-gamut bisection can over-compress colours near concave gamut
+    cusps: an infinitesimal channel overshoot may jump to a much lower-chroma
+    intersection. CSS Color 4 avoids that discontinuity by accepting the
+    clipped colour when its deltaEOK from the candidate is below one JND.
+    """
 
     initial_linear = oklab_to_linear_rgb(oklch_to_oklab(oklch))
     inside = _in_linear_srgb_gamut(initial_linear)
@@ -294,40 +318,85 @@ def _constant_lightness_hue_gamut_map(oklch: np.ndarray) -> Tuple[np.ndarray, np
     if not np.any(needs_mapping):
         return initial_linear, needs_mapping, 0
 
+    initial_clipped = np.clip(initial_linear, 0.0, 1.0)
+    current_oklab = oklch_to_oklab(oklch)
+    clipped_oklab = linear_rgb_to_oklab(initial_clipped)
+    initial_delta = np.linalg.norm(clipped_oklab - current_oklab, axis=-1)
+    local_clip = needs_mapping & (initial_delta < _GAMUT_JND)
+
+    mapped_linear = np.array(initial_linear, copy=True)
+    mapped_linear[local_clip] = initial_clipped[local_clip]
+    clipped_channels = np.zeros(initial_linear.shape, dtype=bool)
+    clipped_channels[local_clip] = (
+        (initial_linear[local_clip] < 0.0)
+        | (initial_linear[local_clip] > 1.0)
+    )
+
+    searching = needs_mapping & ~local_clip
+    if not np.any(searching):
+        return mapped_linear, needs_mapping, int(np.count_nonzero(clipped_channels))
+
     chroma = oklch[..., 1]
     lower = np.zeros_like(chroma)
     upper = np.array(chroma, copy=True)
+    min_in_gamut = np.ones_like(chroma, dtype=bool)
     for _ in range(_GAMUT_BISECTION_STEPS):
+        active = searching & ((upper - lower) > _GAMUT_SEARCH_EPSILON)
+        if not np.any(active):
+            break
         middle = (lower + upper) * 0.5
         candidate = np.array(oklch, copy=True)
         candidate[..., 1] = middle
         candidate_linear = oklab_to_linear_rgb(oklch_to_oklab(candidate))
         candidate_inside = _in_linear_srgb_gamut(candidate_linear)
-        lower = np.where(candidate_inside, middle, lower)
-        upper = np.where(candidate_inside, upper, middle)
+        advance_inside = active & min_in_gamut & candidate_inside
+        lower = np.where(advance_inside, middle, lower)
+        mapped_linear[advance_inside] = candidate_linear[advance_inside]
+        clipped_channels[advance_inside] = False
 
-    mapped = np.array(oklch, copy=True)
-    mapped[..., 1] = lower
-    mapped_linear = oklab_to_linear_rgb(oklch_to_oklab(mapped))
-    # A neutral colour at a valid OKLab L is normally in gamut.  Count any
-    # remaining numeric/representational overshoot explicitly before clamping.
-    hard_clipped_channels = int(np.count_nonzero((mapped_linear < 0.0) | (mapped_linear > 1.0)))
-    return mapped_linear, needs_mapping, hard_clipped_channels
+        compare_clip = active & ~advance_inside
+        if not np.any(compare_clip):
+            continue
+        candidate_clipped = np.clip(candidate_linear, 0.0, 1.0)
+        candidate_oklab = oklch_to_oklab(candidate)
+        candidate_clipped_oklab = linear_rgb_to_oklab(candidate_clipped)
+        delta = np.linalg.norm(candidate_clipped_oklab - candidate_oklab, axis=-1)
+        below_jnd = compare_clip & (delta < _GAMUT_JND)
+        close_to_jnd = below_jnd & ((_GAMUT_JND - delta) < _GAMUT_SEARCH_EPSILON)
+
+        mapped_linear[compare_clip] = candidate_clipped[compare_clip]
+        clipped_channels[compare_clip] = (
+            (candidate_linear[compare_clip] < 0.0)
+            | (candidate_linear[compare_clip] > 1.0)
+        )
+        searching = searching & ~close_to_jnd
+        lower = np.where(below_jnd & ~close_to_jnd, middle, lower)
+        min_in_gamut = np.where(below_jnd, False, min_in_gamut)
+        upper = np.where(compare_clip & ~below_jnd, middle, upper)
+
+    return mapped_linear, needs_mapping, int(np.count_nonzero(clipped_channels))
 
 
 def _hue_distance(first: np.ndarray, second: np.ndarray) -> np.ndarray:
     return np.abs(np.arctan2(np.sin(first - second), np.cos(first - second)))
 
 
-def _diagnostics(before_srgb: np.ndarray, after_srgb: np.ndarray, gamut_mapped: np.ndarray, hard_clipped_channels: int) -> AcesLikeDiagnostics:
+def _diagnostics(
+    before_srgb: np.ndarray,
+    after_srgb: np.ndarray,
+    gamut_mapped: np.ndarray,
+    hard_clipped_channels: int,
+) -> AcesLikeDiagnostics:
     before_lch = oklab_to_oklch(linear_rgb_to_oklab(srgb_to_linear(before_srgb)))
     after_linear = srgb_to_linear(after_srgb)
     after_lch = oklab_to_oklch(linear_rgb_to_oklab(after_linear))
     hue_delta = _hue_distance(before_lch[..., 2], after_lch[..., 2])
     chroma_delta = np.abs(after_lch[..., 1] - before_lch[..., 1])
-    luminance_delta = np.abs(
-        np.sum(after_linear * _LUMINANCE, axis=-1) - np.sum(srgb_to_linear(before_srgb) * _LUMINANCE, axis=-1)
+    before_luminance = np.sum(
+        srgb_to_linear(before_srgb) * _LUMINANCE, axis=-1
     )
+    after_luminance = np.sum(after_linear * _LUMINANCE, axis=-1)
+    luminance_delta = np.abs(after_luminance - before_luminance)
     return AcesLikeDiagnostics(
         mean_hue_drift_degrees=float(np.degrees(np.mean(hue_delta))),
         max_hue_drift_degrees=float(np.degrees(np.max(hue_delta))),
@@ -340,7 +409,9 @@ def _diagnostics(before_srgb: np.ndarray, after_srgb: np.ndarray, gamut_mapped: 
     )
 
 
-def apply_aces_like_transform(rgb: np.ndarray, x: float, *, kind: str) -> AcesLikeTransformResult:
+def apply_aces_like_transform(
+    rgb: np.ndarray, x: float, *, kind: str
+) -> AcesLikeTransformResult:
     """Apply a shared ACES-like display brightness or contrast control.
 
     ``rgb`` must be a finite normalized sRGB array with final dimension three.
@@ -352,7 +423,9 @@ def apply_aces_like_transform(rgb: np.ndarray, x: float, *, kind: str) -> AcesLi
     shift = _finite_scalar(x, "ACES-like X")
     if kind not in ACES_LIKE_SHIFT_KINDS:
         raise AcesLikeTransformError(
-            "unknown ACES-like shift kind {!r}; expected one of {}".format(kind, ACES_LIKE_SHIFT_KINDS)
+            "unknown ACES-like shift kind {!r}; expected one of {}".format(
+                kind, ACES_LIKE_SHIFT_KINDS
+            )
         )
     if shift == 0.0:
         # This is a contract-level identity, not just a sufficiently-close
@@ -374,7 +447,9 @@ def apply_aces_like_transform(rgb: np.ndarray, x: float, *, kind: str) -> AcesLi
     source_lch = oklab_to_oklch(linear_rgb_to_oklab(srgb_to_linear(source)))
     transformed_lch = np.array(source_lch, copy=True)
     transformed_lch[..., 0] = _transformed_lightness(source_lch[..., 0], shift, kind)
-    mapped_linear, gamut_mapped, hard_clipped_channels = _constant_lightness_hue_gamut_map(transformed_lch)
+    mapped_linear, gamut_mapped, hard_clipped_channels = (
+        _constant_lightness_hue_gamut_map(transformed_lch)
+    )
     # The bisection result can differ from a boundary by machine epsilon.  This
     # final clamp is intentionally a numerical fallback, not gamut mapping.
     result = np.clip(linear_to_srgb(mapped_linear), 0.0, 1.0)
@@ -386,13 +461,19 @@ def apply_aces_like_transform(rgb: np.ndarray, x: float, *, kind: str) -> AcesLi
     )
 
 
-def _pwl_interval_error(rgb: np.ndarray, kind: str, lower: float, upper: float, lower_rgb: np.ndarray, upper_rgb: np.ndarray) -> Tuple[float, float]:
+def _pwl_interval_error(
+    rgb: np.ndarray,
+    kind: str,
+    lower: float,
+    upper: float,
+    lower_rgb: np.ndarray,
+    upper_rgb: np.ndarray,
+) -> Tuple[float, float]:
     """Return the largest sampled interpolation error and its X location."""
 
-    fractions = (0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875)
     best_error = -1.0
     best_x = (lower + upper) * 0.5
-    for fraction in fractions:
+    for fraction in _PWL_VALIDATION_FRACTIONS:
         x = lower + (upper - lower) * fraction
         exact = apply_aces_like_transform(rgb, x, kind=kind).rgb
         approximation = lower_rgb + (upper_rgb - lower_rgb) * fraction
@@ -414,9 +495,10 @@ def build_adaptive_pwl_approximation(
 ) -> PiecewiseLinearApproximation:
     """Build a bounded shared-knot PWL approximation of the exact transform.
 
-    The validation samples are deterministic quarter/mid/three-quarter points
-    in every final interval.  If the supplied cap cannot meet the requested
-    error bound, no table is returned and callers must fail closed.
+    The validation samples are a deterministic 31-point grid in every final
+    interval. max_abs_error is therefore a sampled maximum, not a formal
+    analytic supremum. Runtime materialization independently checks the exact
+    error at every solver candidate and fails closed if it exceeds tolerance.
     """
 
     source = _as_rgb(rgb, normalized_srgb=True)
@@ -447,29 +529,40 @@ def build_adaptive_pwl_approximation(
     values = {
         knot: apply_aces_like_transform(source, knot, kind=kind).rgb for knot in knots
     }
-    max_error = 0.0
-    while True:
-        candidates = []
-        max_error = 0.0
-        for index, (left, right) in enumerate(zip(knots[:-1], knots[1:])):
-            error, split_x = _pwl_interval_error(
-                source, kind, left, right, values[left], values[right]
-            )
-            candidates.append((error, split_x, index))
-            max_error = max(max_error, error)
-        if max_error <= tolerance:
-            break
+    candidates = []
+    for left, right in zip(knots[:-1], knots[1:]):
+        error, split_x = _pwl_interval_error(
+            source, kind, left, right, values[left], values[right]
+        )
+        heapq.heappush(candidates, (-error, left, right, split_x))
+
+    max_error = -candidates[0][0]
+    while max_error > tolerance:
         if len(knots) - 1 >= segment_cap:
             raise AcesLikeTransformError(
-                "PWL approximation requires more than {} segments to meet max error {} (observed {})".format(
+                "PWL approximation requires more than {} segments to meet "
+                "max error {} (observed {})".format(
                     segment_cap, tolerance, max_error
                 )
             )
-        _error, split_x, _index = max(candidates, key=lambda candidate: candidate[0])
-        # Quarter/mid/three-quarter candidates are interior by construction.
+        _negative_error, left, right, split_x = heapq.heappop(candidates)
+        # Validation-grid candidates are interior by construction.
         values[split_x] = apply_aces_like_transform(source, split_x, kind=kind).rgb
-        knots.append(split_x)
-        knots.sort()
+        bisect.insort(knots, split_x)
+        for child_left, child_right in ((left, split_x), (split_x, right)):
+            error, child_split_x = _pwl_interval_error(
+                source,
+                kind,
+                child_left,
+                child_right,
+                values[child_left],
+                values[child_right],
+            )
+            heapq.heappush(
+                candidates,
+                (-error, child_left, child_right, child_split_x),
+            )
+        max_error = -candidates[0][0]
 
     ordered_knots = np.asarray(knots, dtype=np.float64)
     table = np.stack([values[knot] for knot in knots], axis=0)
@@ -485,6 +578,8 @@ __all__ = [
     "ACES_LIKE_COLOR_SPACE",
     "ACES_LIKE_CURVE_VERSION",
     "ACES_LIKE_GAMUT_MAPPER",
+    "ACES_LIKE_PWL_ERROR_METRIC",
+    "ACES_LIKE_PWL_VALIDATOR_VERSION",
     "ACES_LIKE_SHIFT_KINDS",
     "AcesLikeDiagnostics",
     "AcesLikeTransformError",
