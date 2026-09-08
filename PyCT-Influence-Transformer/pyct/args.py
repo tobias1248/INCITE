@@ -264,7 +264,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--global-shift-kind",
-        choices=("shap-sign", "brightness", "contrast"),
+        choices=("shap-sign", "brightness", "contrast", "aces-brightness", "aces-contrast"),
         default="shap-sign",
         help=(
             "Shared GlobalReal direction: shap-sign follows per-pixel SHAP signs; "
@@ -282,6 +282,18 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--shap-output-root",
         default="shap_target_class",
         help="Root directory for canonical target-class SHAP caches.",
+    )
+    parser.add_argument(
+        "--aces-pwl-max-segments",
+        type=_parse_non_negative_int,
+        default=8,
+        help="Maximum number of segments for ACES-like shared-X PWL (default: 8).",
+    )
+    parser.add_argument(
+        "--aces-pwl-error-tolerance",
+        type=_parse_non_negative_float,
+        default=1.0 / 255.0,
+        help="Maximum sampled RGB error for ACES-like PWL (default: 1/255).",
     )
     args = parser.parse_args(argv)
     if args.attack_mode != "queue" and args.score_alpha is None:
@@ -307,6 +319,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             parser.error("GlobalReal X bounds must include 0")
         if not math.isfinite(args.shap_sign_epsilon) or args.shap_sign_epsilon < 0:
             parser.error("--shap-sign-epsilon must be finite and >= 0")
+        if args.global_shift_kind.startswith("aces-") and args.aces_pwl_max_segments < 1:
+            parser.error("--aces-pwl-max-segments must be >= 1 for ACES-like shifts")
+        if args.global_shift_kind.startswith("aces-") and args.aces_pwl_error_tolerance <= 0:
+            parser.error("--aces-pwl-error-tolerance must be > 0 for ACES-like shifts")
     if args.pixel_selector in {"patch-shap", "token-shap"}:
         if args.attack_mode != "shap":
             parser.error(f"--pixel-selector {args.pixel_selector} requires --attack-mode shap")

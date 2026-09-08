@@ -390,6 +390,9 @@ def run_launcher(args: Any) -> None:
                 f"x{_range_component(args.global_x_min)}_{_range_component(args.global_x_max)}",
             ]
         )
+        if args.global_shift_kind.startswith("aces-"):
+            attack_mode_parts.append(f"pwlseg{args.aces_pwl_max_segments}")
+            attack_mode_parts.append(f"pwlerr{_range_component(args.aces_pwl_error_tolerance)}")
     if args.solver_run_timeout and args.solver_run_timeout > 0:
         attack_mode_parts.append(f"solver{args.solver_run_timeout}s")
     attack_mode_for_paths = "_".join(attack_mode_parts)
@@ -471,6 +474,8 @@ def run_launcher(args: Any) -> None:
             bounds_mode=args.global_x_bounds_mode,
             shift_kind=args.global_shift_kind,
             shap_sign_epsilon=args.shap_sign_epsilon,
+            pwl_max_segments=args.aces_pwl_max_segments,
+            pwl_error_tolerance=args.aces_pwl_error_tolerance,
             shap_output_root=args.shap_output_root,
         )
     else:
