@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import shutil
+import subprocess
 from types import SimpleNamespace
 
 import numpy as np
@@ -422,6 +424,52 @@ def test_aces_like_symbolic_arguments_use_one_shared_x_and_piecewise_ites() -> N
     formula = Predicate.get_formula_deep(kwargs["v_0_0_0"])
     assert "ite" in repr(formula)
     assert GLOBAL_X_SMT_NAME in repr(formula)
+
+
+def test_aces_like_pwl_symbolic_formula_accepts_negative_literals_in_cvc5() -> None:
+    cvc5 = shutil.which("cvc5")
+    if cvc5 is None:
+        pytest.skip("cvc5 is required for the runtime SMT serialization regression")
+
+    approximation = PiecewiseLinearApproximation(
+        knots=np.asarray((-0.1, -0.05, 0.1), dtype=np.float64),
+        rgb_at_knots=np.asarray(
+            [
+                [[[1.0, 0.5, 0.5]]],
+                [[[0.0, 0.5, 0.5]]],
+                [[[0.5, 0.5, 0.5]]],
+            ],
+            dtype=np.float64,
+        ),
+        max_abs_error=0.0,
+        error_tolerance=1.0 / 255.0,
+    )
+    expression = global_real._pwl_symbolic_expression(
+        GLOBAL_X_SMT_NAME, approximation, (0, 0, 0)
+    )
+    formula = Predicate.get_formula_deep(expression)
+    assert "(- 0.050000000000000)" in formula
+    assert "(- 1.000000000000000)" in formula
+
+    smt2 = "\n".join(
+        (
+            "(set-logic QF_LRA)",
+            f"(declare-const {GLOBAL_X_SMT_NAME} Real)",
+            f"(assert (and (<= {GLOBAL_X_SMT_NAME} 0.1) "
+            f"(>= {GLOBAL_X_SMT_NAME} (- 0.1))))",
+            f"(assert (= {GLOBAL_X_SMT_NAME} {formula}))",
+            "(check-sat)",
+        )
+    )
+    result = subprocess.run(
+        [cvc5, "--produce-models", "--lang", "smt2", "--quiet"],
+        input=smt2,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[0] in {"sat", "unsat"}
 
 
 def test_cifar10_global_real_builder_creates_aces_like_pwl_payload(monkeypatch) -> None:
