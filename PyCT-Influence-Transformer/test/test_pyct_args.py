@@ -358,3 +358,14 @@ def test_parse_args_rejects_negative_error_retry_limit() -> None:
                 "-1",
             ]
         )
+
+
+def test_parse_args_accepts_aces_like_global_real_configuration():
+    args = parse_args([
+        "--attack-mode", "global-real", "--dataset", "cifar10",
+        "--score-alpha", "0.8", "--global-shift-kind", "aces-contrast",
+        "--aces-pwl-max-segments", "12", "--aces-pwl-error-tolerance", "0.002",
+    ])
+    assert args.global_shift_kind == "aces-contrast"
+    assert args.aces_pwl_max_segments == 12
+    assert args.aces_pwl_error_tolerance == pytest.approx(0.002)

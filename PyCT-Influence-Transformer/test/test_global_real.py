@@ -10,9 +10,12 @@ from libct.executor import CandidateExecutionRunner, ConcolicArgumentBuilder
 from libct.global_real import (
     GLOBAL_X_INPUT_NAME,
     GLOBAL_X_SMT_NAME,
+    build_concolic_global_real_kwargs,
+    materialize_global_real_details,
     materialize_global_real_arguments,
     validate_global_real_config,
 )
+from libct.aces_like import build_adaptive_pwl_approximation
 from libct.predicate import Predicate
 from libct.record import ConcolicTestRecorder
 from libct.solver import Solver
@@ -341,3 +344,77 @@ def test_validate_global_real_config_normalizes_legacy_sign_mapping_once() -> No
     assert revalidated["coefficient_by_input"] == pytest.approx(
         {"v_0": 1.0, "v_1": -1.0, "v_2": 0.0}
     )
+
+def _aces_config_for_rgb(rgb, *, kind="aces-brightness"):
+    approximation = build_adaptive_pwl_approximation(
+        rgb, kind=kind, x_min=-0.1, x_max=0.1,
+        max_segments=8, error_tolerance=1.0 / 255.0,
+    )
+    return {
+        "variable_name": GLOBAL_X_INPUT_NAME,
+        "effective_min": -0.1, "effective_max": 0.1,
+        "bounds_mode": "clip", "transform_mode": "aces-like-pwl",
+        "global_shift_kind": kind, "pwl_knots": approximation.knots.tolist(),
+        "pwl_max_segments": 8, "pwl_error_tolerance": 1.0 / 255.0,
+        "pwl_max_abs_error": approximation.max_abs_error,
+    }
+
+
+def _rgb_inputs(rgb, shift):
+    inputs = {
+        "v_" + "_".join(str(part) for part in index): float(rgb[index])
+        for index in np.ndindex(rgb.shape)
+    }
+    inputs[GLOBAL_X_INPUT_NAME] = shift
+    return inputs
+
+
+def test_aces_like_materialization_preserves_rgb_layout_and_reports_diagnostics() -> None:
+    rgb = np.array([[[0.2, 0.5, 0.8], [0.9, 0.1, 0.4]]], dtype=np.float64)
+    config = _aces_config_for_rgb(rgb)
+    materialized, shift, clipped_count = materialize_global_real_arguments(
+        _rgb_inputs(rgb, 0.05), config
+    )
+    details = materialize_global_real_details(_rgb_inputs(rgb, 0.05), config)
+    assert shift == pytest.approx(0.05)
+    assert clipped_count == 0
+    assert details[3]["transform_mode"] == "aces-like-pwl"
+    assert details[3]["pwl_error_at_x"] <= config["pwl_max_abs_error"] + 1e-12
+    output = np.array(
+        [[[materialized[f"v_{i}_{j}_{c}"] for c in range(3)] for j in range(2)] for i in range(1)]
+    )
+    assert output.shape == rgb.shape
+    assert np.all((output >= 0.0) & (output <= 1.0))
+
+
+def test_aces_like_symbolic_arguments_use_one_shared_x_and_piecewise_ites() -> None:
+    rgb = np.array([[[0.2, 0.5, 0.8]]], dtype=np.float64)
+    config = _aces_config_for_rgb(rgb, kind="aces-contrast")
+    engine = _Engine(config)
+    kwargs = build_concolic_global_real_kwargs(engine, _rgb_inputs(rgb, 0.05))
+    assert isinstance(kwargs["v_0_0_0"], Concolic)
+    assert isinstance(kwargs["v_0_0_1"], Concolic)
+    assert engine.concolic_name_list == [GLOBAL_X_SMT_NAME]
+    formula = Predicate.get_formula_deep(kwargs["v_0_0_0"])
+    assert "ite" in repr(formula)
+    assert GLOBAL_X_SMT_NAME in repr(formula)
+
+
+def test_cifar10_global_real_builder_creates_aces_like_pwl_payload(monkeypatch) -> None:
+    sample = np.array([[[0.2, 0.5, 0.8], [0.9, 0.1, 0.4]]], dtype=np.float32)
+    class _Dataset:
+        x_test = np.stack([sample])
+        def get_cifar10_test_data(self, idx):
+            return {
+                "v_0_0_0": 0.2, "v_0_0_1": 0.5, "v_0_0_2": 0.8,
+                "v_0_1_0": 0.9, "v_0_1_1": 0.1, "v_0_1_2": 0.4,
+            }, {}
+    monkeypatch.setattr(global_real_builder, "Cifar10Dataset", _Dataset)
+    monkeypatch.setattr(global_real_builder, "get_save_dir_from_save_exp", lambda *a, **k: "unused")
+    config = global_real_builder.cifar10_global_real(
+        "demo", [0], force=True, shift_kind="aces-brightness"
+    )[0]["global_real_config"]
+    assert config["transform_mode"] == "aces-like-pwl"
+    assert "coefficient_by_input" not in config
+    assert config["pwl_knots"][0] == pytest.approx(-0.1)
+    assert config["pwl_knots"][-1] == pytest.approx(0.1)
