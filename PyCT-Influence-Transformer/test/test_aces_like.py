@@ -3,8 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import libct.aces_like as aces_like
 from libct.aces_like import (
     AcesLikeTransformError,
+    DEFAULT_PWL_MAX_SEGMENTS,
     apply_aces_like_transform,
     build_adaptive_pwl_approximation,
     linear_rgb_to_oklab,
@@ -66,6 +68,45 @@ def test_tone_operation_preserves_hue_when_no_gamut_mapping_is_needed(kind: str)
     assert abs(float(_hue(result.rgb)[0, 0] - _hue(rgb)[0, 0])) < 1e-6
 
 
+def test_local_minde_accepts_a_nearby_clipped_candidate() -> None:
+    source = np.asarray([[[1.0, 0.0, 0.0]]], dtype=np.float64)
+    source_lch = aces_like.oklab_to_oklch(
+        aces_like.linear_rgb_to_oklab(aces_like.srgb_to_linear(source))
+    )
+    candidate = np.array(source_lch, copy=True)
+    candidate[..., 1] *= 1.01
+    candidate_linear = aces_like.oklab_to_linear_rgb(
+        aces_like.oklch_to_oklab(candidate)
+    )
+    assert not np.all(aces_like._in_linear_srgb_gamut(candidate_linear))
+
+    mapped, gamut_mapped, hard_clipped = aces_like._constant_lightness_hue_gamut_map(
+        candidate
+    )
+
+    assert bool(gamut_mapped[0, 0])
+    assert hard_clipped >= 1
+    assert np.allclose(mapped, np.clip(candidate_linear, 0.0, 1.0))
+
+
+def test_local_minde_is_continuous_near_a_gamut_cusp() -> None:
+    source = np.asarray([[[1.0, 0.0, 0.0]]], dtype=np.float64)
+    source_lch = aces_like.oklab_to_oklch(
+        aces_like.linear_rgb_to_oklab(aces_like.srgb_to_linear(source))
+    )
+    factors = np.linspace(1.0, 1.2, 401)
+    mapped = []
+    for factor in factors:
+        candidate = np.array(source_lch, copy=True)
+        candidate[..., 1] *= factor
+        mapped.append(
+            aces_like._constant_lightness_hue_gamut_map(candidate)[0][0, 0]
+        )
+
+    jumps = np.linalg.norm(np.diff(np.asarray(mapped), axis=0), axis=1)
+    assert float(np.max(jumps)) < 0.02
+
+
 def test_gamut_mapping_compresses_chroma_before_final_output_clamp() -> None:
     rgb = np.asarray([[[1.0, 0.0, 0.0]]], dtype=np.float64)
     result = apply_aces_like_transform(rgb, 0.8, kind="aces-brightness")
@@ -73,7 +114,7 @@ def test_gamut_mapping_compresses_chroma_before_final_output_clamp() -> None:
     assert np.all(np.isfinite(result.rgb))
     assert np.all((result.rgb >= 0.0) & (result.rgb <= 1.0))
     assert result.diagnostics.gamut_mapped_pixel_count == 1
-    assert result.diagnostics.max_hue_drift_degrees < 2e-3
+    assert result.diagnostics.hard_clipped_channel_count >= 1
     assert result.diagnostics.max_abs_chroma_delta > 0.0
 
 
@@ -102,10 +143,11 @@ def test_adaptive_pwl_meets_bound_and_uses_shared_knots() -> None:
         kind="aces-brightness",
         x_min=-0.5,
         x_max=0.5,
-        max_segments=32,
+        max_segments=DEFAULT_PWL_MAX_SEGMENTS,
     )
 
-    assert approximation.segment_count <= 32
+    assert DEFAULT_PWL_MAX_SEGMENTS == 32
+    assert approximation.segment_count <= DEFAULT_PWL_MAX_SEGMENTS
     assert np.any(approximation.knots == 0.0)
     assert approximation.max_abs_error <= approximation.error_tolerance
     for x in np.linspace(-0.5, 0.5, 17):
@@ -114,6 +156,40 @@ def test_adaptive_pwl_meets_bound_and_uses_shared_knots() -> None:
     slope, intercept = approximation.affine_for_segment(approximation.segment_index(0.13))
     assert slope.shape == rgb.shape
     assert intercept.shape == rgb.shape
+
+
+def test_pwl_validator_uses_31_points_and_covers_dense_error() -> None:
+    assert len(aces_like._PWL_VALIDATION_FRACTIONS) == 31
+    assert aces_like._PWL_VALIDATION_FRACTIONS == tuple(
+        index / 32.0 for index in range(1, 32)
+    )
+
+    rgb = np.asarray(
+        [[[0.05, 0.2, 0.85], [0.9, 0.1, 0.25]]],
+        dtype=np.float64,
+    )
+    approximation = build_adaptive_pwl_approximation(
+        rgb,
+        kind="aces-contrast",
+        x_min=-0.8,
+        x_max=0.8,
+        max_segments=DEFAULT_PWL_MAX_SEGMENTS,
+    )
+    dense_error = max(
+        float(
+            np.max(
+                np.abs(
+                    apply_aces_like_transform(
+                        rgb, float(x), kind="aces-contrast"
+                    ).rgb
+                    - approximation.evaluate(float(x))
+                )
+            )
+        )
+        for x in np.linspace(-0.8, 0.8, 1001)
+    )
+
+    assert dense_error <= approximation.error_tolerance + 1e-10
 
 
 @pytest.mark.parametrize(("x_min", "x_max"), ((0.0, 0.25), (-0.25, 0.0)))

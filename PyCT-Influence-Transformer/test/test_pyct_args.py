@@ -360,6 +360,71 @@ def test_parse_args_rejects_negative_error_retry_limit() -> None:
         )
 
 
+def test_parse_args_defaults_aces_pwl_to_32_segments() -> None:
+    args = parse_args(
+        [
+            "--attack-mode",
+            "global-real",
+            "--dataset",
+            "cifar10",
+            "--score-alpha",
+            "0.8",
+            "--global-shift-kind",
+            "aces-brightness",
+        ]
+    )
+
+    assert args.aces_pwl_max_segments == 32
+
+
+def test_parse_args_rejects_aces_like_strict_mode() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "global-real",
+                "--dataset",
+                "cifar10",
+                "--score-alpha",
+                "0.8",
+                "--global-shift-kind",
+                "aces-contrast",
+                "--global-x-bounds-mode",
+                "strict",
+            ]
+        )
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("--global-x-min", "nan"),
+        ("--global-x-max", "inf"),
+        ("--aces-pwl-error-tolerance", "nan"),
+        ("--aces-pwl-error-tolerance", "inf"),
+        ("--aces-pwl-error-tolerance", "-inf"),
+    ],
+)
+def test_parse_args_rejects_non_finite_aces_values(
+    option: str, value: str
+) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "global-real",
+                "--dataset",
+                "cifar10",
+                "--score-alpha",
+                "0.8",
+                "--global-shift-kind",
+                "aces-brightness",
+                option,
+                value,
+            ]
+        )
+
+
 def test_parse_args_accepts_aces_like_global_real_configuration():
     args = parse_args([
         "--attack-mode", "global-real", "--dataset", "cifar10",

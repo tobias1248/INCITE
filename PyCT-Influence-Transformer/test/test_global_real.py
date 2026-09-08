@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -15,7 +16,16 @@ from libct.global_real import (
     materialize_global_real_arguments,
     validate_global_real_config,
 )
-from libct.aces_like import build_adaptive_pwl_approximation
+import libct.global_real as global_real
+from libct.aces_like import (
+    ACES_LIKE_COLOR_SPACE,
+    ACES_LIKE_CURVE_VERSION,
+    ACES_LIKE_GAMUT_MAPPER,
+    ACES_LIKE_PWL_ERROR_METRIC,
+    ACES_LIKE_PWL_VALIDATOR_VERSION,
+    PiecewiseLinearApproximation,
+    build_adaptive_pwl_approximation,
+)
 from libct.predicate import Predicate
 from libct.record import ConcolicTestRecorder
 from libct.solver import Solver
@@ -347,16 +357,30 @@ def test_validate_global_real_config_normalizes_legacy_sign_mapping_once() -> No
 
 def _aces_config_for_rgb(rgb, *, kind="aces-brightness"):
     approximation = build_adaptive_pwl_approximation(
-        rgb, kind=kind, x_min=-0.1, x_max=0.1,
-        max_segments=8, error_tolerance=1.0 / 255.0,
+        rgb,
+        kind=kind,
+        x_min=-0.1,
+        x_max=0.1,
+        max_segments=8,
+        error_tolerance=1.0 / 255.0,
     )
     return {
         "variable_name": GLOBAL_X_INPUT_NAME,
-        "effective_min": -0.1, "effective_max": 0.1,
-        "bounds_mode": "clip", "transform_mode": "aces-like-pwl",
-        "global_shift_kind": kind, "pwl_knots": approximation.knots.tolist(),
-        "pwl_max_segments": 8, "pwl_error_tolerance": 1.0 / 255.0,
+        "effective_min": -0.1,
+        "effective_max": 0.1,
+        "bounds_mode": "clip",
+        "transform_mode": "aces-like-pwl",
+        "global_shift_kind": kind,
+        "pwl_knots": approximation.knots.tolist(),
+        "pwl_max_segments": 8,
+        "pwl_segment_count": approximation.segment_count,
+        "pwl_error_tolerance": 1.0 / 255.0,
         "pwl_max_abs_error": approximation.max_abs_error,
+        "pwl_error_metric": ACES_LIKE_PWL_ERROR_METRIC,
+        "pwl_validator_version": ACES_LIKE_PWL_VALIDATOR_VERSION,
+        "aces_like_color_space": ACES_LIKE_COLOR_SPACE,
+        "aces_like_curve_version": ACES_LIKE_CURVE_VERSION,
+        "aces_like_gamut_mapper": ACES_LIKE_GAMUT_MAPPER,
     }
 
 
@@ -418,3 +442,57 @@ def test_cifar10_global_real_builder_creates_aces_like_pwl_payload(monkeypatch) 
     assert "coefficient_by_input" not in config
     assert config["pwl_knots"][0] == pytest.approx(-0.1)
     assert config["pwl_knots"][-1] == pytest.approx(0.1)
+    assert config["pwl_segment_count"] == len(config["pwl_knots"]) - 1
+    assert config["pwl_error_metric"] == ACES_LIKE_PWL_ERROR_METRIC
+    assert config["pwl_validator_version"] == ACES_LIKE_PWL_VALIDATOR_VERSION
+    assert config["aces_like_color_space"] == ACES_LIKE_COLOR_SPACE
+    assert config["aces_like_curve_version"] == ACES_LIKE_CURVE_VERSION
+    assert config["aces_like_gamut_mapper"] == ACES_LIKE_GAMUT_MAPPER
+
+
+def test_aces_like_validation_rejects_strict_mode() -> None:
+    rgb = np.asarray([[[0.2, 0.5, 0.8]]], dtype=np.float64)
+    config = _aces_config_for_rgb(rgb)
+    config["bounds_mode"] = "strict"
+
+    with pytest.raises(ValueError, match="bounds_mode='clip'"):
+        validate_global_real_config(config)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("pwl_segment_count", 0, "segment_count"),
+        ("aces_like_gamut_mapper", "old-mapper", "gamut_mapper"),
+    ),
+)
+def test_aces_like_validation_rejects_segment_or_mapper_mismatch(
+    field, value, message
+) -> None:
+    rgb = np.asarray([[[0.2, 0.5, 0.8]]], dtype=np.float64)
+    config = _aces_config_for_rgb(rgb)
+    config[field] = value
+
+    with pytest.raises(ValueError, match=message):
+        validate_global_real_config(config)
+
+
+def test_aces_like_runtime_exact_error_check_fails_closed(monkeypatch) -> None:
+    rgb = np.asarray([[[0.2, 0.5, 0.8]]], dtype=np.float64)
+    config = _aces_config_for_rgb(rgb)
+    original_builder = global_real.build_adaptive_pwl_approximation
+
+    def build_tampered_approximation(*args, **kwargs) -> PiecewiseLinearApproximation:
+        approximation = original_builder(*args, **kwargs)
+        values = np.array(approximation.rgb_at_knots, copy=True)
+        values[1] += 0.2
+        return replace(approximation, rgb_at_knots=values)
+
+    monkeypatch.setattr(
+        global_real,
+        "build_adaptive_pwl_approximation",
+        build_tampered_approximation,
+    )
+
+    with pytest.raises(ValueError, match="exceeds tolerance"):
+        materialize_global_real_details(_rgb_inputs(rgb, 0.05), config)

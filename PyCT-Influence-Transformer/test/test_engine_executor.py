@@ -419,3 +419,89 @@ def test_run_fails_closed_when_reference_model_cannot_load(monkeypatch) -> None:
     assert recorder.extra_meta["status"] == "error"
     assert recorder.extra_meta["error_type"] == "reference_prediction_failure"
     assert recorder.extra_meta["error_phase"] == "reference_model_load"
+
+
+def test_run_attaches_complete_aces_like_pwl_metadata(monkeypatch) -> None:
+    captured = {}
+
+    class _FakeEngine:
+        extra_meta = None
+
+        def explore(self, *args, **kwargs):
+            captured["extra_meta"] = self.extra_meta
+            return (1, SimpleNamespace())
+
+    monkeypatch.setattr(
+        executor,
+        "_resolve_model_artifacts",
+        lambda model_name: (
+            f"/tmp/{model_name}.h5",
+            "/tmp/engine/predictor_runtime.py",
+            "/tmp/root",
+        ),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_load_predictor",
+        lambda module_path, root: (
+            object(),
+            lambda path: None,
+            lambda model_path, **kwargs: None,
+            "search-predict",
+            "reference-predict",
+            set(),
+        ),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_prepare_experiment_paths",
+        lambda *args, **kwargs: (None, None, None),
+    )
+    monkeypatch.setattr(executor, "_build_explorer", lambda cfg: _FakeEngine())
+    monkeypatch.setattr(executor.libct.explore, "clear_global_context", lambda: None)
+
+    global_real_config = {
+        "requested_min": -0.1,
+        "requested_max": 0.1,
+        "effective_min": -0.1,
+        "effective_max": 0.1,
+        "bounds_mode": "clip",
+        "transform_mode": "aces-like-pwl",
+        "global_shift_kind": "aces-brightness",
+        "pwl_knots": [-0.1, 0.0, 0.1],
+        "pwl_max_segments": 32,
+        "pwl_segment_count": 2,
+        "pwl_error_tolerance": 1.0 / 255.0,
+        "pwl_max_abs_error": 0.001,
+        "pwl_error_metric": "sampled-max-abs-rgb",
+        "pwl_validator_version": "adaptive-31-point-v1",
+        "aces_like_color_space": "OKLCh-sRGB",
+        "aces_like_curve_version": "oklch-logit-v1",
+        "aces_like_gamut_mapper": "css-color-4-local-minde-v1",
+    }
+
+    executor.run(
+        model_name="demo",
+        in_dict={"v_0": 0.5},
+        con_dict={"v_0": 1},
+        norm=True,
+        solve_order_stack=False,
+        idx=0,
+        collect_constraints_with="queue",
+        global_real_config=global_real_config,
+    )
+
+    metadata = captured["extra_meta"]
+    assert metadata["global_real_transform_mode"] == "aces-like-pwl"
+    assert metadata["global_real_pwl_knots"] == [-0.1, 0.0, 0.1]
+    assert metadata["global_real_pwl_max_segments"] == 32
+    assert metadata["global_real_pwl_segment_count"] == 2
+    assert metadata["global_real_pwl_error_tolerance"] == pytest.approx(1.0 / 255.0)
+    assert metadata["global_real_pwl_max_abs_error"] == pytest.approx(0.001)
+    assert metadata["global_real_pwl_error_metric"] == "sampled-max-abs-rgb"
+    assert metadata["global_real_pwl_validator_version"] == "adaptive-31-point-v1"
+    assert metadata["global_real_aces_like_color_space"] == "OKLCh-sRGB"
+    assert metadata["global_real_aces_like_curve_version"] == "oklch-logit-v1"
+    assert metadata["global_real_aces_like_gamut_mapper"] == (
+        "css-color-4-local-minde-v1"
+    )
