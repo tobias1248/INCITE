@@ -103,7 +103,7 @@ Source:
 ## 3. Current implementation and limitations
 
 The current global-real builder is in
-[`tasks/builders/global_real.py`](../PyCT-Influence-Transformer/tasks/builders/global_real.py).
+[`tasks/builders/global_real.py`](../tasks/builders/global_real.py).
 
 Current coefficient definitions:
 
@@ -126,7 +126,7 @@ pixel_new = pixel_original + coefficient * X
 
 In clip mode each RGB element is independently mapped to [0, 1]. The
 implementation uses nested symbolic if-then-else expressions for this mapping
-in [`libct/global_real.py`](../PyCT-Influence-Transformer/libct/global_real.py).
+in [`libct/global_real.py`](../libct/global_real.py).
 
 Important consequences:
 
