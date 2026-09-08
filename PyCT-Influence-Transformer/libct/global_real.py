@@ -18,7 +18,7 @@ from libct.aces_like import (
     apply_aces_like_transform,
     build_adaptive_pwl_approximation,
 )
-from libct.utils import ConcolicObject, get_in_dict_shape, unwrap
+from libct.utils import ConcolicObject, get_in_dict_shape, py2smt, unwrap
 
 
 GLOBAL_X_INPUT_NAME = "__pyct_global_x"
@@ -291,8 +291,8 @@ def _pwl_symbolic_expression(
         slope, intercept = approximation.affine_for_segment(index)
         candidate = [
             "+",
-            ["*", shared_x, f"{float(slope[coordinates]):.15f}"],
-            f"{float(intercept[coordinates]):.15f}",
+            ["*", shared_x, py2smt(float(slope[coordinates]))],
+            py2smt(float(intercept[coordinates])),
         ]
         if branch is None:
             branch = candidate
@@ -302,7 +302,7 @@ def _pwl_symbolic_expression(
                 [
                     "<=",
                     shared_x,
-                    f"{float(approximation.knots[index + 1]):.15f}",
+                    py2smt(float(approximation.knots[index + 1])),
                 ],
                 candidate,
                 branch,
