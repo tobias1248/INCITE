@@ -1,6 +1,6 @@
 # GlobalReal ACES-like Study Guide
 
-這份文件是給「想看懂 `a3c1dfa`，但不熟悉色彩科學、PWL 或 symbolic execution」的讀者。
+這份文件是給「想看懂 GlobalReal ACES-like 路徑，但不熟悉色彩科學、PWL 或 symbolic execution」的讀者。
 目標不是讓你背下所有函式，而是讓你能回答：
 
 1. 這次改動為什麼需要 ACES-like transform？
@@ -8,15 +8,19 @@
 3. concrete image transform 和 solver 看到的 symbolic transform 有什麼不同？
 4. 結果中的 gamut mapping、clipping、PWL error 是什麼意思？
 
-本 guide 對應的實作 commit 是：
+本 guide 對應目前 `feat/global-appearance-shift` branch 上的完整實作，核心變更起點與後續修正包括：
 
 ```text
 a3c1dfa feat(global-real): add ACES-like appearance shifts
+41e7f62 fix(global-real): validate ACES-like PWL metadata and error bounds
+11198b6 fix(global-real): serialize ACES PWL numbers as SMT literals
+14ca4cc test(global-real): cover negative ACES PWL SMT literals
 ```
 
 工作目錄是 `feat/global-appearance-shift`。目前 branch 上的
-`eb7d7b2 test(global-real): cover ACES-like appearance shifts` 是後續測試補強，
-可以在讀完實作後再看。
+目前 branch 在 `14ca4cc` 為止包含 metadata validation、runtime PWL fail-closed、dense-error
+regression 與負數 SMT literal regression。讀這份文件時，應以目前 branch 的程式碼為準，
+而不是只以最初的 feature commit 為準。
 
 ## 0. 先建立整體心智模型
 
@@ -51,6 +55,11 @@ one shared X
 最重要的一句話是：
 
 > ACES-like 是 reference transform；PWL 是讓這個 reference transform 能被目前 symbolic engine 使用的近似層。
+
+目前 ACES-like symbolic model 的另一個重要不變量是：整張 image 只有一個
+symbolic degree of freedom，也就是 `__pyct_global_x_VAR`。OKLab → OKLCh、local
+MINDE gamut mapping 和 chroma bisection 都在 concrete PWL 建構階段執行，不會以
+`hypot`、`atan2`、`sin`、`cos` 或 bisection constraint 的形式直接進入 SMT。
 
 這不是完整的官方 ACES output transform，而是以 OKLCh、tone curve 和 gamut mapping 組成的工程近似。
 
@@ -352,18 +361,21 @@ X_max
 
 ### 5.2 如何切分區段
 
-每個目前區間會測試七個固定位置：
+每個目前區間會測試 31 個固定位置：
 
 ```text
-1/8, 2/8, 3/8, 4/8, 5/8, 6/8, 7/8
+1/32, 2/32, 3/32, ..., 30/32, 31/32
 ```
 
-在每個位置比較：
+這是 deterministic dense validation grid；它提供 sampled maximum error，
+不是數學上的 formal supremum。
+
+在每個位置比較 exact reference 與同一 interval 的線性 interpolation：
 
 ```text
 exact = apply_aces_like_transform(image, X)
 approximation = lower_rgb + fraction * (upper_rgb - lower_rgb)
-error = max(abs(exact - approximation))
+error = max(abs(exact.rgb - approximation))
 ```
 
 如果最大誤差超過 tolerance，就把誤差最大的 interval 拆開。直到：
@@ -443,7 +455,10 @@ pwl_error_tolerance
 pwl_max_abs_error
 aces_like_color_space = "OKLCh-sRGB"
 aces_like_curve_version = "oklch-logit-v1"
-aces_like_gamut_mapper = "constant-L-h-chroma-bisection-v1"
+aces_like_gamut_mapper = "css-color-4-local-minde-v1"
+pwl_error_metric = "sampled-max-abs-rgb"
+pwl_validator_version = "adaptive-31-point-v1"
+pwl_segment_count = len(pwl_knots) - 1
 ```
 
 這些 metadata 的目的，是讓之後讀 `stats.json` 的人知道結果是由哪一版 reference transform 產生的。
@@ -477,6 +492,10 @@ __pyct_global_x_VAR
 ```
 
 不是每個 pixel 一個 X，也不是每個 RGB channel 一個 X。
+
+因此目前 ACES-like CT 保留的 symbolic degrees of freedom 是 1：
+`__pyct_global_x_VAR`。每個 RGB output expression 很多，但它們都依賴同一個
+shared X；PWL segment 的 nested `ite` 是 branch selection，不是額外的 symbolic variable。
 
 ### 7.2 每個 channel 變成 piecewise affine expression
 
@@ -526,24 +545,30 @@ ACES-like path 會先呼叫 PWL approximation 的 `evaluate(shift_value)` 取得
 
 ## 8. materialization 與輸出記錄
 
-當 solver 找到一個 X，`materialize_global_real_details()` 會做兩件事：
+當 solver 找到一個 X，`materialize_global_real_details()` 會重新建立該 image 的 deterministic PWL table，
+並同時計算 exact reference 與 PWL candidate：
 
 ```text
 exact = apply_aces_like_transform(rgb, X)
 approx = PWL.evaluate(X)
-```
-
-實際寫回 input 的 RGB 是 `approx`，而 diagnostics 來自 `exact`，並另外保存兩者的差異：
-
-```text
 pwl_error_at_x = max(abs(exact.rgb - approx.rgb))
 ```
 
-這個設計代表：
+如果 candidate 的 exact/PWL RGB error 超過 recorded tolerance，materialization 會 fail closed，
+不會把不合格的 candidate 寫入正常結果。通過 error guard 後，實際交給 model 的 input RGB 是 `approx`；
+exact transform 則提供 gamut、hue、chroma、luminance diagnostics。
 
-- solver 執行的是 symbolic PWL model。
-- output input 也依 PWL model materialize。
-- exact transform 主要用來計算 reference diagnostics。
+要特別分清楚：SAT candidate 不等於 attack success。SAT 後，
+`libct/executor/execution_pair.py::validate_sat_candidate()` 會用 exact Keras/reference
+prediction 驗證 candidate label。只有：
+
+```text
+original_label != candidate_reference_label
+```
+
+才會記錄 `attack_label`，發出 `[RESULT_CHANGE]`，並算作 success。SAT candidate 若 exact label
+仍與 original label 相同，就會被 fail-closed 拒絕；後續結果可能是 timeout、exhausted 或 incomplete，
+但不能算成功。
 
 `libct/record.py` 會把資訊保存到 metadata 與 arrays，例如：
 
@@ -575,9 +600,15 @@ global_real_*_max_abs_luminance_delta
 ```text
 --global-shift-kind aces-brightness
 --global-shift-kind aces-contrast
---aces-pwl-max-segments N
---aces-pwl-error-tolerance T
+--aces-pwl-max-segments N（default: 32）
+--aces-pwl-error-tolerance T（default: 1/255）
 ```
+
+ACES-like 目前只接受 `--global-x-bounds-mode clip`；CLI 會拒絕 strict mode。
+CLI `--timeout` 的 default 是 3600 秒；它是每個 case 的 exploration total timeout，會同時傳給 total/single/stage timeout。
+它不是只限制單次 solver invocation；solver invocation 另由 `--solver-run-timeout` 控制。
+目前 source 沒有讀取 `CONCOLIC_TOTAL_TIMEOUT`，unset 這個環境變數不會停用 `--timeout`。
+若要增加搜尋深度，`--symbolic-path-threshold` 也很重要；CLI 預設是 8000，過低的值會提早關閉 symbolic tracking。
 
 例如：
 
@@ -603,7 +634,7 @@ Output path 的 attack mode 會包含：
 
 ```text
 aces-brightness
-clip/strict
+clip
 x range
 pwlsegN
 pwlerrT
@@ -616,8 +647,8 @@ pwlerrT
 ### Step 1：先看 commit scope
 
 ```bash
+git log --oneline --decorate -12
 git show --stat a3c1dfa
-git show --name-status a3c1dfa
 ```
 
 先確認這次改動集中在：
@@ -706,7 +737,32 @@ libct/global_real.py::_pwl_symbolic_expression()
 - segment 邊界由 nested `ite` 決定。
 - expression 本身沒有重新執行 OKLab 或 gamut bisection。
 
-## 11. 讀完後應該能回答的問題
+## 11. 實驗結果如何判讀
+
+一個 solver `sat` 只表示 symbolic constraint 找到可滿足的 model，不代表 exact model 已經改變 label。
+目前的 success contract 是：
+
+```text
+SAT candidate
+    -> materialize PWL candidate
+    -> exact/PWL error guard
+    -> exact Keras/reference candidate prediction
+    -> original_label != attack_label
+    -> [RESULT_CHANGE] / success
+```
+
+因此讀 `stats.json` 時應分開看：
+
+- `success`：有 `attack_label`，且 exact reference label 與 original label 不同。
+- `timeout`：在 total exploration deadline 到期前沒有 success。
+- `exhausted`：constraint queue 已耗盡，仍沒有 success。
+- `incomplete`：尚未完成正常 exploration lifecycle。
+- solver counters 裡的 `sat` / `unsat` 是 constraint attempts，不等於 result status。
+
+如果有大量 SAT、但 `attack_label=None` 且沒有 `[RESULT_CHANGE]`，正確解讀是
+SAT-but-concrete-fail，而不是「solver 全部 UNSAT」。
+
+## 12. 讀完後應該能回答的問題
 
 ### 基本理解
 
@@ -736,24 +792,26 @@ libct/global_real.py::_pwl_symbolic_expression()
 15. concrete execution 和 solver expression 是否使用相同 knots？
 16. `clip`、gamut mapping、hard clipping 是否在報告中被混為一談？
 
-## 12. 目前實作的邊界與 reviewer 應注意的地方
+## 13. 目前實作的邊界與 reviewer 應注意的地方
 
-### 12.1 這不是官方 ACES
+### 13.1 這不是官方 ACES
 
 程式名稱是 ACES-like，實際使用的是：
 
 ```text
 OKLCh-sRGB
 oklch-logit-v1
-constant-L-h-chroma-bisection-v1
+css-color-4-local-minde-v1
 ```
 
 它模仿「在 appearance space 做 tone，再做 gamut compression」的架構，
 不是 ACES JMh 或官方 output transform 的逐項重現。
 
-### 12.2 exact reference 和 symbolic model 不完全相同
+### 13.2 exact reference 和 symbolic model 不完全相同
 
 solver 使用 PWL approximation。即使 `pwl_max_abs_error` 很小，solver 找到的 input 仍然是近似模型的結果。
+materialization 會在每個 solver candidate 上重新檢查 exact/PWL RGB error，超過 tolerance 就 fail closed。
+此外，SAT candidate 還必須通過 exact Keras/reference label validation；SAT 本身不是 success。
 因此實驗報告不能只看 label flip，還應看：
 
 ```text
@@ -764,31 +822,30 @@ hue drift
 chroma delta
 ```
 
-### 12.3 `bounds_mode` 在 ACES-like path 的語意要特別確認
+### 13.3 `bounds_mode` 在 ACES-like path 的語意
 
-Affine path 的 `strict` 會根據 coefficient 縮小有效 X interval；ACES-like path 的 builder 目前把
-requested bounds 直接作為 effective bounds，並依靠 gamut mapping 把結果帶回 sRGB。
+Affine path 可以使用 `strict` 來根據 coefficient 縮小有效 X interval；ACES-like path 則要求
+`bounds_mode=clip`。CLI 與 `validate_global_real_config()` 都會拒絕 ACES-like strict mode，
+因為 ACES-like 的 bounded output contract 是透過 concrete tone transform、local-MINDE gamut
+mapping 和最終的有限 RGB clamp 來保證，而不是 affine strict interval。
 
-因此 reviewer 應確認：
+因此 ACES-like 實驗應明確使用：
 
 ```text
---global-x-bounds-mode strict
+--global-x-bounds-mode clip
 ```
 
-在 ACES-like path 是否只是被保存在 config，還是有實際改變可搜尋的 X 範圍。
-目前程式閱讀結果顯示，這兩條 path 的 strict 語意並不完全相同。
-
-### 12.4 PWL 近似是 per-image
+### 13.4 PWL 近似是 per-image
 
 不同 image 的 knots 可能不同。不能假設所有 case 都共用相同的 segment boundary，
 也不能只從一個 case 的 PWL error 推論整個 dataset 的誤差。
 
-### 12.5 「gamut mapped」不是「顏色完全錯誤」
+### 13.5 「gamut mapped」不是「顏色完全錯誤」
 
 gamut mapping 表示原本的 tone-adjusted 顏色超出 sRGB 可表示範圍，程式降低 chroma 來保留外觀。
 它通常比逐 channel hard clip 更保色，但仍會造成 saturation 或其他 perceptual property 改變。
 
-## 13. 最後的 code review checklist
+## 14. 最後的 code review checklist
 
 依序檢查：
 
@@ -797,20 +854,25 @@ gamut mapping 表示原本的 tone-adjusted 顏色超出 sRGB 可表示範圍，
 [ ] 非 ACES kind 仍走舊 affine path。
 [ ] builder 對每個 case 建立 deterministic PWL table。
 [ ] PWL knots 包含 x_min、0、x_max。
+[ ] PWL validator 使用 adaptive 31-point dense grid，且記錄 segment_count/version。
 [ ] PWL error 超標且達 segment cap 時會 fail closed。
+[ ] runtime candidate 的 exact/PWL error 也會 fail closed。
 [ ] ACES-like input mapping 涵蓋完整 RGB channel axis。
 [ ] solver 只看到一個 shared global X。
 [ ] 每個 RGB channel expression 都來自同一張 PWL table。
 [ ] concrete value 和 symbolic expression 使用同一個 shift model。
 [ ] exact diagnostics 與 PWL error 都被保存。
+[ ] SAT candidate 會再經 exact reference label validation；SAT 不直接算 success。
+[ ] success、timeout、exhausted、incomplete 的 metadata 語意清楚。
 [ ] gamut mapping count 與 hard clipping count 沒有混淆。
+[ ] ACES-like strict mode 被拒絕，只有 clip bounds mode 可用。
 [ ] output path 包含 PWL 參數，避免不同設定互相覆蓋。
 [ ] tests 覆蓋 identity、tone direction、out-of-gamut、PWL error、symbolic ite。
 ```
 
 如果以上問題都能用程式中的函式、config 欄位或測試案例回答，就已經掌握這次改動的主要功能。
 
-## 14. 相關文件
+## 15. 相關文件
 
 - [ACES-like research and design](aces-like-color-transform.md)
 - [Technical overview](technical-overview.md)
