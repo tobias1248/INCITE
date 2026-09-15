@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 from libct.global_real import materialize_global_real_details, materialize_global_real_arguments
+from libct.global_real_probe import PROBE_STRATEGY_VERSION
 
 
 def _json_default(value):
@@ -117,6 +118,39 @@ class ConcolicTestRecorder:
             self.reference_prediction_phase_counts.get(phase, 0) + 1
         )
         
+
+    def record_global_real_probe(self, result, *, wall_time):
+        """Persist the latest concrete X-probe outcome and aggregate cost."""
+
+        evaluated = list(getattr(result, "evaluated_x", ()))
+        self.extra_meta["global_real_probe_strategy_version"] = (
+            PROBE_STRATEGY_VERSION
+        )
+        self.extra_meta["global_real_probe_rounds"] = int(
+            self.extra_meta.get("global_real_probe_rounds", 0)
+        ) + 1
+        self.extra_meta["global_real_probe_evaluated_count_total"] = int(
+            self.extra_meta.get("global_real_probe_evaluated_count_total", 0)
+        ) + len(evaluated)
+        self.extra_meta["global_real_probe_wall_time_total"] = float(
+            self.extra_meta.get("global_real_probe_wall_time_total", 0.0)
+        ) + float(wall_time)
+        self.extra_meta["global_real_last_probe_evaluated_x"] = evaluated
+        self.extra_meta["global_real_last_probe_bracket_count"] = int(
+            getattr(result, "bracket_count", 0)
+        )
+        self.extra_meta["global_real_last_probe_refinement_steps"] = int(
+            getattr(result, "refinement_steps", 0)
+        )
+        self.extra_meta["global_real_last_probe_success"] = bool(
+            getattr(result, "success", False)
+        )
+        solved_x = getattr(result, "solved_x", None)
+        if solved_x is not None:
+            self.extra_meta["global_real_probe_solved_x"] = float(solved_x)
+            self.extra_meta["global_real_probe_attack_label"] = getattr(
+                result, "attack_label", None
+            )
 
     def solve_constr_start(self):
         self._solve_wall_time = time.time()

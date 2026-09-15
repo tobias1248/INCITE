@@ -66,6 +66,20 @@ def _parse_non_negative_int(value: str) -> int:
     return parsed
 
 
+def _parse_positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("value must be >= 1.")
+    return parsed
+
+
+def _parse_positive_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0.0:
+        raise argparse.ArgumentTypeError("value must be finite and > 0.")
+    return parsed
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments for experiment launcher."""
     parser = argparse.ArgumentParser(
@@ -319,6 +333,34 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default=DEFAULT_PWL_ERROR_TOLERANCE,
         help="Maximum sampled RGB error for ACES-like PWL (default: 1/255).",
     )
+    parser.add_argument(
+        "--no-global-real-probe",
+        dest="global_real_probe",
+        action="store_false",
+        help="Disable concrete X probing after ACES-like SAT candidates.",
+    )
+    parser.set_defaults(global_real_probe=True)
+    parser.add_argument(
+        "--global-real-probe-points",
+        type=_parse_positive_int,
+        default=17,
+        help="Initial concrete X probe budget for ACES-like candidates (default: 17).",
+    )
+    parser.add_argument(
+        "--global-real-probe-refinements",
+        type=_parse_non_negative_int,
+        default=8,
+        help="Maximum bracket refinement steps per X probe (default: 8).",
+    )
+    parser.add_argument(
+        "--global-real-probe-tolerance-fraction",
+        type=_parse_positive_float,
+        default=1.0 / 1024.0,
+        help=(
+            "X bracket tolerance as a fraction of the effective range "
+            "(default: 1/1024)."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.attack_mode != "queue" and args.score_alpha is None:
         parser.error("--score-alpha is required unless --attack-mode queue")
@@ -356,6 +398,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             ):
                 parser.error(
                     "--aces-pwl-error-tolerance must be finite and > 0 for ACES-like shifts"
+                )
+            if args.global_real_probe_tolerance_fraction <= 0.0:
+                parser.error(
+                    "--global-real-probe-tolerance-fraction must be > 0"
                 )
     if args.pixel_selector in {"patch-shap", "token-shap"}:
         if args.attack_mode != "shap":

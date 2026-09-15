@@ -17,6 +17,11 @@ from libct.aces_like import (
     DEFAULT_PWL_MAX_SEGMENTS,
     build_adaptive_pwl_approximation,
 )
+from libct.global_real_probe import (
+    DEFAULT_PROBE_INITIAL_POINTS,
+    DEFAULT_PROBE_MAX_REFINEMENTS,
+    DEFAULT_PROBE_TOLERANCE_FRACTION,
+)
 
 from datasets.cifar10 import Cifar10Dataset
 from explainability.input_shap_sign import (
@@ -205,6 +210,10 @@ def cifar10_global_real(
     shap_output_root: str = "shap_target_class",
     pwl_max_segments: int = DEFAULT_PWL_MAX_SEGMENTS,
     pwl_error_tolerance: float = DEFAULT_PWL_ERROR_TOLERANCE,
+    probe_enabled: bool = True,
+    probe_initial_points: int = DEFAULT_PROBE_INITIAL_POINTS,
+    probe_max_refinements: int = DEFAULT_PROBE_MAX_REFINEMENTS,
+    probe_tolerance_fraction: float = DEFAULT_PROBE_TOLERANCE_FRACTION,
 ) -> List[Dict[str, object]]:
     if shift_kind not in ACES_LIKE_SHIFT_KINDS:
         return _cifar10_global_real_affine(
@@ -233,6 +242,12 @@ def cifar10_global_real(
         raise ValueError("ACES-like PWL max_segments must be an integer >= 1")
     if not math.isfinite(pwl_error_tolerance) or pwl_error_tolerance <= 0.0:
         raise ValueError("ACES-like PWL error_tolerance must be finite and positive")
+    if isinstance(probe_initial_points, bool) or probe_initial_points < 1:
+        raise ValueError("GlobalReal probe_initial_points must be an integer >= 1")
+    if isinstance(probe_max_refinements, bool) or probe_max_refinements < 0:
+        raise ValueError("GlobalReal probe_max_refinements must be an integer >= 0")
+    if not math.isfinite(probe_tolerance_fraction) or probe_tolerance_fraction <= 0.0:
+        raise ValueError("GlobalReal probe_tolerance_fraction must be finite and positive")
 
     dataset = Cifar10Dataset()
     inputs: List[Dict[str, object]] = []
@@ -284,6 +299,10 @@ def cifar10_global_real(
             "aces_like_color_space": ACES_LIKE_COLOR_SPACE,
             "aces_like_curve_version": ACES_LIKE_CURVE_VERSION,
             "aces_like_gamut_mapper": ACES_LIKE_GAMUT_MAPPER,
+            "probe_enabled": bool(probe_enabled),
+            "probe_initial_points": int(probe_initial_points),
+            "probe_max_refinements": int(probe_max_refinements),
+            "probe_tolerance_fraction": float(probe_tolerance_fraction),
         }
         inputs.append(
             {

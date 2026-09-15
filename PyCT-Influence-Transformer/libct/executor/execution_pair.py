@@ -7,6 +7,12 @@ from typing import Any, Dict, Tuple
 
 from libct.executor.legacy import LegacyConcolicExecutor
 from libct.global_real import materialize_global_real_arguments
+from libct.global_real_probe import (
+    DEFAULT_PROBE_INITIAL_POINTS,
+    DEFAULT_PROBE_MAX_REFINEMENTS,
+    DEFAULT_PROBE_TOLERANCE_FRACTION,
+    probe_scalar_domain,
+)
 from libct.utils import unwrap
 
 
@@ -58,6 +64,12 @@ class CandidateExecutionRunner:
 
     def validate_sat_candidate(self, inputs: Dict[str, Any]) -> bool:
         recorder = self._recorder()
+        global_real_config = getattr(self._engine, "global_real_config", None)
+        if self._should_probe_global_real(global_real_config):
+            return self._validate_global_real_candidate_with_probe(
+                inputs,
+                global_real_config,
+            )
         attack_label = self._engine._predict_reference(
             inputs,
             phase="candidate_reference",
@@ -69,6 +81,69 @@ class CandidateExecutionRunner:
                 attack_label,
             )
             recorder.find_adversarial_input(inputs, attack_label)
+            return True
+        return False
+
+    @staticmethod
+    def _should_probe_global_real(global_real_config: Any) -> bool:
+        if not isinstance(global_real_config, dict):
+            return False
+        if global_real_config.get("transform_mode") != "aces-like-pwl":
+            return False
+        if global_real_config.get("probe_enabled", True) is False:
+            return False
+        return global_real_config.get("global_shift_kind") in {
+            "aces-brightness",
+            "aces-contrast",
+        }
+
+    def _validate_global_real_candidate_with_probe(
+        self,
+        inputs: Dict[str, Any],
+        global_real_config: Dict[str, Any],
+    ) -> bool:
+        recorder = self._recorder()
+        variable_name = global_real_config.get("variable_name")
+        if not isinstance(variable_name, str) or variable_name not in inputs:
+            raise ValueError("GlobalReal probe requires a named X input")
+
+        candidate_x = float(unwrap(inputs[variable_name]))
+        lower = float(global_real_config["effective_min"])
+        upper = float(global_real_config["effective_max"])
+        initial_points = int(global_real_config.get("probe_initial_points", 17))
+        max_refinements = int(global_real_config.get("probe_max_refinements", 8))
+        tolerance_fraction = float(
+            global_real_config.get("probe_tolerance_fraction", 1.0 / 1024.0)
+        )
+        tolerance = (upper - lower) * tolerance_fraction
+
+        def evaluate(x_value: float) -> Any:
+            probe_inputs = dict(inputs)
+            probe_inputs[variable_name] = float(x_value)
+            return self._engine._predict_reference(
+                probe_inputs,
+                phase="candidate_probe",
+            )
+
+        started_at = time.perf_counter()
+        result = probe_scalar_domain(
+            candidate_x,
+            lower,
+            upper,
+            original_label=recorder.original_label,
+            evaluate=evaluate,
+            initial_points=initial_points,
+            max_refinements=max_refinements,
+            tolerance=tolerance,
+        )
+        wall_time = time.perf_counter() - started_at
+        if hasattr(recorder, "record_global_real_probe"):
+            recorder.record_global_real_probe(result, wall_time=wall_time)
+
+        if result.success:
+            solved_inputs = dict(inputs)
+            solved_inputs[variable_name] = float(result.solved_x)
+            recorder.find_adversarial_input(solved_inputs, result.attack_label)
             return True
         return False
 
