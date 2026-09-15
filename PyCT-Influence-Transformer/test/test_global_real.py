@@ -496,6 +496,10 @@ def test_cifar10_global_real_builder_creates_aces_like_pwl_payload(monkeypatch) 
     assert config["aces_like_color_space"] == ACES_LIKE_COLOR_SPACE
     assert config["aces_like_curve_version"] == ACES_LIKE_CURVE_VERSION
     assert config["aces_like_gamut_mapper"] == ACES_LIKE_GAMUT_MAPPER
+    assert config["probe_enabled"] is True
+    assert config["probe_initial_points"] == 17
+    assert config["probe_max_refinements"] == 8
+    assert config["probe_tolerance_fraction"] == pytest.approx(1.0 / 1024.0)
 
 
 def test_aces_like_validation_rejects_strict_mode() -> None:

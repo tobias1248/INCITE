@@ -28,6 +28,15 @@ class _Recorder:
     def record_reference_prediction(self, wall_time, *, phase) -> None:
         self.reference_predictions.append((wall_time, phase))
 
+    def record_global_real_probe(self, result, *, wall_time) -> None:
+        self.extra_meta.update(
+            global_real_probe_evaluated_x=list(result.evaluated_x),
+            global_real_probe_wall_time_total=wall_time,
+            global_real_probe_bracket_count=result.bracket_count,
+            global_real_probe_refinement_steps=result.refinement_steps,
+            global_real_probe_success=result.success,
+        )
+
 
 class _Engine:
     class Timeout:
@@ -131,3 +140,54 @@ def test_candidate_runner_non_coverage_execution_skips_primitive_pass() -> None:
     assert engine.primitive_calls == []
     assert not hasattr(engine, "previous_result")
     assert not hasattr(engine, "in_out")
+
+
+def _probe_config() -> Dict[str, Any]:
+    return {
+        "variable_name": "x",
+        "effective_min": -0.1,
+        "effective_max": 0.1,
+        "transform_mode": "aces-like-pwl",
+        "global_shift_kind": "aces-brightness",
+        "probe_enabled": True,
+        "probe_initial_points": 17,
+        "probe_max_refinements": 8,
+        "probe_tolerance_fraction": 1.0 / 1024.0,
+    }
+
+
+def test_candidate_runner_probes_global_real_sat_candidate() -> None:
+    engine = _Engine()
+    engine.recorder.original_label = 0
+    engine.global_real_config = _probe_config()
+    engine._predict_reference = (  # type: ignore[attr-defined]
+        lambda inputs, phase: int(inputs["x"] >= 0.04)
+    )
+
+    runner = CandidateExecutionRunner(engine)
+
+    assert runner.validate_sat_candidate({"x": 0.0}) is True
+    assert engine.recorder.attack_label == 1
+    assert 0.04 <= engine.recorder.adversarial_input["x"] <= 0.041
+    assert engine.recorder.extra_meta["global_real_probe_success"] is True
+    assert engine.recorder.extra_meta["global_real_probe_bracket_count"] >= 1
+    assert all(
+        phase == "candidate_probe"
+        for _wall_time, phase in engine.recorder.reference_predictions
+    )
+
+
+def test_candidate_runner_returns_false_after_global_real_probe_exhaustion() -> None:
+    engine = _Engine()
+    engine.recorder.original_label = 0
+    engine.global_real_config = _probe_config()
+    engine._predict_reference = (  # type: ignore[attr-defined]
+        lambda _inputs, phase: 0
+    )
+
+    runner = CandidateExecutionRunner(engine)
+
+    assert runner.validate_sat_candidate({"x": 0.0}) is False
+    assert engine.recorder.attack_label is None
+    assert engine.recorder.extra_meta["global_real_probe_success"] is False
+    assert len(engine.recorder.extra_meta["global_real_probe_evaluated_x"]) <= 17

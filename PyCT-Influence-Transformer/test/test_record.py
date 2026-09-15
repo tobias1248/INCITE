@@ -25,6 +25,7 @@ if str(ROOT) not in sys.path:
 
 import libct.record as record_module
 from libct.record import ConcolicTestRecorder
+from libct.global_real_probe import ScalarProbeResult
 
 
 def test_recorder_rejects_non_finite_sat_and_adversarial_inputs() -> None:
@@ -393,3 +394,26 @@ def test_save_stats_dict_writes_solver_iter1_top3_artifacts(tmp_path: Path) -> N
         (model_dir / "04_invalid_model.model.json").read_text(encoding="utf-8")
     )
     assert invalid_diagnostics[0]["real"]["parse_error"] == "unsupported SMT Real atom"
+
+
+def test_output_stats_dict_reports_global_real_probe_metadata() -> None:
+    recorder = ConcolicTestRecorder(None, "case_probe")
+    recorder.record_global_real_probe(
+        ScalarProbeResult(
+            success=True,
+            solved_x=0.031,
+            attack_label=2,
+            evaluated_x=(0.0, 0.05, 0.031),
+            bracket_count=1,
+            refinement_steps=3,
+        ),
+        wall_time=0.25,
+    )
+
+    stats = recorder.output_stats_dict()
+    meta = stats["meta"]
+    assert meta["global_real_probe_rounds"] == 1
+    assert meta["global_real_probe_evaluated_count_total"] == 3
+    assert meta["global_real_probe_wall_time_total"] == pytest.approx(0.25)
+    assert meta["global_real_probe_solved_x"] == pytest.approx(0.031)
+    assert meta["global_real_last_probe_success"] is True

@@ -434,3 +434,23 @@ def test_parse_args_accepts_aces_like_global_real_configuration():
     assert args.global_shift_kind == "aces-contrast"
     assert args.aces_pwl_max_segments == 12
     assert args.aces_pwl_error_tolerance == pytest.approx(0.002)
+
+
+def test_parse_args_defaults_global_real_probe_controls() -> None:
+    args = parse_args(
+        [
+            "--attack-mode",
+            "global-real",
+            "--dataset",
+            "cifar10",
+            "--score-alpha",
+            "0.8",
+            "--global-shift-kind",
+            "aces-brightness",
+        ]
+    )
+
+    assert args.global_real_probe is True
+    assert args.global_real_probe_points == 17
+    assert args.global_real_probe_refinements == 8
+    assert args.global_real_probe_tolerance_fraction == pytest.approx(1.0 / 1024.0)
