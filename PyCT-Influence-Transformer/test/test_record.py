@@ -102,6 +102,22 @@ def test_save_stats_dict_writes_rgb_ori_and_adv_with_correct_color_order(
     )
 
 
+def test_hybrid_de_records_clean_source_and_seed_separately(tmp_path: Path) -> None:
+    save_dir = tmp_path / "case_hybrid_de"
+    source = np.full((2, 2, 3), 0.25, dtype=np.float32)
+    seed = np.full((2, 2, 3), 0.75, dtype=np.float32)
+    recorder = ConcolicTestRecorder(str(save_dir), "case_hybrid_de")
+    recorder.input_shape = source.shape
+    recorder.original_input = seed.copy()
+    recorder.record_hybrid_de_inputs(source, seed)
+
+    recorder.save_stats_dict()
+
+    np.testing.assert_array_equal(np.load(save_dir / "source_input.npy"), source)
+    np.testing.assert_array_equal(np.load(save_dir / "de_seed_input.npy"), seed)
+    np.testing.assert_array_equal(np.load(save_dir / "ori_input.npy"), seed)
+
+
 def test_output_stats_dict_reports_reference_prediction_timing() -> None:
     recorder = ConcolicTestRecorder(None, "case_0")
     recorder.record_reference_prediction(0.1, phase="original_reference")

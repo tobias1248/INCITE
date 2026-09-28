@@ -119,6 +119,8 @@ def _make_args(**overrides):
         global_real_probe_points=17,
         global_real_probe_refinements=8,
         global_real_probe_tolerance_fraction=1.0 / 1024.0,
+        de_maxiter=75,
+        de_population_size=400,
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -389,6 +391,58 @@ def test_run_launcher_disambiguates_global_real_shap_sign_epsilon(
     )
 
     assert expected_component in calls[0][1]["attack_mode"].split("_")
+
+
+def test_run_launcher_builds_hybrid_de_payload(monkeypatch) -> None:
+    calls = []
+    payload = {
+        "model_name": "demo",
+        "idx": 3,
+        "save_exp": {"input_name": "case_3"},
+        "in_dict": {"v_0_0_0": 0.5},
+        "con_dict": {},
+        "global_real_config": {"global_shift_kind": "brightness"},
+    }
+    _install_runtime_fakes(monkeypatch)
+    monkeypatch.setattr(launcher, "collect_stage_cases", lambda _inputs: [])
+    monkeypatch.setattr(launcher, "should_run_payload", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        launcher,
+        "cifar10_global_real",
+        lambda model_name, **kwargs: calls.append((model_name, kwargs))
+        or [
+            dict(
+                payload,
+                popped_log_attack_mode=kwargs["attack_mode"],
+                global_real_config=dict(payload["global_real_config"]),
+            )
+        ],
+    )
+
+    launcher.run_launcher(
+        _make_args(
+            dataset="cifar10",
+            attack_mode="hybrid-de",
+            global_shift_kind="contrast",
+            score_alpha=0.8,
+            norm_01=True,
+            de_maxiter=75,
+            de_population_size=32,
+            random_seed=19,
+        )
+    )
+
+    assert calls[0][0] == "demo"
+    assert calls[0][1]["shift_kind"] == "contrast"
+    queued_payload = next(
+        item for item in _FakeQueue.created[0].items if isinstance(item, dict)
+    )
+    assert "hybrid-de" in queued_payload["popped_log_attack_mode"]
+    assert queued_payload["random_seed"] == 19
+    assert queued_payload["global_real_config"]["hybrid_de_enabled"] is True
+    assert queued_payload["global_real_config"]["hybrid_de_maxiter"] == 75
+    assert queued_payload["global_real_config"]["hybrid_de_population_size"] == 32
+    assert queued_payload["global_real_config"]["hybrid_de_random_seed"] == 22
 
 
 def test_run_launcher_skips_payloads_when_progress_says_not_to_run(monkeypatch) -> None:

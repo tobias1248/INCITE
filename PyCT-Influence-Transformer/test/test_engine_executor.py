@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import sys
 
+import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,6 +12,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import engine.executor as executor
+from libct.global_real import GLOBAL_X_INPUT_NAME
+from libct.global_real_de import GlobalRealDEResult
 
 
 def test_validate_collect_mode_rejects_invalid_mode() -> None:
@@ -419,6 +422,173 @@ def test_run_fails_closed_when_reference_model_cannot_load(monkeypatch) -> None:
     assert recorder.extra_meta["status"] == "error"
     assert recorder.extra_meta["error_type"] == "reference_prediction_failure"
     assert recorder.extra_meta["error_phase"] == "reference_model_load"
+
+
+def test_hybrid_de_failure_uses_last_de_image_as_pyct_seed(monkeypatch, tmp_path) -> None:
+    source = np.asarray(
+        [[[0.2, 0.4, 0.6]], [[0.25, 0.45, 0.65]]],
+        dtype=np.float32,
+    )
+    seed = np.asarray(
+        [[[0.3, 0.5, 0.7]], [[0.4, 0.6, 0.8]]],
+        dtype=np.float32,
+    )
+    captured = {}
+
+    class _FakeEngine:
+        extra_meta = None
+
+        def explore(self, *args, **kwargs):
+            captured["in_dict"] = args[1]
+            captured["concolic_dict"] = kwargs["concolic_dict"]
+            captured["global_real_config"] = kwargs["global_real_config"]
+            captured["extra_meta"] = self.extra_meta
+            return (1, SimpleNamespace(
+                record_hybrid_de_inputs=lambda *values: captured.setdefault(
+                    "recorded_hybrid_inputs", values
+                ),
+                save_stats_dict=lambda: captured.setdefault("stats_saved", True),
+            ))
+
+    module = SimpleNamespace(
+        predict_reference_batch=lambda images: np.tile(
+            np.asarray([[0.9] + [0.1 / 9.0] * 9], dtype=np.float64),
+            (len(images), 1),
+        )
+    )
+    monkeypatch.setattr(
+        executor,
+        "_resolve_model_artifacts",
+        lambda _name: ("/tmp/demo.h5", "/tmp/predictor_runtime.py", "/tmp/root"),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_load_predictor",
+        lambda *_args: (
+            module,
+            lambda _path: None,
+            lambda *_args, **_kwargs: None,
+            "search-predict",
+            "reference-predict",
+            set(),
+        ),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_prepare_experiment_paths",
+        lambda *_args, **_kwargs: (str(tmp_path), None, "case_0"),
+    )
+    monkeypatch.setattr(executor, "_build_explorer", lambda _cfg: _FakeEngine())
+    monkeypatch.setattr(executor.libct.explore, "clear_global_context", lambda: None)
+    monkeypatch.setattr(
+        executor,
+        "run_global_real_differential_evolution",
+        lambda *_args, **_kwargs: GlobalRealDEResult(
+            success=False,
+            original_label=0,
+            best_label=0,
+            best_x=0.05,
+            best_score=0.7,
+            best_image=seed,
+            iterations=75,
+            function_evaluations=30400,
+        ),
+    )
+
+    config = {
+        "variable_name": GLOBAL_X_INPUT_NAME,
+        "requested_min": -0.1,
+        "requested_max": 0.1,
+        "effective_min": -0.1,
+        "effective_max": 0.1,
+        "bounds_mode": "clip",
+        "global_shift_kind": "contrast",
+        "coefficient_by_input": {
+            "v_0_0_0": -0.1,
+            "v_0_0_1": -0.1,
+            "v_0_0_2": -0.1,
+            "v_1_0_0": 0.1,
+            "v_1_0_1": 0.1,
+            "v_1_0_2": 0.1,
+        },
+        "hybrid_de_enabled": True,
+        "hybrid_de_maxiter": 75,
+        "hybrid_de_population_size": 400,
+        "hybrid_de_random_seed": 2024,
+    }
+    recorder = executor.run(
+        model_name="demo",
+        in_dict={
+            "v_0_0_0": float(source[0, 0, 0]),
+            "v_0_0_1": float(source[0, 0, 1]),
+            "v_0_0_2": float(source[0, 0, 2]),
+            "v_1_0_0": float(source[1, 0, 0]),
+            "v_1_0_1": float(source[1, 0, 1]),
+            "v_1_0_2": float(source[1, 0, 2]),
+            GLOBAL_X_INPUT_NAME: 0.0,
+        },
+        con_dict={GLOBAL_X_INPUT_NAME: 1},
+        norm=True,
+        solve_order_stack=False,
+        idx=0,
+        popped_log_attack_mode="hybrid-de_contrast",
+        global_real_config=config,
+        input_for_shap=source,
+    )
+
+    assert recorder[0] == 1
+    assert captured["in_dict"]["v_0_0_0"] == pytest.approx(0.3)
+    assert captured["in_dict"]["v_1_0_2"] == pytest.approx(0.8)
+    assert captured["in_dict"][GLOBAL_X_INPUT_NAME] == 0.0
+    assert captured["concolic_dict"] == {GLOBAL_X_INPUT_NAME: 1}
+    assert captured["global_real_config"]["coefficient_by_input"] == pytest.approx(
+        {
+            "v_0_0_0": -0.05,
+            "v_0_0_1": -0.05,
+            "v_0_0_2": -0.05,
+            "v_1_0_0": 0.05,
+            "v_1_0_1": 0.05,
+            "v_1_0_2": 0.05,
+        }
+    )
+    assert captured["global_real_config"]["contrast_channel_means"] == pytest.approx(
+        [0.35, 0.55, 0.75]
+    )
+    assert captured["extra_meta"]["hybrid_de_iterations"] == 75
+    assert captured["recorded_hybrid_inputs"][1] is not None
+    assert captured["stats_saved"] is True
+
+
+def test_record_hybrid_de_success_without_starting_pyct() -> None:
+    source = np.zeros((1, 1, 3), dtype=np.float32)
+    adv = np.ones((1, 1, 3), dtype=np.float32)
+    de_result = GlobalRealDEResult(
+        success=True,
+        original_label=0,
+        best_label=1,
+        best_x=0.1,
+        best_score=0.1,
+        best_image=adv,
+        iterations=3,
+        function_evaluations=1600,
+    )
+
+    _, recorder = executor._record_hybrid_de_success(
+        save_dir=None,
+        input_name="case_0",
+        source_image=source,
+        de_result=de_result,
+        de_wall_time=1.5,
+        de_cpu_time=1.0,
+        global_real_config={"variable_name": GLOBAL_X_INPUT_NAME},
+        extra_meta={"hybrid_de_status": "success"},
+    )
+
+    assert recorder.original_label == 0
+    assert recorder.attack_label == 1
+    np.testing.assert_array_equal(recorder.original_input, source)
+    np.testing.assert_array_equal(recorder.adversarial_input, adv)
+    assert recorder.extra_meta["hybrid_de_status"] == "success"
 
 
 def test_run_attaches_complete_aces_like_pwl_metadata(monkeypatch) -> None:

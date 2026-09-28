@@ -40,6 +40,27 @@ def test_parse_args_accepts_global_real_configuration() -> None:
     assert args.global_shift_kind == "contrast"
 
 
+@pytest.mark.parametrize("shift_kind", ["brightness", "contrast"])
+def test_parse_args_accepts_hybrid_de_for_global_real_kinds(shift_kind: str) -> None:
+    args = parse_args(
+        [
+            "--attack-mode",
+            "hybrid-de",
+            "--dataset",
+            "cifar10",
+            "--score-alpha",
+            "0.8",
+            "--global-shift-kind",
+            shift_kind,
+        ]
+    )
+
+    assert args.attack_mode == "hybrid-de"
+    assert args.global_shift_kind == shift_kind
+    assert args.de_maxiter == 75
+    assert args.de_population_size == 400
+
+
 @pytest.mark.parametrize(
     "extra",
     [
@@ -59,6 +80,33 @@ def test_parse_args_rejects_invalid_global_real_configuration(extra) -> None:
                 "cifar10",
                 "--score-alpha",
                 "0.8",
+                *extra,
+            ]
+        )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--dataset", "mnist"],
+        ["--global-shift-kind", "shap-sign"],
+        ["--global-x-bounds-mode", "strict"],
+        ["--global-x-min", "0.1", "--global-x-max", "0.1"],
+        ["--de-population-size", "4"],
+    ],
+)
+def test_parse_args_rejects_invalid_hybrid_de_configuration(extra) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--attack-mode",
+                "hybrid-de",
+                "--dataset",
+                "cifar10",
+                "--score-alpha",
+                "0.8",
+                "--global-shift-kind",
+                "brightness",
                 *extra,
             ]
         )

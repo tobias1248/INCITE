@@ -407,3 +407,33 @@ def test_predict_reference_rejects_non_finite_input() -> None:
 
     with pytest.raises(ValueError, match="Keras reference input contains"):
         predictor.predict_reference(v_0_0=math.inf)
+
+
+def test_predict_reference_batch_uses_reference_model_once() -> None:
+    class _ReferenceModel:
+        input_shape = (None, 1, 1, 3)
+
+        def __init__(self):
+            self.calls = []
+
+        def predict(self, arrays, verbose=0):
+            self.calls.append((arrays.copy(), verbose))
+            return np.tile(np.asarray([[0.8, 0.2]]), (len(arrays), 1))
+
+    model = _ReferenceModel()
+    predictor.referenceModel = model
+    arrays = np.zeros((4, 1, 1, 3), dtype=np.float32)
+
+    result = predictor.predict_reference_batch(arrays)
+
+    assert result.shape == (4, 2)
+    assert len(model.calls) == 1
+    assert model.calls[0][1] == 0
+    np.testing.assert_array_equal(model.calls[0][0], arrays)
+
+
+def test_predict_reference_batch_rejects_invalid_shape() -> None:
+    predictor.referenceModel = SimpleNamespace(input_shape=(None, 1, 1, 3))
+
+    with pytest.raises(ValueError, match="leading candidate axis"):
+        predictor.predict_reference_batch(np.zeros((1, 1, 3), dtype=np.float32))
