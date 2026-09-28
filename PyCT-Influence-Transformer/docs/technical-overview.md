@@ -677,3 +677,5 @@ current_height >= symbolic_path_threshold
 - `contrast`：每一 channel 以該圖片的 channel mean 為中心，套用 `input + (input - channel_mean) * X`。
 
 `--global-x-bounds-mode strict` 會交集所有 affine input range，使候選不會依賴 clipping；`clip` 則保留原本逐元素截斷的行為。實驗輸出路徑包含 direction、bounds mode 與 X 範圍，payload metadata 同時記錄所選 direction、coefficient map 與 contrast channel means。
+
+使用 `shap-sign` 時，先用 `python -m pyct.shap --dataset cifar10 --model-name MODEL --first-n N` 計算 target-class SHAP cache；若使用自訂 cache 根目錄，請讓 `pyct.shap --output-root` 和 `global-real --shap-output-root` 指向相同位置。`python -m pyct.shap_sign_sweep` 是選用的具體 shift 掃描分析，不是 GlobalReal 攻擊的 cache 前置步驟。

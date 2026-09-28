@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
@@ -298,9 +299,25 @@ class TargetClassInputShapProvider:
                 was_cached=True,
             )
         except ShapCacheContractError as exc:
+            shap_command = shlex.join(
+                [
+                    "python",
+                    "-m",
+                    "pyct.shap",
+                    "--dataset",
+                    "cifar10",
+                    "--model-name",
+                    self.model_path.stem,
+                    "--first-n",
+                    str(int(case_index) + 1),
+                    "--output-root",
+                    str(self.output_dir.parent),
+                    "--force-refresh",
+                ]
+            )
             raise ShapCacheContractError(
                 "global-real requires a compatible target-class SHAP cache; "
-                "generate it first with python -m pyct.shap_sign_sweep. "
+                f"generate or refresh it first with {shap_command}. "
                 f"Cache validation failed: {exc}"
             ) from exc
 

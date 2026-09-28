@@ -307,7 +307,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help=(
             "Shared GlobalReal direction: shap-sign follows per-pixel SHAP signs; "
             "brightness shifts all channels equally; contrast scales deviations "
-            "from each image's RGB channel mean."
+            "from each image's RGB channel mean; aces-brightness and aces-contrast "
+            "use the ACES-like piecewise-linear transform."
         ),
     )
     parser.add_argument(

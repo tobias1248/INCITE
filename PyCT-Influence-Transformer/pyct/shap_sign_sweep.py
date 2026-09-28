@@ -66,7 +66,35 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--output-dir")
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--force-refresh-shap", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    try:
+        _validate_args(args)
+        _resolve_indices(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
+
+
+def _format_path_float(value: float) -> str:
+    return (
+        format(float(value), ".17g")
+        .replace("-", "m")
+        .replace(".", "p")
+        .replace("+", "")
+    )
+
+
+def _default_output_dir(args: argparse.Namespace) -> Path:
+    config_tag = "_".join(
+        (
+            args.bounds_mode,
+            f"x{_format_path_float(args.shift_min)}_{_format_path_float(args.shift_max)}",
+            f"step{_format_path_float(args.shift_step)}",
+            f"eps{_format_path_float(args.shap_sign_epsilon)}",
+            f"bg{args.background_per_class}_seed{args.background_seed}",
+        )
+    )
+    return Path("exp") / f"{args.model_name}_shap_sign_sweep_{config_tag}"
 
 
 def build_shift_grid(lower: float, upper: float, step: float) -> np.ndarray:
@@ -198,6 +226,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--shift-min and --shift-max must be finite")
     if args.shift_min > args.shift_max:
         raise ValueError("--shift-min must be <= --shift-max")
+    if not args.shift_min <= 0.0 <= args.shift_max:
+        raise ValueError("--shift-min and --shift-max must include 0")
     if not math.isfinite(args.shift_step) or args.shift_step <= 0:
         raise ValueError("--shift-step must be finite and > 0")
     if args.bounds_mode not in BOUNDS_MODES:
@@ -243,7 +273,7 @@ def run_sweep(
     )
     output_dir = Path(
         args.output_dir
-        or f"exp/{args.model_name}_shap_sign_sweep_{args.bounds_mode}"
+        or _default_output_dir(args)
     )
     case_results: List[Dict[str, Any]] = []
 

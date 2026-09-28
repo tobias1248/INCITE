@@ -390,6 +390,10 @@ def run_launcher(args: Any) -> None:
                 f"x{_range_component(args.global_x_min)}_{_range_component(args.global_x_max)}",
             ]
         )
+        if args.global_shift_kind == "shap-sign":
+            attack_mode_parts.append(
+                f"eps{_range_component(args.shap_sign_epsilon)}"
+            )
         if args.global_shift_kind.startswith("aces-"):
             attack_mode_parts.append(f"pwlseg{args.aces_pwl_max_segments}")
             attack_mode_parts.append(f"pwlerr{_range_component(args.aces_pwl_error_tolerance)}")
