@@ -258,6 +258,38 @@ def predict_reference_array(array: np.ndarray) -> Tuple[np.ndarray, int]:
     return np.asarray(output), label
 
 
+def predict_reference_batch(arrays: np.ndarray) -> np.ndarray:
+    """Return reference-model class probabilities for a batch of images."""
+
+    if referenceModel is None:
+        raise RuntimeError("Keras reference model not initialized. Call init_model() first.")
+
+    expected_shape = _get_reference_input_shape(referenceModel)
+    reference_inputs = np.asarray(arrays, dtype=np.float32)
+    if reference_inputs.ndim != len(expected_shape) + 1:
+        raise ValueError(
+            "Keras reference batch must have a leading candidate axis; "
+            f"got shape {reference_inputs.shape}."
+        )
+    if tuple(reference_inputs.shape[1:]) != expected_shape:
+        raise ValueError(
+            f"Keras reference batch shape {reference_inputs.shape[1:]} "
+            f"does not match {expected_shape}."
+        )
+    if not np.isfinite(reference_inputs).all():
+        raise ValueError("Keras reference batch contains NaN or Inf")
+
+    predictions = np.asarray(referenceModel.predict(reference_inputs, verbose=0))
+    if predictions.ndim != 2 or predictions.shape[0] != len(reference_inputs):
+        raise ValueError(
+            "Keras reference model must return one class vector per input; "
+            f"got output shape {predictions.shape}."
+        )
+    if predictions.shape[1] < 2 or not np.isfinite(predictions).all():
+        raise ValueError("Keras reference batch output is not a finite class matrix")
+    return predictions
+
+
 def predict_reference(**data):
     if referenceModel is None:
         raise RuntimeError("Keras reference model not initialized. Call init_model() first.")
@@ -316,6 +348,7 @@ __all__ = [
     "init_model",
     "init_reference_model",
     "predict",
+    "predict_reference_batch",
     "predict_reference",
     "predict_reference_array",
     "predict_search",

@@ -3,12 +3,18 @@ from __future__ import annotations
 
 import gc
 import os
+import time
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Any, Callable, Dict, Literal, Optional, Set, Tuple
 
 import libct.explore
+import numpy as np
 
+from libct.global_real_de import (
+    coefficients_for_shift,
+    run_global_real_differential_evolution,
+)
 from libct.record import ConcolicTestRecorder
 from libct.utils import (
     get_function_from_module_and_funcname,
@@ -31,6 +37,93 @@ PredictorCacheEntry = Tuple[
     Set[ModelRuntimeKey],
 ]
 _PREDICTOR_CACHE: Dict[Tuple[str, str], PredictorCacheEntry] = {}
+
+
+def _image_from_input_dict(input_dict: Dict[str, Any]) -> np.ndarray:
+    shape = get_in_dict_shape(input_dict)
+    if not shape:
+        raise ValueError("hybrid-de requires a non-empty image input")
+    image = np.zeros(shape, dtype=np.float32)
+    for name, value in input_dict.items():
+        if isinstance(name, str) and name.startswith("v_"):
+            indices = tuple(int(part) for part in name.split("_")[1:])
+            if len(indices) == len(shape):
+                image[indices] = float(value)
+    if not np.isfinite(image).all() or np.any(image < 0.0) or np.any(image > 1.0):
+        raise ValueError("hybrid-de source image must be finite and inside [0, 1]")
+    return image
+
+
+def _set_image_in_input_dict(input_dict: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
+    updated = dict(input_dict)
+    for index in np.ndindex(image.shape):
+        name = "v_" + "_".join(str(part) for part in index)
+        updated[name] = float(image[index])
+    return updated
+
+
+def _coefficient_mapping(coefficients: np.ndarray) -> Dict[str, float]:
+    return {
+        "v_" + "_".join(str(part) for part in index): float(coefficients[index])
+        for index in np.ndindex(coefficients.shape)
+    }
+
+
+def _record_hybrid_de_success(
+    *,
+    save_dir: Optional[str],
+    input_name: Optional[str],
+    source_image: np.ndarray,
+    de_result: Any,
+    de_wall_time: float,
+    de_cpu_time: float,
+    global_real_config: Dict[str, Any],
+    extra_meta: Dict[str, Any],
+) -> tuple[int, ConcolicTestRecorder]:
+    recorder = ConcolicTestRecorder(save_dir, input_name)
+    recorder.extra_meta.update(extra_meta)
+    recorder.input_shape = tuple(int(dim) for dim in source_image.shape)
+    recorder.original_label = int(de_result.original_label)
+    recorder.attack_label = int(de_result.best_label)
+    recorder.original_input = np.asarray(source_image, dtype=np.float32).copy()
+    recorder.adversarial_input = np.asarray(de_result.best_image, dtype=np.float32).copy()
+    recorder.global_real_config = global_real_config
+    recorder.record_hybrid_de_inputs(source_image)
+    recorder.start(
+        elapsed_wall_time=de_wall_time,
+        elapsed_cpu_time=de_cpu_time,
+    )
+    recorder.end(completed=True)
+    return 0, recorder
+
+
+def _finalize_hybrid_de_artifacts(
+    result: tuple[int, Any],
+    *,
+    source_image: np.ndarray,
+    seed_image: Optional[np.ndarray],
+    de_wall_time: float,
+    de_cpu_time: float,
+) -> tuple[int, Any]:
+    recorder = result[1] if isinstance(result, tuple) and len(result) > 1 else None
+    if recorder is None or not hasattr(recorder, "record_hybrid_de_inputs"):
+        return result
+    recorder.record_hybrid_de_inputs(source_image, seed_image)
+    if isinstance(getattr(recorder, "extra_meta", None), dict):
+        recorder.extra_meta["hybrid_total_wall_time_seconds"] = float(
+            getattr(recorder, "total_wall_time", 0.0) or 0.0
+        ) + float(de_wall_time)
+        recorder.extra_meta["hybrid_total_cpu_time_seconds"] = float(
+            getattr(recorder, "total_cpu_time", 0.0) or 0.0
+        ) + float(de_cpu_time)
+    recorder.total_wall_time = float(getattr(recorder, "total_wall_time", 0.0) or 0.0) + float(
+        de_wall_time
+    )
+    recorder.total_cpu_time = float(getattr(recorder, "total_cpu_time", 0.0) or 0.0) + float(
+        de_cpu_time
+    )
+    recorder.save_stats_dict()
+    return result
 
 
 @dataclass
@@ -312,6 +405,21 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
                 ),
             }
         )
+        if global_real_config.get("hybrid_de_enabled"):
+            extra_meta.update(
+                {
+                    "hybrid_de_strategy": "best1bin-batched-v1",
+                    "hybrid_de_maxiter": global_real_config.get(
+                        "hybrid_de_maxiter", 75
+                    ),
+                    "hybrid_de_population_size": global_real_config.get(
+                        "hybrid_de_population_size", 400
+                    ),
+                    "hybrid_de_random_seed": global_real_config.get(
+                        "hybrid_de_random_seed"
+                    ),
+                }
+            )
     if save_exp:
         if "ton" in save_exp:
             extra_meta["ton"] = save_exp.get("ton")
@@ -349,6 +457,128 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
             error_phase="reference_model_load",
         )
 
+    hybrid_de_result = None
+    hybrid_de_source_image = None
+    hybrid_de_wall_time = 0.0
+    hybrid_de_cpu_time = 0.0
+    if isinstance(global_real_config, dict) and global_real_config.get(
+        "hybrid_de_enabled"
+    ):
+        hybrid_de_started = time.perf_counter()
+        hybrid_de_cpu_started = time.process_time()
+        try:
+            hybrid_de_source_image = _image_from_input_dict(in_dict)
+            predict_batch = getattr(module, "predict_reference_batch", None)
+            if not callable(predict_batch):
+                raise RuntimeError("reference predictor does not support batched inputs")
+            source_predictions = np.asarray(
+                predict_batch(hybrid_de_source_image[np.newaxis, ...]),
+                dtype=np.float64,
+            )
+            if source_predictions.shape != (1, 10) or not np.isfinite(
+                source_predictions
+            ).all():
+                raise ValueError(
+                    "hybrid-de currently requires a finite CIFAR10 class-probability vector"
+                )
+            original_label = int(np.argmax(source_predictions[0]))
+            hybrid_de_result = run_global_real_differential_evolution(
+                hybrid_de_source_image,
+                shift_kind=global_real_config["global_shift_kind"],
+                lower=float(global_real_config["effective_min"]),
+                upper=float(global_real_config["effective_max"]),
+                original_label=original_label,
+                predict_batch=predict_batch,
+                random_seed=int(global_real_config.get("hybrid_de_random_seed", 0)),
+                maxiter=int(global_real_config.get("hybrid_de_maxiter", 75)),
+                population_size=int(
+                    global_real_config.get("hybrid_de_population_size", 400)
+                ),
+            )
+        except Exception as exc:
+            error_meta = dict(extra_meta)
+            error_meta["hybrid_de_status"] = "error"
+            hybrid_de_wall_time = time.perf_counter() - hybrid_de_started
+            hybrid_de_cpu_time = time.process_time() - hybrid_de_cpu_started
+            error_meta["hybrid_de_wall_time_seconds"] = hybrid_de_wall_time
+            error_meta["hybrid_de_cpu_time_seconds"] = hybrid_de_cpu_time
+            result = _build_initialization_error_result(
+                save_dir=save_dir,
+                input_name=input_name,
+                in_dict=in_dict,
+                extra_meta=error_meta,
+                error_type="hybrid_de_failure",
+                error_reason=str(exc),
+                error_phase="hybrid_de",
+            )
+            if hybrid_de_source_image is not None:
+                return _finalize_hybrid_de_artifacts(
+                    result,
+                    source_image=hybrid_de_source_image,
+                    seed_image=None,
+                    de_wall_time=hybrid_de_wall_time,
+                    de_cpu_time=hybrid_de_cpu_time,
+                )
+            return result
+
+        de_wall_time = time.perf_counter() - hybrid_de_started
+        de_cpu_time = time.process_time() - hybrid_de_cpu_started
+        hybrid_de_wall_time = de_wall_time
+        hybrid_de_cpu_time = de_cpu_time
+        extra_meta.update(
+            {
+                "hybrid_de_status": "success" if hybrid_de_result.success else "failed",
+                "hybrid_de_original_label": hybrid_de_result.original_label,
+                "hybrid_de_best_label": hybrid_de_result.best_label,
+                "hybrid_de_best_x": hybrid_de_result.best_x,
+                "hybrid_de_best_score": hybrid_de_result.best_score,
+                "hybrid_de_iterations": hybrid_de_result.iterations,
+                "hybrid_de_function_evaluations": (
+                    hybrid_de_result.function_evaluations
+                ),
+                "hybrid_de_wall_time_seconds": de_wall_time,
+                "hybrid_de_cpu_time_seconds": de_cpu_time,
+                "hybrid_de_source_artifact": "source_input.npy",
+            }
+        )
+        if hybrid_de_result.success:
+            return _record_hybrid_de_success(
+                save_dir=save_dir,
+                input_name=input_name,
+                source_image=hybrid_de_source_image,
+                de_result=hybrid_de_result,
+                de_wall_time=de_wall_time,
+                de_cpu_time=de_cpu_time,
+                global_real_config=global_real_config,
+                extra_meta=extra_meta,
+            )
+
+        seed_image = hybrid_de_result.best_image
+        in_dict = _set_image_in_input_dict(in_dict, seed_image)
+        in_dict[global_real_config["variable_name"]] = 0.0
+        coefficients = coefficients_for_shift(
+            seed_image,
+            global_real_config["global_shift_kind"],
+        )
+        global_real_config = dict(global_real_config)
+        global_real_config["coefficient_by_input"] = _coefficient_mapping(coefficients)
+        if global_real_config["global_shift_kind"] == "contrast":
+            spatial_axes = tuple(range(seed_image.ndim - 1))
+            channel_means = np.mean(
+                seed_image,
+                axis=spatial_axes,
+                keepdims=True,
+                dtype=np.float64,
+            )
+            global_real_config["contrast_channel_means"] = (
+                channel_means.reshape(-1).tolist()
+            )
+            extra_meta["global_real_contrast_channel_means"] = (
+                global_real_config["contrast_channel_means"]
+            )
+        extra_meta["hybrid_de_seed_x"] = hybrid_de_result.best_x
+        extra_meta["hybrid_de_seed_artifact"] = "de_seed_input.npy"
+
     if search_runtime_key not in initialized_models:
         try:
             func_init_model(
@@ -358,7 +588,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
                 role="search",
             )
         except Exception as exc:
-            return _build_initialization_error_result(
+            result = _build_initialization_error_result(
                 save_dir=save_dir,
                 input_name=input_name,
                 in_dict=in_dict,
@@ -367,6 +597,15 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
                 error_reason=str(exc),
                 error_phase="search_model_initialization",
             )
+            if hybrid_de_result is not None:
+                return _finalize_hybrid_de_artifacts(
+                    result,
+                    source_image=hybrid_de_source_image,
+                    seed_image=hybrid_de_result.best_image,
+                    de_wall_time=hybrid_de_wall_time,
+                    de_cpu_time=hybrid_de_cpu_time,
+                )
+            return result
         initialized_models.add(search_runtime_key)
 
     explorer_cfg = ExplorerConfig(
@@ -426,5 +665,14 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
     libct.explore.clear_global_context()
     del engine
     gc.collect()
+
+    if hybrid_de_result is not None:
+        result = _finalize_hybrid_de_artifacts(
+            result,
+            source_image=hybrid_de_source_image,
+            seed_image=hybrid_de_result.best_image,
+            de_wall_time=hybrid_de_wall_time,
+            de_cpu_time=hybrid_de_cpu_time,
+        )
 
     return result

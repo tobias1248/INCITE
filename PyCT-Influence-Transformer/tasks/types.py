@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, TypedDict
 
-AttackMode = Literal["shap", "random", "random-assign", "queue", "global-real"]
+AttackMode = Literal[
+    "shap", "random", "random-assign", "queue", "global-real", "hybrid-de"
+]
 PixelSelector = Literal["pixel-shap", "patch-shap", "token-shap"]
 
 

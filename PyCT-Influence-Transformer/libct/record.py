@@ -59,6 +59,8 @@ class ConcolicTestRecorder:
         self.attack_label = None
         self.adversarial_input = None
         self.original_input = None
+        self.hybrid_de_source_input = None
+        self.hybrid_de_seed_input = None
         self.is_finish = False # finish all iteration or generate an adversarial input
         self.is_timeout = False
         self.solve_all_ctr = False # solve all constraints
@@ -161,9 +163,9 @@ class ConcolicTestRecorder:
         self.solve_constraint_cpu_time.append(time.process_time() - self._solve_cpu_time)
 
 
-    def start(self):
-        self._start_wall_time = time.time()
-        self._start_cpu_time = time.process_time()
+    def start(self, *, elapsed_wall_time=0.0, elapsed_cpu_time=0.0):
+        self._start_wall_time = time.time() - float(elapsed_wall_time)
+        self._start_cpu_time = time.process_time() - float(elapsed_cpu_time)
 
     def end(self, constraint_complexity=None, *, completed: bool = True):
         self.total_wall_time = time.time() - self._start_wall_time
@@ -242,6 +244,13 @@ class ConcolicTestRecorder:
         ori_input = self._build_input_from_dict(input_dict)
         if ori_input is not None:
             self.original_input = ori_input
+
+    def record_hybrid_de_inputs(self, source_input, seed_input=None) -> None:
+        """Keep the clean source and DE seed distinct in hybrid artifacts."""
+
+        self.hybrid_de_source_input = np.asarray(source_input, dtype=np.float32).copy()
+        if seed_input is not None:
+            self.hybrid_de_seed_input = np.asarray(seed_input, dtype=np.float32).copy()
 
     def _build_input_from_dict(self, input_dict):
         if self.input_shape is None:
@@ -657,6 +666,16 @@ class ConcolicTestRecorder:
                 )
                 self.save_original_input_as_image(
                     os.path.join(self.save_dir, "ori_input.jpg")
+                )
+            if self.hybrid_de_source_input is not None:
+                np.save(
+                    os.path.join(self.save_dir, "source_input.npy"),
+                    self.hybrid_de_source_input,
+                )
+            if self.hybrid_de_seed_input is not None:
+                np.save(
+                    os.path.join(self.save_dir, "de_seed_input.npy"),
+                    self.hybrid_de_seed_input,
                 )
             if self.adversarial_input is not None:
                 np.save(

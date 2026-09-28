@@ -185,7 +185,14 @@ def _write_worker_failure_stats(task: Dict[str, Any], attack_mode: str, reason: 
 def _resolve_experiment_layout(attack_mode: str, ton_values) -> str:
     if not ton_values:
         raise ValueError("ton_values must be non-empty.")
-    if attack_mode not in ("shap", "random", "random-assign", "queue", "global-real"):
+    if attack_mode not in (
+        "shap",
+        "random",
+        "random-assign",
+        "queue",
+        "global-real",
+        "hybrid-de",
+    ):
         raise ValueError(f"Unsupported attack mode: {attack_mode}")
     return attack_mode
 
@@ -379,7 +386,7 @@ def run_launcher(args: Any) -> None:
         attack_mode_parts.append("tokenshap")
     if args.attack_mode == "random-assign":
         attack_mode_parts.append(args.pixel_source)
-    if args.attack_mode == "global-real":
+    if args.attack_mode in {"global-real", "hybrid-de"}:
         def _range_component(value: float) -> str:
             return f"{value:g}".replace("-", "m").replace(".", "p")
 
@@ -390,6 +397,14 @@ def run_launcher(args: Any) -> None:
                 f"x{_range_component(args.global_x_min)}_{_range_component(args.global_x_max)}",
             ]
         )
+        if args.attack_mode == "hybrid-de":
+            attack_mode_parts.extend(
+                [
+                    f"de{args.de_maxiter}",
+                    f"pop{args.de_population_size}",
+                    f"seed{args.random_seed}",
+                ]
+            )
         if args.global_shift_kind == "shap-sign":
             attack_mode_parts.append(
                 f"eps{_range_component(args.shap_sign_epsilon)}"
@@ -474,7 +489,7 @@ def run_launcher(args: Any) -> None:
             attack_mode=attack_mode_for_paths,
             **shap_kwargs,
         )
-    elif args.attack_mode == "global-real":
+    elif args.attack_mode in {"global-real", "hybrid-de"}:
         inputs = cifar10_global_real(
             args.model_name,
             first_n_img=first_n_range,
@@ -499,8 +514,17 @@ def run_launcher(args: Any) -> None:
     for payload in inputs:
         payload["score_alpha"] = args.score_alpha
         payload["symbolic_path_threshold"] = args.symbolic_path_threshold
-        if args.attack_mode in {"random", "random-assign"}:
+        if args.attack_mode in {"random", "random-assign", "hybrid-de"}:
             payload["random_seed"] = args.random_seed
+        if args.attack_mode == "hybrid-de":
+            payload["global_real_config"].update(
+                {
+                    "hybrid_de_enabled": True,
+                    "hybrid_de_maxiter": args.de_maxiter,
+                    "hybrid_de_population_size": args.de_population_size,
+                    "hybrid_de_random_seed": args.random_seed + int(payload["idx"]),
+                }
+            )
         payload["ternary_simplification"] = args.ternary_simplification
         if args.ternary_simplification:
             payload["ternary_threshold_scale"] = args.ternary_threshold_scale

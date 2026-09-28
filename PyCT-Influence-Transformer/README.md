@@ -15,7 +15,7 @@ An experimental framework for concolic testing on image classifiers, built on to
 - `--solver-run-timeout` default: `60` seconds
 - `--score-alpha` is required
 - `--symbolic-path-threshold` default: `8000`
-- Supported attack modes: `shap`, `random`, `random-assign`, `queue`
+- Supported attack modes: `shap`, `random`, `random-assign`, `queue`, `global-real`, `hybrid-de`
 - Supported datasets: `fashion_mnist`, `cifar10`, `mnist`
 - Image attacks assume models trained and evaluated on normalized float tensors in `[0, 1]`.
   Solver-generated concolic input variables are constrained to this same range by default.
@@ -247,6 +247,40 @@ Notes:
   - `sat_inputs.npy` (when SAT inputs are recorded)
 
 ## Analyze results
+
+### Hybrid DE and PyCT brightness/contrast attack
+
+`hybrid-de` runs a batched, black-box Differential Evolution search on one
+shared brightness or contrast parameter. It follows the `best1bin` strategy
+with a Latin-hypercube population, defaults to 75 generations and 400
+candidates, and stops early if the best candidate changes the source label.
+If DE exhausts its generations without success, its best concrete image becomes
+the PyCT seed. PyCT then solves a residual GlobalReal `x` from that image.
+
+Run brightness and contrast separately:
+
+```bash
+uv run python -m pyct \
+  --attack-mode hybrid-de \
+  --dataset cifar10 \
+  --model-name cifar10_concolic_transformer \
+  --global-shift-kind brightness \
+  --case-indices 0 \
+  --score-alpha 0.8 \
+  --de-maxiter 75 \
+  --de-population-size 400
+```
+
+Use `--global-shift-kind contrast` for the contrast run. `--global-x-min` and
+`--global-x-max` define both the DE search interval and the PyCT residual
+interval. The DE seed is retained in `de_seed_input.npy`, the clean image in
+`source_input.npy`, and the case stats record whether DE succeeded or handed
+the seed to PyCT.
+
+This mode requires CIFAR10, affine `brightness` or `contrast`, and clipped
+`[0, 1]` inputs. DE uses only the Keras reference model's predicted class
+probabilities; PyCT solver candidates continue to be verified by that reference
+model.
 
 ### Human-readable summary
 ```bash

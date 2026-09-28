@@ -172,8 +172,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--attack-mode",
         default="shap",
-        choices=("shap", "random", "random-assign", "queue", "global-real"),
-        help="Attack strategy: shap/random/random-assign/queue/global-real.",
+        choices=("shap", "random", "random-assign", "queue", "global-real", "hybrid-de"),
+        help="Attack strategy: shap/random/random-assign/queue/global-real/hybrid-de.",
     )
     parser.add_argument(
         "--dataset",
@@ -286,6 +286,18 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Upper bound for the shared GlobalReal X variable (default: 0.1).",
     )
     parser.add_argument(
+        "--de-maxiter",
+        type=_parse_non_negative_int,
+        default=75,
+        help="Maximum DE generations before a failed case is passed to PyCT (default: 75).",
+    )
+    parser.add_argument(
+        "--de-population-size",
+        type=_parse_positive_int,
+        default=400,
+        help="Number of candidate images in each DE population (default: 400).",
+    )
+    parser.add_argument(
         "--global-x-bounds-mode",
         choices=("clip", "strict"),
         default="clip",
@@ -375,9 +387,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "assume normalized model inputs in [0, 1] and must bind solver-generated "
             "input variables to that range."
         )
-    if args.attack_mode == "global-real":
+    if args.attack_mode in {"global-real", "hybrid-de"}:
         if args.dataset != "cifar10":
-            parser.error("--attack-mode global-real currently requires --dataset cifar10")
+            parser.error(
+                f"--attack-mode {args.attack_mode} currently requires --dataset cifar10"
+            )
         if not math.isfinite(args.global_x_min) or not math.isfinite(args.global_x_max):
             parser.error("--global-x-min and --global-x-max must be finite")
         if args.global_x_min > args.global_x_max:
@@ -386,6 +400,18 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             parser.error("GlobalReal X bounds must include 0")
         if not math.isfinite(args.shap_sign_epsilon) or args.shap_sign_epsilon < 0:
             parser.error("--shap-sign-epsilon must be finite and >= 0")
+        if args.attack_mode == "hybrid-de":
+            if args.global_shift_kind not in {"brightness", "contrast"}:
+                parser.error(
+                    "--attack-mode hybrid-de requires --global-shift-kind "
+                    "brightness or contrast"
+                )
+            if args.global_x_bounds_mode != "clip":
+                parser.error("--attack-mode hybrid-de requires --global-x-bounds-mode clip")
+            if args.global_x_min >= args.global_x_max:
+                parser.error("hybrid-de requires --global-x-min < --global-x-max")
+            if args.de_population_size < 5:
+                parser.error("--de-population-size must be >= 5")
         if args.global_shift_kind.startswith("aces-"):
             if args.global_x_bounds_mode != "clip":
                 parser.error("ACES-like shifts require --global-x-bounds-mode clip")
