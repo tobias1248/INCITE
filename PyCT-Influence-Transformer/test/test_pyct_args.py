@@ -454,3 +454,10 @@ def test_parse_args_defaults_global_real_probe_controls() -> None:
     assert args.global_real_probe_points == 17
     assert args.global_real_probe_refinements == 8
     assert args.global_real_probe_tolerance_fraction == pytest.approx(1.0 / 1024.0)
+
+
+def test_global_shift_kind_help_mentions_aces_variants(capsys) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--help"])
+
+    assert "aces-brightness" in capsys.readouterr().out

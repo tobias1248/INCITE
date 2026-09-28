@@ -107,6 +107,18 @@ def _make_args(**overrides):
         case_indices=None,
         spawn_delay=0.0,
         force_refresh=True,
+        global_x_min=-0.1,
+        global_x_max=0.1,
+        global_x_bounds_mode="clip",
+        global_shift_kind="shap-sign",
+        shap_sign_epsilon=0.0,
+        shap_output_root="shap_target_class",
+        aces_pwl_max_segments=32,
+        aces_pwl_error_tolerance=1.0 / 255.0,
+        global_real_probe=True,
+        global_real_probe_points=17,
+        global_real_probe_refinements=8,
+        global_real_probe_tolerance_fraction=1.0 / 1024.0,
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -345,6 +357,38 @@ def test_run_launcher_adds_patchshap_suffix_for_cifar10(monkeypatch) -> None:
             },
         )
     ]
+
+
+@pytest.mark.parametrize(
+    ("epsilon", "expected_component"),
+    [(0.0, "eps0"), (0.001, "eps0p001")],
+)
+def test_run_launcher_disambiguates_global_real_shap_sign_epsilon(
+    monkeypatch,
+    epsilon,
+    expected_component,
+) -> None:
+    calls = []
+    _install_runtime_fakes(monkeypatch)
+    monkeypatch.setattr(launcher, "collect_stage_cases", lambda inputs: [])
+    monkeypatch.setattr(launcher, "should_run_payload", lambda payload, force_refresh: True)
+    monkeypatch.setattr(
+        launcher,
+        "cifar10_global_real",
+        lambda model_name, **kwargs: calls.append((model_name, kwargs)) or [],
+    )
+
+    launcher.run_launcher(
+        _make_args(
+            dataset="cifar10",
+            attack_mode="global-real",
+            score_alpha=0.8,
+            norm_01=True,
+            shap_sign_epsilon=epsilon,
+        )
+    )
+
+    assert expected_component in calls[0][1]["attack_mode"].split("_")
 
 
 def test_run_launcher_skips_payloads_when_progress_says_not_to_run(monkeypatch) -> None:

@@ -209,7 +209,7 @@ def test_provider_load_cached_fails_closed_when_cache_is_missing(
 
     with pytest.raises(
         ShapCacheContractError,
-        match=r"python -m pyct\.shap_sign_sweep",
+        match=r"python -m pyct\.shap --dataset cifar10 --model-name demo --first-n 4",
     ):
         provider.load_cached(
             case_index=3,
@@ -244,7 +244,7 @@ def test_provider_load_cached_fails_closed_when_identity_is_incompatible(
 
     with pytest.raises(
         ShapCacheContractError,
-        match=r"python -m pyct\.shap_sign_sweep",
+        match=r"python -m pyct\.shap --dataset cifar10 --model-name demo --first-n 4",
     ):
         provider.load_cached(
             case_index=3,

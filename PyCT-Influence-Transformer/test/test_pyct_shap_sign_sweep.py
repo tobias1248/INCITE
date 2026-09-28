@@ -85,6 +85,41 @@ def test_parse_args_rejects_duplicate_case_indices() -> None:
         shap_sign_sweep.parse_args(["--case-indices", "1,1"])
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--shift-min", "0.01"],
+        ["--shift-max", "-0.01"],
+        ["--shift-step", "0"],
+        ["--shap-sign-epsilon", "nan"],
+        ["--first-n", "0"],
+    ],
+)
+def test_parse_args_reports_invalid_sweep_values_as_cli_errors(arguments, capsys) -> None:
+    with pytest.raises(SystemExit) as error:
+        shap_sign_sweep.parse_args(arguments)
+
+    assert error.value.code == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_default_output_dir_separates_sweep_parameters() -> None:
+    baseline = shap_sign_sweep.parse_args([])
+    baseline_dir = shap_sign_sweep._default_output_dir(baseline)
+    variants = (
+        ["--shift-min", "-0.2"],
+        ["--shift-step", "0.002"],
+        ["--shap-sign-epsilon", "0.01"],
+        ["--background-seed", "7"],
+        ["--background-per-class", "4"],
+    )
+
+    for arguments in variants:
+        assert shap_sign_sweep._default_output_dir(
+            shap_sign_sweep.parse_args(arguments)
+        ) != baseline_dir
+
+
 def test_parse_args_defaults_to_clip_and_canonical_cache() -> None:
     args = shap_sign_sweep.parse_args([])
 
@@ -162,6 +197,7 @@ def test_run_sweep_writes_bounds_metadata(
     "updates, message",
     [
         ({"shift_min": 0.2, "shift_max": 0.1}, "shift-min"),
+        ({"shift_min": 0.01}, "include 0"),
         ({"shift_step": 0.0}, "shift-step"),
         ({"bounds_mode": "invalid"}, "bounds-mode"),
         ({"shap_sign_epsilon": -1.0}, "shap-sign-epsilon"),
