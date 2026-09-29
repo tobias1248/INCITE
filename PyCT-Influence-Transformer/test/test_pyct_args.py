@@ -61,6 +61,18 @@ def test_parse_args_accepts_hybrid_de_for_global_real_kinds(shift_kind: str) -> 
     assert args.de_population_size == 400
 
 
+def test_hybrid_margin_schedule_does_not_require_shap_score_alpha() -> None:
+    args = parse_args(
+        [
+            "--attack-mode", "hybrid-de",
+            "--dataset", "cifar10",
+            "--global-shift-kind", "brightness",
+        ]
+    )
+
+    assert args.score_alpha is None
+
+
 @pytest.mark.parametrize(
     "extra",
     [

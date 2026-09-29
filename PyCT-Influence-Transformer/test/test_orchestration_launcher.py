@@ -434,6 +434,7 @@ def test_run_launcher_builds_hybrid_de_payload(monkeypatch) -> None:
 
     assert calls[0][0] == "demo"
     assert calls[0][1]["shift_kind"] == "contrast"
+    assert "margin_bc2" in calls[0][1]["attack_mode"]
     queued_payload = next(
         item for item in _FakeQueue.created[0].items if isinstance(item, dict)
     )

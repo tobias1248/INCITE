@@ -114,6 +114,64 @@ def test_de_stops_when_best_candidate_changes_label() -> None:
     assert sum(evaluated_counts) == result.function_evaluations
 
 
+def test_de_chooses_smallest_class_margin_for_failed_seed() -> None:
+    seed = np.full((1, 1, 3), 0.5, dtype=np.float32)
+
+    def predict_batch(images):
+        positive = images.mean(axis=(1, 2, 3)) >= 0.5
+        return np.asarray(
+            [[0.5, 0.49, 0.01] if is_positive else [0.4, 0.35, 0.25]
+             for is_positive in positive],
+            dtype=np.float64,
+        )
+
+    result = run_global_real_differential_evolution(
+        seed,
+        shift_kind="brightness",
+        lower=-0.1,
+        upper=0.1,
+        original_label=0,
+        predict_batch=predict_batch,
+        random_seed=7,
+        maxiter=0,
+        population_size=5,
+    )
+
+    assert result.success is False
+    assert result.best_x >= 0.0
+    assert result.best_score == pytest.approx(0.5)
+    assert result.best_margin == pytest.approx(0.01)
+
+
+def test_de_detects_label_flip_even_when_margins_tie() -> None:
+    seed = np.full((1, 1, 3), 0.5, dtype=np.float32)
+
+    def predict_batch(images):
+        negative = images.mean(axis=(1, 2, 3)) < 0.5
+        return np.asarray(
+            [[0.5, 0.5, 0.0] if is_negative else [0.0, 0.5, 0.5]
+             for is_negative in negative],
+            dtype=np.float64,
+        )
+
+    result = run_global_real_differential_evolution(
+        seed,
+        shift_kind="brightness",
+        lower=-0.1,
+        upper=0.1,
+        original_label=1,
+        predict_batch=predict_batch,
+        random_seed=7,
+        maxiter=0,
+        population_size=5,
+    )
+
+    assert result.success is True
+    assert result.best_label == 0
+    assert result.best_x < 0.0
+    assert result.best_margin == pytest.approx(0.0)
+
+
 @pytest.mark.parametrize("shift_kind", ["shap-sign", "aces-brightness"])
 def test_de_rejects_unsupported_transform(shift_kind: str) -> None:
     with pytest.raises(ValueError, match="shift_kind"):

@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import engine.executor as executor
-from libct.global_real import GLOBAL_X_INPUT_NAME
+from libct.global_real import GLOBAL_X_INPUT_NAME, materialize_global_real_arguments
 from libct.global_real_de import GlobalRealDEResult
 
 
@@ -429,10 +429,9 @@ def test_hybrid_de_failure_uses_last_de_image_as_pyct_seed(monkeypatch, tmp_path
         [[[0.2, 0.4, 0.6]], [[0.25, 0.45, 0.65]]],
         dtype=np.float32,
     )
-    seed = np.asarray(
-        [[[0.3, 0.5, 0.7]], [[0.4, 0.6, 0.8]]],
-        dtype=np.float32,
-    )
+    seed = (
+        source + 0.05 * (source - source.mean(axis=(0, 1), keepdims=True))
+    ).astype(np.float32)
     captured = {}
 
     class _FakeEngine:
@@ -489,6 +488,7 @@ def test_hybrid_de_failure_uses_last_de_image_as_pyct_seed(monkeypatch, tmp_path
             best_label=0,
             best_x=0.05,
             best_score=0.7,
+            best_margin=0.4,
             best_image=seed,
             iterations=75,
             function_evaluations=30400,
@@ -537,26 +537,38 @@ def test_hybrid_de_failure_uses_last_de_image_as_pyct_seed(monkeypatch, tmp_path
     )
 
     assert recorder[0] == 1
-    assert captured["in_dict"]["v_0_0_0"] == pytest.approx(0.3)
-    assert captured["in_dict"]["v_1_0_2"] == pytest.approx(0.8)
-    assert captured["in_dict"][GLOBAL_X_INPUT_NAME] == 0.0
-    assert captured["concolic_dict"] == {GLOBAL_X_INPUT_NAME: 1}
+    assert captured["in_dict"]["v_0_0_0"] == pytest.approx(source[0, 0, 0])
+    assert captured["in_dict"]["v_1_0_2"] == pytest.approx(source[1, 0, 2])
+    assert GLOBAL_X_INPUT_NAME not in captured["in_dict"]
+    assert captured["in_dict"]["__pyct_brightness"] == 0.0
+    assert captured["in_dict"]["__pyct_contrast"] == pytest.approx(0.05)
+    assert captured["concolic_dict"] == {
+        "__pyct_brightness": 1,
+        "__pyct_contrast": 1,
+    }
     assert captured["global_real_config"]["coefficient_by_input"] == pytest.approx(
         {
-            "v_0_0_0": -0.05,
-            "v_0_0_1": -0.05,
-            "v_0_0_2": -0.05,
-            "v_1_0_0": 0.05,
-            "v_1_0_1": 0.05,
-            "v_1_0_2": 0.05,
+            "v_0_0_0": -0.025,
+            "v_0_0_1": -0.025,
+            "v_0_0_2": -0.025,
+            "v_1_0_0": 0.025,
+            "v_1_0_1": 0.025,
+            "v_1_0_2": 0.025,
         }
     )
     assert captured["global_real_config"]["contrast_channel_means"] == pytest.approx(
-        [0.35, 0.55, 0.75]
+        [0.225, 0.425, 0.625]
     )
     assert captured["extra_meta"]["hybrid_de_iterations"] == 75
+    assert captured["extra_meta"]["hybrid_de_best_margin"] == pytest.approx(0.4)
+    assert captured["global_real_config"]["transform_mode"] == "affine-brightness-contrast"
+    materialized, _, _ = materialize_global_real_arguments(
+        captured["in_dict"], captured["global_real_config"]
+    )
+    np.testing.assert_allclose(executor._image_from_input_dict(materialized), seed, atol=1e-7)
     assert captured["recorded_hybrid_inputs"][1] is not None
     assert captured["stats_saved"] is True
+    np.testing.assert_array_equal(recorder[1].original_input, source)
 
 
 def test_record_hybrid_de_success_without_starting_pyct() -> None:
@@ -568,6 +580,7 @@ def test_record_hybrid_de_success_without_starting_pyct() -> None:
         best_label=1,
         best_x=0.1,
         best_score=0.1,
+        best_margin=-0.8,
         best_image=adv,
         iterations=3,
         function_evaluations=1600,

@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from libct.constraint import Constraint
+from libct.global_real import TRANSFORM_MODE_AFFINE_BC
 from libct.searcher import ConstraintScheduler, create_constraint_searcher
 
 
@@ -59,6 +60,32 @@ def test_scheduler_push_pop_priority_modular_searcher_records_metadata() -> None
     assert len(engine.constraints_to_solve) == 0
     assert engine.recorder.queue_last == 1
     assert engine.recorder.queue_max == 1
+
+
+def test_hybrid_scheduler_prioritizes_lower_parent_margin() -> None:
+    engine = _Engine()
+    engine.global_real_config = {"transform_mode": TRANSFORM_MODE_AFFINE_BC}
+    engine.shap_score_alpha = None
+    scheduler = ConstraintScheduler(engine)
+    high_margin_branch = Constraint(None, None, height=1)
+    low_margin_branch = Constraint(None, None, height=2)
+
+    engine.current_reference_margin = 0.4
+    scheduler.push_constraint(high_margin_branch, None)
+    engine.current_reference_margin = 0.02
+    scheduler.push_constraint(low_margin_branch, None)
+
+    assert scheduler.pop_constraint()[0] is low_margin_branch
+    assert scheduler.pop_constraint()[0] is high_margin_branch
+
+
+def test_hybrid_scheduler_rejects_missing_margin() -> None:
+    engine = _Engine()
+    engine.global_real_config = {"transform_mode": TRANSFORM_MODE_AFFINE_BC}
+    engine.current_reference_margin = None
+
+    with pytest.raises(ValueError, match="finite Keras margin"):
+        ConstraintScheduler(engine).push_constraint(Constraint(None, None), None)
 
 
 def test_scheduler_stack_and_queue_modes_return_constraints() -> None:

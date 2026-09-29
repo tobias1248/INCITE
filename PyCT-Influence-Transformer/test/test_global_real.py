@@ -11,11 +11,17 @@ import pytest
 from libct.concolic import Concolic
 from libct.executor import CandidateExecutionRunner, ConcolicArgumentBuilder
 from libct.global_real import (
+    GLOBAL_BRIGHTNESS_INPUT_NAME,
+    GLOBAL_BRIGHTNESS_SMT_NAME,
+    GLOBAL_CONTRAST_INPUT_NAME,
+    GLOBAL_CONTRAST_SMT_NAME,
     GLOBAL_X_INPUT_NAME,
     GLOBAL_X_SMT_NAME,
+    TRANSFORM_MODE_AFFINE_BC,
     build_concolic_global_real_kwargs,
     materialize_global_real_details,
     materialize_global_real_arguments,
+    solver_variable_bounds,
     validate_global_real_config,
 )
 import libct.global_real as global_real
@@ -43,6 +49,16 @@ def _config(*, bounds_mode="clip"):
         "effective_max": 0.1,
         "bounds_mode": bounds_mode,
         "sign_by_input": {"v_0": 1, "v_1": -1, "v_2": 0},
+    }
+
+
+def _bc_config():
+    return {
+        "transform_mode": TRANSFORM_MODE_AFFINE_BC,
+        "effective_min": -0.1,
+        "effective_max": 0.1,
+        "bounds_mode": "clip",
+        "coefficient_by_input": {"v_0": -0.2, "v_1": 0.2},
     }
 
 
@@ -86,6 +102,95 @@ def test_global_real_argument_builder_uses_one_shared_real() -> None:
     assert GLOBAL_X_SMT_NAME in Predicate.get_formula_deep(kwargs["v_0"])
     assert engine.concolic_name_list == [GLOBAL_X_SMT_NAME]
     assert engine.var_to_types == {GLOBAL_X_SMT_NAME: "Real"}
+
+
+def test_hybrid_argument_builder_uses_two_bounded_reals() -> None:
+    engine = _Engine(_bc_config())
+    primitive = {
+        "v_0": 0.2,
+        "v_1": 0.8,
+        GLOBAL_BRIGHTNESS_INPUT_NAME: 0.05,
+        GLOBAL_CONTRAST_INPUT_NAME: -0.1,
+    }
+
+    args, kwargs = ConcolicArgumentBuilder(engine).build(
+        lambda **values: values,
+        primitive,
+        {GLOBAL_BRIGHTNESS_INPUT_NAME: 1, GLOBAL_CONTRAST_INPUT_NAME: 1},
+    )
+
+    assert args == []
+    assert set(kwargs) == {"v_0", "v_1"}
+    assert engine.concolic_name_list == [GLOBAL_BRIGHTNESS_SMT_NAME, GLOBAL_CONTRAST_SMT_NAME]
+    assert engine.var_to_types == {
+        GLOBAL_BRIGHTNESS_SMT_NAME: "Real",
+        GLOBAL_CONTRAST_SMT_NAME: "Real",
+    }
+    formula = Predicate.get_formula_deep(kwargs["v_0"])
+    assert GLOBAL_BRIGHTNESS_SMT_NAME in formula
+    assert GLOBAL_CONTRAST_SMT_NAME in formula
+    assert float(kwargs["v_0"]) == pytest.approx(0.27)
+    assert float(kwargs["v_1"]) == pytest.approx(0.83)
+
+
+def test_hybrid_materialization_and_solver_bounds() -> None:
+    inputs = {
+        "v_0": 0.02,
+        "v_1": 0.98,
+        GLOBAL_BRIGHTNESS_INPUT_NAME: 0.05,
+        GLOBAL_CONTRAST_INPUT_NAME: 0.1,
+    }
+    materialized, params, clipped_count = materialize_global_real_arguments(
+        inputs, _bc_config()
+    )
+
+    assert params == pytest.approx((0.05, 0.1))
+    assert clipped_count == 1
+    assert materialized == pytest.approx({"v_0": 0.05, "v_1": 1.0})
+    assert solver_variable_bounds(_bc_config()) == {
+        GLOBAL_BRIGHTNESS_SMT_NAME: (-0.1, 0.1),
+        GLOBAL_CONTRAST_SMT_NAME: (-0.1, 0.1),
+    }
+
+
+def test_solver_declares_and_bounds_both_hybrid_variables(monkeypatch) -> None:
+    class _Constraint:
+        @staticmethod
+        def get_all_asserts():
+            return []
+
+    monkeypatch.setattr(Solver, "norm", True)
+    monkeypatch.setattr(Solver, "limit_change_range", None)
+    bounds = solver_variable_bounds(_bc_config())
+    engine = SimpleNamespace(
+        concolic_name_list=[GLOBAL_BRIGHTNESS_SMT_NAME, GLOBAL_CONTRAST_SMT_NAME],
+        var_to_types={name: "Real" for name in bounds},
+        solver_variable_bounds=bounds,
+    )
+    formula = Solver._build_formulas_from_constraint(engine, _Constraint(), {})
+
+    for name in bounds:
+        assert f"(declare-const {name} Real)" in formula
+        assert f"(<= {name} 0.100000000000000)" in formula
+        assert f"(>= {name} (- 0.100000000000000))" in formula
+
+
+def test_hybrid_rejects_missing_or_out_of_bounds_parameter() -> None:
+    inputs = {
+        "v_0": 0.2,
+        "v_1": 0.8,
+        GLOBAL_BRIGHTNESS_INPUT_NAME: 0.0,
+        GLOBAL_CONTRAST_INPUT_NAME: 0.0,
+    }
+    with pytest.raises(ValueError, match="missing"):
+        materialize_global_real_arguments(
+            {name: value for name, value in inputs.items() if name != GLOBAL_CONTRAST_INPUT_NAME},
+            _bc_config(),
+        )
+    with pytest.raises(ValueError, match="outside configured bounds"):
+        materialize_global_real_arguments(
+            {**inputs, GLOBAL_CONTRAST_INPUT_NAME: 0.2}, _bc_config()
+        )
 
 
 def test_materialize_global_real_clip_matches_reference_semantics() -> None:

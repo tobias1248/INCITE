@@ -115,7 +115,43 @@ def test_hybrid_de_records_clean_source_and_seed_separately(tmp_path: Path) -> N
 
     np.testing.assert_array_equal(np.load(save_dir / "source_input.npy"), source)
     np.testing.assert_array_equal(np.load(save_dir / "de_seed_input.npy"), seed)
-    np.testing.assert_array_equal(np.load(save_dir / "ori_input.npy"), seed)
+    np.testing.assert_array_equal(np.load(save_dir / "ori_input.npy"), source)
+
+
+def test_hybrid_recorder_saves_parameter_pairs_and_clean_original(tmp_path: Path) -> None:
+    save_dir = tmp_path / "case_hybrid_bc"
+    source = np.full((1, 1, 3), 0.5, dtype=np.float32)
+    recorder = ConcolicTestRecorder(str(save_dir), "case_hybrid_bc")
+    recorder.input_shape = source.shape
+    recorder.original_input = source.copy()
+    recorder.global_real_config = {
+        "transform_mode": "affine-brightness-contrast",
+        "effective_min": -0.1,
+        "effective_max": 0.1,
+        "bounds_mode": "clip",
+        "coefficient_by_input": {
+            "v_0_0_0": 0.0,
+            "v_0_0_1": 0.0,
+            "v_0_0_2": 0.0,
+        },
+    }
+    recorder.save_sat_input(
+        {
+            "v_0_0_0": 0.5,
+            "v_0_0_1": 0.5,
+            "v_0_0_2": 0.5,
+            "__pyct_brightness": 0.05,
+            "__pyct_contrast": -0.1,
+        }
+    )
+    recorder.save_stats_dict()
+
+    np.testing.assert_array_equal(np.load(save_dir / "ori_input.npy"), source)
+    np.testing.assert_allclose(np.load(save_dir / "sat_hybrid_bc.npy"), [[0.05, -0.1]])
+    assert not (save_dir / "sat_global_x.npy").exists()
+    assert not (save_dir / "sat_global_pwl_error.npy").exists()
+    assert recorder.extra_meta["global_real_last_sat_brightness"] == pytest.approx(0.05)
+    assert recorder.extra_meta["global_real_last_sat_contrast"] == pytest.approx(-0.1)
 
 
 def test_output_stats_dict_reports_reference_prediction_timing() -> None:

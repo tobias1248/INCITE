@@ -4,6 +4,7 @@ from collections import deque
 from pathlib import Path
 import sys
 
+import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,6 +12,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import libct.explore as explore
+from libct.executor import CandidateExecutionRunner
+from libct.record import ConcolicTestRecorder
 
 
 class _RecorderStub:
@@ -94,6 +97,125 @@ class _RecorderStub:
             self.extra_meta["child_event_phase"] = phase
         if child_pid is not None:
             self.extra_meta["child_pid"] = child_pid
+
+
+def test_hybrid_reference_margin_updates_before_branch_generation() -> None:
+    recorder = ConcolicTestRecorder(None, "case_0")
+    recorder.input_shape = (1, 1, 3)
+    recorder.extra_meta["hybrid_de_original_label"] = 0
+    config = {
+        "transform_mode": "affine-brightness-contrast",
+        "effective_min": -0.1,
+        "effective_max": 0.1,
+        "bounds_mode": "clip",
+        "coefficient_by_input": {
+            "v_0_0_0": 0.0,
+            "v_0_0_1": 0.0,
+            "v_0_0_2": 0.0,
+        },
+    }
+    recorder.global_real_config = config
+    observed = []
+
+    def predict_batch(images):
+        brightness = float(images[0].mean()) - 0.5
+        if brightness > 0.09:
+            return np.asarray([[0.4, 0.6]])
+        if brightness > 0.07:
+            return np.asarray([[0.51, 0.49]])
+        return np.asarray([[0.6, 0.4]])
+
+    engine = type("Engine", (), {})()
+    engine.global_real_config = config
+    engine.reference_score_predictor = predict_batch
+    engine.current_reference_margin = None
+    engine._get_recorder = lambda: recorder
+    engine._one_execution = lambda *_args: observed.append(engine.current_reference_margin)
+    runner = CandidateExecutionRunner(engine)
+    inputs = {
+        "v_0_0_0": 0.5,
+        "v_0_0_1": 0.5,
+        "v_0_0_2": 0.5,
+        "__pyct_brightness": 0.05,
+        "__pyct_contrast": 0.0,
+    }
+
+    runner.run_initial_execution(inputs, {})
+    assert observed == pytest.approx([0.2])
+    assert recorder.original_label == 0
+    assert recorder.extra_meta["hybrid_pyct_seed_margin"] == pytest.approx(0.2)
+
+    assert runner.validate_sat_candidate({**inputs, "__pyct_brightness": 0.08}) is False
+    assert engine.current_reference_margin == pytest.approx(0.02)
+    assert runner.validate_sat_candidate({**inputs, "__pyct_brightness": 0.1}) is True
+    assert recorder.attack_label == 1
+    assert recorder.extra_meta["hybrid_pyct_best_margin"] == pytest.approx(-0.2)
+    assert recorder.extra_meta["hybrid_pyct_candidate_count"] == 2
+
+
+def test_hybrid_reference_rejects_invalid_score_matrix() -> None:
+    recorder = ConcolicTestRecorder(None, "case_0")
+    recorder.input_shape = (1, 1, 3)
+    recorder.extra_meta["hybrid_de_original_label"] = 0
+    engine = type("Engine", (), {})()
+    engine.global_real_config = {
+        "transform_mode": "affine-brightness-contrast",
+        "effective_min": -0.1,
+        "effective_max": 0.1,
+        "bounds_mode": "clip",
+        "coefficient_by_input": {
+            "v_0_0_0": 0.0,
+            "v_0_0_1": 0.0,
+            "v_0_0_2": 0.0,
+        },
+    }
+    recorder.global_real_config = engine.global_real_config
+    engine.reference_score_predictor = lambda _images: np.asarray([[float("nan"), 0.0]])
+    engine._get_recorder = lambda: recorder
+    engine._one_execution = lambda *_args: None
+
+    with pytest.raises(ValueError, match="invalid class scores"):
+        CandidateExecutionRunner(engine).run_initial_execution(
+            {
+                "v_0_0_0": 0.5,
+                "v_0_0_1": 0.5,
+                "v_0_0_2": 0.5,
+                "__pyct_brightness": 0.0,
+                "__pyct_contrast": 0.0,
+            },
+            {},
+        )
+    assert recorder.extra_meta["error_type"] == "reference_prediction_failure"
+
+
+def test_hybrid_reference_rejects_seed_label_mismatch() -> None:
+    recorder = ConcolicTestRecorder(None, "case_0")
+    recorder.input_shape = (1, 1, 3)
+    recorder.extra_meta["hybrid_de_original_label"] = 0
+    config = {
+        "transform_mode": "affine-brightness-contrast",
+        "effective_min": -0.1,
+        "effective_max": 0.1,
+        "bounds_mode": "clip",
+        "coefficient_by_input": {f"v_0_0_{i}": 0.0 for i in range(3)},
+    }
+    recorder.global_real_config = config
+    engine = type("Engine", (), {})()
+    engine.global_real_config = config
+    engine.reference_score_predictor = lambda _images: np.asarray([[0.2, 0.8]])
+    engine._get_recorder = lambda: recorder
+    engine._one_execution = lambda *_args: pytest.fail("invalid seed must not execute")
+
+    with pytest.raises(ValueError, match="seed label differs"):
+        CandidateExecutionRunner(engine).run_initial_execution(
+            {
+                **{f"v_0_0_{i}": 0.5 for i in range(3)},
+                "__pyct_brightness": 0.0,
+                "__pyct_contrast": 0.0,
+            },
+            {},
+        )
+    assert recorder.extra_meta["error_type"] == "hybrid_seed_prediction_mismatch"
 
 
 def _make_engine(reference_execute):
