@@ -21,7 +21,8 @@ class GlobalRealDEResult:
     original_label: int
     best_label: int
     best_x: float
-    best_score: float
+    best_score: float  # Original-class score, retained for artifact compatibility.
+    best_margin: float  # Original-class score minus the strongest competing score.
     best_image: np.ndarray
     iterations: int
     function_evaluations: int
@@ -75,7 +76,7 @@ def run_global_real_differential_evolution(
     population_size: int = DEFAULT_DE_POPULATION_SIZE,
     mutation: Tuple[float, float] = DEFAULT_DE_MUTATION,
 ) -> GlobalRealDEResult:
-    """Minimize source-class confidence with a vectorized best1bin DE search.
+    """Minimize the source-to-runner-up margin with a vectorized best1bin search.
 
     The mutation, Latin-hypercube initialization, batch objective, and
     success-after-generation behavior follow the reference attack runner.
@@ -111,7 +112,7 @@ def run_global_real_differential_evolution(
     ) * (upper - lower)
     evaluations = 0
 
-    def score_candidates(xs: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def score_candidates(xs: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         nonlocal evaluations
         images = materialize_shift_candidates(sample, xs, shift_kind)
         predictions = np.asarray(predict_batch(images), dtype=np.float64)
@@ -120,19 +121,33 @@ def run_global_real_differential_evolution(
                 "DE predictor must return a (candidate_count, class_count) matrix"
             )
         if predictions.shape[1] < 2 or not np.isfinite(predictions).all():
-            raise ValueError("DE predictor returned invalid class probabilities")
+            raise ValueError("DE predictor returned invalid class scores")
         if not 0 <= original_label < predictions.shape[1]:
             raise ValueError("original_label is outside the DE predictor output")
         evaluations += len(xs)
-        return predictions[:, original_label], np.argmax(predictions, axis=1)
+        source_scores = predictions[:, original_label]
+        competing_scores = predictions.copy()
+        competing_scores[:, original_label] = -np.inf
+        margins = source_scores - np.max(competing_scores, axis=1)
+        return margins, source_scores, np.argmax(predictions, axis=1)
 
-    energies, labels = score_candidates(population)
+    energies, source_scores, labels = score_candidates(population)
     best_index = int(np.argmin(energies))
     iterations = 0
-    success = int(labels[best_index]) != int(original_label)
+    successful = np.flatnonzero(labels != original_label)
+    winning_x = None
+    winning_label = None
+    winning_score = None
+    winning_margin = None
+    if len(successful):
+        winner = int(successful[np.argmin(energies[successful])])
+        winning_x = float(population[winner])
+        winning_label = int(labels[winner])
+        winning_score = float(source_scores[winner])
+        winning_margin = float(energies[winner])
 
     for generation in range(1, maxiter + 1):
-        if success:
+        if winning_x is not None:
             break
         scale = rng.uniform(mutation[0], mutation[1])
         trials = np.empty_like(population)
@@ -150,16 +165,25 @@ def run_global_real_differential_evolution(
             # always select the mutant, matching best1bin in the reference.
             trials[candidate] = mutant
 
-        trial_energies, trial_labels = score_candidates(trials)
+        trial_energies, trial_source_scores, trial_labels = score_candidates(trials)
+        iterations = generation
+        successful = np.flatnonzero(trial_labels != original_label)
+        if len(successful):
+            winner = int(successful[np.argmin(trial_energies[successful])])
+            winning_x = float(trials[winner])
+            winning_label = int(trial_labels[winner])
+            winning_score = float(trial_source_scores[winner])
+            winning_margin = float(trial_energies[winner])
+            break
         improved = trial_energies < energies
         population[improved] = trials[improved]
         energies[improved] = trial_energies[improved]
+        source_scores[improved] = trial_source_scores[improved]
         labels[improved] = trial_labels[improved]
         best_index = int(np.argmin(energies))
-        iterations = generation
-        success = int(labels[best_index]) != int(original_label)
 
-    best_x = float(population[best_index])
+    success = winning_x is not None
+    best_x = winning_x if success else float(population[best_index])
     best_image = materialize_shift_candidates(
         sample,
         np.asarray([best_x]),
@@ -168,9 +192,10 @@ def run_global_real_differential_evolution(
     return GlobalRealDEResult(
         success=success,
         original_label=int(original_label),
-        best_label=int(labels[best_index]),
+        best_label=winning_label if success else int(labels[best_index]),
         best_x=best_x,
-        best_score=float(energies[best_index]),
+        best_score=winning_score if success else float(source_scores[best_index]),
+        best_margin=winning_margin if success else float(energies[best_index]),
         best_image=best_image,
         iterations=iterations,
         function_evaluations=evaluations,
