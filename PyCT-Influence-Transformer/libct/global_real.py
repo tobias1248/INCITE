@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Mapping, MutableMapping, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, MutableMapping, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -23,12 +23,21 @@ from libct.utils import ConcolicObject, get_in_dict_shape, py2smt, unwrap
 
 GLOBAL_X_INPUT_NAME = "__pyct_global_x"
 GLOBAL_X_SMT_NAME = f"{GLOBAL_X_INPUT_NAME}_VAR"
+GLOBAL_BRIGHTNESS_INPUT_NAME = "__pyct_brightness"
+GLOBAL_CONTRAST_INPUT_NAME = "__pyct_contrast"
+GLOBAL_BRIGHTNESS_SMT_NAME = f"{GLOBAL_BRIGHTNESS_INPUT_NAME}_VAR"
+GLOBAL_CONTRAST_SMT_NAME = f"{GLOBAL_CONTRAST_INPUT_NAME}_VAR"
 BOUNDS_MODE_CLIP = "clip"
 BOUNDS_MODE_STRICT = "strict"
 BOUNDS_MODES = (BOUNDS_MODE_CLIP, BOUNDS_MODE_STRICT)
 TRANSFORM_MODE_AFFINE = "affine"
+TRANSFORM_MODE_AFFINE_BC = "affine-brightness-contrast"
 TRANSFORM_MODE_ACES_LIKE_PWL = "aces-like-pwl"
-TRANSFORM_MODES = (TRANSFORM_MODE_AFFINE, TRANSFORM_MODE_ACES_LIKE_PWL)
+TRANSFORM_MODES = (
+    TRANSFORM_MODE_AFFINE,
+    TRANSFORM_MODE_AFFINE_BC,
+    TRANSFORM_MODE_ACES_LIKE_PWL,
+)
 
 
 def _coerce_exact_int(value: Any, name: str) -> int:
@@ -44,6 +53,9 @@ def _coerce_exact_int(value: Any, name: str) -> int:
 
 
 def validate_global_real_config(config: Mapping[str, Any]) -> Dict[str, Any]:
+    if config.get("transform_mode") == TRANSFORM_MODE_AFFINE_BC:
+        return _validate_affine_bc_config(config)
+
     variable_name = str(config.get("variable_name", GLOBAL_X_INPUT_NAME))
     if variable_name != GLOBAL_X_INPUT_NAME:
         raise ValueError(
@@ -202,6 +214,43 @@ def validate_global_real_config(config: Mapping[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
+def _validate_affine_bc_config(config: Mapping[str, Any]) -> Dict[str, Any]:
+    """Validate the clean-image anchored, two-variable hybrid transform."""
+
+    if config.get("bounds_mode") != BOUNDS_MODE_CLIP:
+        raise ValueError("hybrid brightness/contrast requires clip bounds")
+    lower = float(config["effective_min"])
+    upper = float(config["effective_max"])
+    if not math.isfinite(lower) or not math.isfinite(upper) or lower >= upper:
+        raise ValueError("hybrid bounds must be finite and satisfy min < max")
+    if not lower <= 0.0 <= upper:
+        raise ValueError("hybrid bounds must include zero")
+    raw_coefficients = config.get("coefficient_by_input")
+    if not isinstance(raw_coefficients, Mapping) or not raw_coefficients:
+        raise ValueError("hybrid contrast coefficients must be a non-empty mapping")
+    coefficients: Dict[str, float] = {}
+    for name, raw_value in raw_coefficients.items():
+        if not isinstance(name, str) or not name.startswith("v_"):
+            raise ValueError(f"invalid hybrid pixel name: {name!r}")
+        value = float(raw_value)
+        if not math.isfinite(value):
+            raise ValueError(f"hybrid coefficient for {name!r} must be finite")
+        coefficients[name] = value
+    normalized = dict(config)
+    normalized.update(
+        {
+            "effective_min": lower,
+            "effective_max": upper,
+            "coefficient_by_input": coefficients,
+            "variable_names": (
+                GLOBAL_BRIGHTNESS_INPUT_NAME,
+                GLOBAL_CONTRAST_INPUT_NAME,
+            ),
+        }
+    )
+    return normalized
+
+
 def _input_mapping_to_rgb(
     primitive_inputs: Mapping[str, Any],
 ) -> Tuple[np.ndarray, Dict[str, Tuple[int, ...]]]:
@@ -313,6 +362,12 @@ def _pwl_symbolic_expression(
 
 def solver_variable_bounds(config: Mapping[str, Any]) -> Dict[str, Tuple[float, float]]:
     normalized = validate_global_real_config(config)
+    if normalized["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
+        bounds = (normalized["effective_min"], normalized["effective_max"])
+        return {
+            GLOBAL_BRIGHTNESS_SMT_NAME: bounds,
+            GLOBAL_CONTRAST_SMT_NAME: bounds,
+        }
     return {
         GLOBAL_X_SMT_NAME: (
             normalized["effective_min"],
@@ -326,6 +381,8 @@ def build_concolic_global_real_kwargs(
     primitive_inputs: Mapping[str, Any],
 ) -> Dict[str, Any]:
     config = validate_global_real_config(engine.global_real_config)
+    if config["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
+        return _build_concolic_affine_bc_kwargs(engine, primitive_inputs, config)
     variable_name = config["variable_name"]
     if variable_name not in primitive_inputs:
         raise ValueError(f"global real input is missing {variable_name!r}")
@@ -400,11 +457,86 @@ def build_concolic_global_real_kwargs(
     return kwargs
 
 
+def _validate_bc_inputs(
+    primitive_inputs: Mapping[str, Any],
+    config: Mapping[str, Any],
+) -> Tuple[float, float, Dict[str, float]]:
+    if GLOBAL_X_INPUT_NAME in primitive_inputs:
+        raise ValueError("hybrid inputs must not retain the scalar GlobalReal control")
+    for name in config["variable_names"]:
+        if name not in primitive_inputs:
+            raise ValueError(f"hybrid input is missing {name!r}")
+    brightness = float(unwrap(primitive_inputs[GLOBAL_BRIGHTNESS_INPUT_NAME]))
+    contrast = float(unwrap(primitive_inputs[GLOBAL_CONTRAST_INPUT_NAME]))
+    lower = config["effective_min"]
+    upper = config["effective_max"]
+    if not all(
+        math.isfinite(value) and lower - 1e-9 <= value <= upper + 1e-9
+        for value in (brightness, contrast)
+    ):
+        raise ValueError("hybrid brightness/contrast is outside configured bounds")
+    coefficients = config["coefficient_by_input"]
+    pixel_names = {
+        name
+        for name in primitive_inputs
+        if isinstance(name, str) and name.startswith("v_")
+    }
+    if pixel_names != set(coefficients):
+        raise ValueError("hybrid contrast coefficients do not match image inputs")
+    for name in pixel_names:
+        value = float(unwrap(primitive_inputs[name]))
+        if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+            raise ValueError("hybrid clean image inputs must be finite and inside [0, 1]")
+    return brightness, contrast, coefficients
+
+
+def _build_concolic_affine_bc_kwargs(
+    engine: Any,
+    primitive_inputs: Mapping[str, Any],
+    config: Mapping[str, Any],
+) -> Dict[str, Any]:
+    brightness, contrast, coefficients = _validate_bc_inputs(primitive_inputs, config)
+    shared_b = ConcolicObject(brightness, GLOBAL_BRIGHTNESS_SMT_NAME, engine)
+    shared_c = ConcolicObject(contrast, GLOBAL_CONTRAST_SMT_NAME, engine)
+    for smt_name in (GLOBAL_BRIGHTNESS_SMT_NAME, GLOBAL_CONTRAST_SMT_NAME):
+        engine.concolic_name_list.append(smt_name)
+        engine.concolic_flag_dict[smt_name] = 1
+
+    kwargs: Dict[str, Any] = {}
+    for name, raw_value in primitive_inputs.items():
+        if name in config["variable_names"]:
+            continue
+        if name not in coefficients:
+            kwargs[name] = raw_value
+            continue
+        engine.concolic_flag_dict[f"{name}_VAR"] = 0
+        base = float(unwrap(raw_value))
+        coefficient = coefficients[name]
+        affine = base + shared_b + shared_c * coefficient
+        concrete = min(max(float(unwrap(affine)), 0.0), 1.0)
+        expression = [
+            "ite",
+            ["<", affine, "0.0"],
+            "0.0",
+            ["ite", [">", affine, "1.0"], "1.0", affine],
+        ]
+        kwargs[name] = ConcolicObject(float(concrete), expression, engine)
+    return kwargs
+
+
 def materialize_global_real_details(
     primitive_inputs: Mapping[str, Any],
     config: Mapping[str, Any],
-) -> Tuple[Dict[str, Any], float, int, Dict[str, Any]]:
+) -> Tuple[Dict[str, Any], Union[float, Tuple[float, float]], int, Dict[str, Any]]:
     normalized = validate_global_real_config(config)
+    if normalized["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
+        materialized, params, clipped_count = _materialize_affine_bc_arguments(
+            primitive_inputs, normalized
+        )
+        return materialized, params, clipped_count, {
+            "transform_mode": TRANSFORM_MODE_AFFINE_BC,
+            "hard_clipped_channel_count": clipped_count,
+        }
     if normalized["transform_mode"] != TRANSFORM_MODE_ACES_LIKE_PWL:
         materialized, shift, clipped_count = materialize_global_real_arguments(
             primitive_inputs, normalized
@@ -512,11 +644,32 @@ def _materialize_global_real_affine_arguments(
     return dict(materialized), shift, clipped_count
 
 
+def _materialize_affine_bc_arguments(
+    primitive_inputs: Mapping[str, Any],
+    normalized: Mapping[str, Any],
+) -> Tuple[Dict[str, Any], Tuple[float, float], int]:
+    brightness, contrast, coefficients = _validate_bc_inputs(primitive_inputs, normalized)
+    materialized: Dict[str, Any] = {}
+    clipped_count = 0
+    for name, raw_value in primitive_inputs.items():
+        if name in normalized["variable_names"]:
+            continue
+        if name not in coefficients:
+            materialized[name] = unwrap(raw_value)
+            continue
+        shifted = float(unwrap(raw_value)) + brightness + contrast * coefficients[name]
+        clipped_count += int(shifted < 0.0 or shifted > 1.0)
+        materialized[name] = min(max(shifted, 0.0), 1.0)
+    return materialized, (brightness, contrast), clipped_count
+
+
 def materialize_global_real_arguments(
     primitive_inputs: Mapping[str, Any],
     config: Mapping[str, Any],
-) -> Tuple[Dict[str, Any], float, int]:
+) -> Tuple[Dict[str, Any], Union[float, Tuple[float, float]], int]:
     normalized = validate_global_real_config(config)
+    if normalized["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
+        return _materialize_affine_bc_arguments(primitive_inputs, normalized)
     if normalized["transform_mode"] == TRANSFORM_MODE_ACES_LIKE_PWL:
         materialized, shift, clipped_count, _diagnostics = materialize_global_real_details(
             primitive_inputs, normalized
@@ -531,6 +684,11 @@ __all__ = [
     "BOUNDS_MODES",
     "GLOBAL_X_INPUT_NAME",
     "GLOBAL_X_SMT_NAME",
+    "GLOBAL_BRIGHTNESS_INPUT_NAME",
+    "GLOBAL_CONTRAST_INPUT_NAME",
+    "GLOBAL_BRIGHTNESS_SMT_NAME",
+    "GLOBAL_CONTRAST_SMT_NAME",
+    "TRANSFORM_MODE_AFFINE_BC",
     "build_concolic_global_real_kwargs",
     "materialize_global_real_arguments",
     "solver_variable_bounds",

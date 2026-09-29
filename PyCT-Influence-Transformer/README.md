@@ -250,12 +250,19 @@ Notes:
 
 ### Hybrid DE and PyCT brightness/contrast attack
 
-`hybrid-de` runs a batched, black-box Differential Evolution search on one
-shared brightness or contrast parameter. It follows the `best1bin` strategy
-with a Latin-hypercube population, defaults to 75 generations and 400
-candidates, and stops early if the best candidate changes the source label.
-If DE exhausts its generations without success, its best concrete image becomes
-the PyCT seed. PyCT then solves a residual GlobalReal `x` from that image.
+`hybrid-de` runs batched Differential Evolution (DE) on one brightness or
+contrast parameter. It follows `best1bin` with a Latin-hypercube population,
+defaults to at most 75 generations and 400 candidates, and checks every
+evaluated image for a Keras label change. If DE fails, the candidate with the
+smallest source-to-runner-up class-score margin becomes PyCT's starting point.
+
+PyCT then solves two real parameters against the clean source image:
+`clip(source + brightness + contrast * (source - source_channel_mean), 0, 1)`.
+The initial pair exactly represents DE's selected image. Keras margin at each
+concrete candidate guides which symbolic path branch PyCT solves next; Keras
+also verifies each SAT candidate. This ranking is a search heuristic, not an
+SMT constraint on the classifier output. The two parameters may combine to
+make a larger image change than either one-dimensional DE direction alone.
 
 Run brightness and contrast separately:
 
@@ -266,16 +273,16 @@ uv run python -m pyct \
   --model-name cifar10_concolic_transformer \
   --global-shift-kind brightness \
   --case-indices 0 \
-  --score-alpha 0.8 \
   --de-maxiter 75 \
   --de-population-size 400
 ```
 
 Use `--global-shift-kind contrast` for the contrast run. `--global-x-min` and
-`--global-x-max` define both the DE search interval and the PyCT residual
-interval. The DE seed is retained in `de_seed_input.npy`, the clean image in
-`source_input.npy`, and the case stats record whether DE succeeded or handed
-the seed to PyCT.
+`--global-x-max` define the DE interval and each of PyCT's two parameter
+intervals. `source_input.npy` and `ori_input.npy` contain the clean image;
+`de_seed_input.npy` contains the handoff seed. `sat_hybrid_bc.npy` stores
+PyCT's SAT brightness/contrast pairs. Case stats distinguish DE success from
+PyCT handoff and record each stage's time. The PyCT timeout starts after DE.
 
 This mode requires CIFAR10, affine `brightness` or `contrast`, and clipped
 `[0, 1]` inputs. DE uses only the Keras reference model's predicted class

@@ -678,4 +678,8 @@ current_height >= symbolic_path_threshold
 
 `--global-x-bounds-mode strict` 會交集所有 affine input range，使候選不會依賴 clipping；`clip` 則保留原本逐元素截斷的行為。實驗輸出路徑包含 direction、bounds mode 與 X 範圍，payload metadata 同時記錄所選 direction、coefficient map 與 contrast channel means。
 
+`--attack-mode hybrid-de` 先在指定的 brightness 或 contrast 軸上執行最多 75 代的 batched DE。DE 以 Keras 類別分數的 `source - max(other)` margin 排序，並逐批檢查所有候選的原分類是否翻轉。失敗時，PyCT 從最小 margin 的 DE 候選開始，以原圖為基準，同時對 `brightness` 與 `contrast` 兩個 Real 變數建立 `clip(source + brightness + contrast * (source - channel_mean), 0, 1)` 的符號輸入。PyCT 解內部路徑分支，依產生分支的具體候選 Keras margin 決定優先順序，再以 Keras 驗證每個 SAT 解。這個 margin 是路徑排程依據，不是最終分類邊界的 SMT 約束。
+
+Hybrid 的 `--global-x-min/max` 分別約束這兩個變數；組合擾動可能大於單軸 DE 的影像變化。`ori_input.npy` 與 `source_input.npy` 是乾淨原圖，`de_seed_input.npy` 是交接影像，`sat_hybrid_bc.npy` 記錄 PyCT 的 SAT 參數對。DE 與 PyCT 各自計時，`--timeout` 適用於後者。
+
 使用 `shap-sign` 時，先用 `python -m pyct.shap --dataset cifar10 --model-name MODEL --first-n N` 計算 target-class SHAP cache；若使用自訂 cache 根目錄，請讓 `pyct.shap --output-root` 和 `global-real --shap-output-root` 指向相同位置。`python -m pyct.shap_sign_sweep` 是選用的具體 shift 掃描分析，不是 GlobalReal 攻擊的 cache 前置步驟。

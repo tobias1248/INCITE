@@ -6,7 +6,11 @@ import json
 import shutil
 from pathlib import Path
 
-from libct.global_real import materialize_global_real_details, materialize_global_real_arguments
+from libct.global_real import (
+    TRANSFORM_MODE_AFFINE_BC,
+    materialize_global_real_details,
+    materialize_global_real_arguments,
+)
 from libct.global_real_probe import PROBE_STRATEGY_VERSION
 
 
@@ -43,6 +47,7 @@ class ConcolicTestRecorder:
         self.reference_prediction_phase_counts = {}
         self.sat_inputs = []
         self.global_real_sat_x = []
+        self.hybrid_sat_params = []
         self.global_real_sat_clipped_count = []
         self.global_real_sat_gamut_mapped_pixel_count = []
         self.global_real_sat_pwl_error = []
@@ -229,14 +234,18 @@ class ConcolicTestRecorder:
         )
         if candidate is not None:
             shift, clipped_count = candidate
-            self.global_real_sat_x.append(shift)
+            if isinstance(shift, tuple):
+                self.hybrid_sat_params.append(shift)
+            else:
+                self.global_real_sat_x.append(shift)
             self.global_real_sat_clipped_count.append(clipped_count)
-            self.global_real_sat_gamut_mapped_pixel_count.append(
-                self.extra_meta.get("global_real_last_sat_gamut_mapped_pixel_count", 0)
-            )
-            self.global_real_sat_pwl_error.append(
-                self.extra_meta.get("global_real_last_sat_pwl_error_at_x", 0.0)
-            )
+            if not isinstance(shift, tuple):
+                self.global_real_sat_gamut_mapped_pixel_count.append(
+                    self.extra_meta.get("global_real_last_sat_gamut_mapped_pixel_count", 0)
+                )
+                self.global_real_sat_pwl_error.append(
+                    self.extra_meta.get("global_real_last_sat_pwl_error_at_x", 0.0)
+                )
     
     def save_original_input(self, input_dict):
         if self.original_input is not None:
@@ -249,6 +258,7 @@ class ConcolicTestRecorder:
         """Keep the clean source and DE seed distinct in hybrid artifacts."""
 
         self.hybrid_de_source_input = np.asarray(source_input, dtype=np.float32).copy()
+        self.original_input = self.hybrid_de_source_input.copy()
         if seed_input is not None:
             self.hybrid_de_seed_input = np.asarray(seed_input, dtype=np.float32).copy()
 
@@ -288,7 +298,11 @@ class ConcolicTestRecorder:
             input_dict,
             global_real_config,
         )
-        self.extra_meta[f"{prefix}_x"] = shift
+        if isinstance(shift, tuple):
+            self.extra_meta[f"{prefix}_brightness"] = shift[0]
+            self.extra_meta[f"{prefix}_contrast"] = shift[1]
+        else:
+            self.extra_meta[f"{prefix}_x"] = shift
         self.extra_meta[f"{prefix}_clipped_count"] = clipped_count
         for key, value in diagnostics.items():
             if value is not None:
@@ -695,19 +709,26 @@ class ConcolicTestRecorder:
                 np.save(os.path.join(self.save_dir, "sat_inputs.npy"),
                         np.stack(self.sat_inputs).astype(np.float32))
             if getattr(self, "global_real_config", None) is not None:
-                np.save(
-                    os.path.join(self.save_dir, "sat_global_x.npy"),
-                    np.asarray(self.global_real_sat_x, dtype=np.float64),
-                )
+                if self.global_real_config.get("transform_mode") == TRANSFORM_MODE_AFFINE_BC:
+                    np.save(
+                        os.path.join(self.save_dir, "sat_hybrid_bc.npy"),
+                        np.asarray(self.hybrid_sat_params, dtype=np.float64).reshape(-1, 2),
+                    )
+                else:
+                    np.save(
+                        os.path.join(self.save_dir, "sat_global_x.npy"),
+                        np.asarray(self.global_real_sat_x, dtype=np.float64),
+                    )
                 np.save(
                     os.path.join(self.save_dir, "sat_global_clipped_count.npy"),
                     np.asarray(self.global_real_sat_clipped_count, dtype=np.int64),
                 )
-                np.save(
-                    os.path.join(self.save_dir, "sat_global_gamut_mapped_pixel_count.npy"),
-                    np.asarray(self.global_real_sat_gamut_mapped_pixel_count, dtype=np.int64),
-                )
-                np.save(
-                    os.path.join(self.save_dir, "sat_global_pwl_error.npy"),
-                    np.asarray(self.global_real_sat_pwl_error, dtype=np.float64),
-                )
+                if self.global_real_config.get("transform_mode") != TRANSFORM_MODE_AFFINE_BC:
+                    np.save(
+                        os.path.join(self.save_dir, "sat_global_gamut_mapped_pixel_count.npy"),
+                        np.asarray(self.global_real_sat_gamut_mapped_pixel_count, dtype=np.int64),
+                    )
+                    np.save(
+                        os.path.join(self.save_dir, "sat_global_pwl_error.npy"),
+                        np.asarray(self.global_real_sat_pwl_error, dtype=np.float64),
+                    )

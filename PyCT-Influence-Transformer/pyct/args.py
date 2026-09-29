@@ -130,7 +130,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default=None,
         help=(
             "Weight of path_len penalty in priority score (0..1). Required "
-            "unless --attack-mode queue."
+            "except for queue and hybrid-de; hybrid-de ranks by Keras margin."
         ),
     )
     parser.add_argument(
@@ -277,13 +277,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--global-x-min",
         type=float,
         default=-0.1,
-        help="Lower bound for the shared GlobalReal X variable (default: -0.1).",
+        help="Lower bound for GlobalReal X, or each hybrid brightness/contrast variable (default: -0.1).",
     )
     parser.add_argument(
         "--global-x-max",
         type=float,
         default=0.1,
-        help="Upper bound for the shared GlobalReal X variable (default: 0.1).",
+        help="Upper bound for GlobalReal X, or each hybrid brightness/contrast variable (default: 0.1).",
     )
     parser.add_argument(
         "--de-maxiter",
@@ -375,8 +375,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     args = parser.parse_args(argv)
-    if args.attack_mode != "queue" and args.score_alpha is None:
-        parser.error("--score-alpha is required unless --attack-mode queue")
+    if args.attack_mode not in {"queue", "hybrid-de"} and args.score_alpha is None:
+        parser.error("--score-alpha is required unless --attack-mode queue or hybrid-de")
     if args.ternary_fallback and args.ternary_simplification:
         parser.error("--ternary-fallback cannot be combined with --ternary-simplification")
     if args.ternary_fallback and args.attack_mode not in {"shap", "queue"}:

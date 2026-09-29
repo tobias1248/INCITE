@@ -89,6 +89,7 @@ class ExplorationEngine:
                 execute_: Callable,
                 reference_execute_: Callable,
                 only_first_forward: bool,
+                reference_score_predictor_: Optional[Callable] = None,
                 shap_score_alpha: Optional[float] = None,
                 symbolic_path_threshold: Optional[int] = None):
         global module, execute
@@ -96,6 +97,8 @@ class ExplorationEngine:
         module = module_
         execute = execute_
         self.reference_execute = reference_execute_
+        self.reference_score_predictor = reference_score_predictor_
+        self.current_reference_margin = None
 
         self.save_dir = save_dir
         self.input_name = input_name

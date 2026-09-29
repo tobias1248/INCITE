@@ -5,8 +5,13 @@ import inspect
 import time
 from typing import Any, Dict, Tuple
 
+import numpy as np
+
 from libct.executor.legacy import LegacyConcolicExecutor
-from libct.global_real import materialize_global_real_arguments
+from libct.global_real import (
+    TRANSFORM_MODE_AFFINE_BC,
+    materialize_global_real_arguments,
+)
 from libct.global_real_probe import (
     DEFAULT_PROBE_INITIAL_POINTS,
     DEFAULT_PROBE_MAX_REFINEMENTS,
@@ -70,10 +75,26 @@ class CandidateExecutionRunner:
                 inputs,
                 global_real_config,
             )
-        attack_label = self._engine._predict_reference(
-            inputs,
-            phase="candidate_reference",
-        )
+        if self._is_hybrid_bc(global_real_config):
+            attack_label, margin = self._predict_hybrid_margin(
+                inputs,
+                phase="candidate_reference",
+                original_label=recorder.original_label,
+            )
+            self._engine.current_reference_margin = margin
+            recorder.extra_meta["hybrid_pyct_last_margin"] = margin
+            recorder.extra_meta["hybrid_pyct_best_margin"] = min(
+                margin,
+                recorder.extra_meta.get("hybrid_pyct_best_margin", margin),
+            )
+            recorder.extra_meta["hybrid_pyct_candidate_count"] = (
+                recorder.extra_meta.get("hybrid_pyct_candidate_count", 0) + 1
+            )
+        else:
+            attack_label = self._engine._predict_reference(
+                inputs,
+                phase="candidate_reference",
+            )
         if recorder.original_label != attack_label:
             log.warning(
                 "[RESULT_CHANGE] Keras original label %s differs from candidate label %s",
@@ -83,6 +104,53 @@ class CandidateExecutionRunner:
             recorder.find_adversarial_input(inputs, attack_label)
             return True
         return False
+
+    @staticmethod
+    def _is_hybrid_bc(config: Any) -> bool:
+        return (
+            isinstance(config, dict)
+            and config.get("transform_mode") == TRANSFORM_MODE_AFFINE_BC
+        )
+
+    def _predict_hybrid_margin(
+        self,
+        inputs: Dict[str, Any],
+        *,
+        phase: str,
+        original_label: Any = None,
+    ) -> Tuple[int, float]:
+        recorder = self._recorder()
+        started_at = time.perf_counter()
+        try:
+            predictor = getattr(self._engine, "reference_score_predictor", None)
+            if not callable(predictor):
+                raise RuntimeError("hybrid PyCT requires a Keras class-score predictor")
+            if getattr(recorder, "global_real_config", None) is not self._engine.global_real_config:
+                raise ValueError("hybrid recorder transform differs from engine transform")
+            image = recorder._build_input_from_dict(inputs)
+            if image is None:
+                raise ValueError("hybrid PyCT could not materialize an image")
+            predictions = np.asarray(predictor(image[np.newaxis, ...]), dtype=np.float64)
+            if predictions.ndim != 2 or predictions.shape[0] != 1:
+                raise ValueError("hybrid Keras predictor must return one class-score vector")
+            scores = predictions[0]
+            if len(scores) < 2 or not np.isfinite(scores).all():
+                raise ValueError("hybrid Keras predictor returned invalid class scores")
+            label = int(np.argmax(scores))
+            source_label = label if original_label is None else int(original_label)
+            if not 0 <= source_label < len(scores):
+                raise ValueError("hybrid source label is outside Keras output")
+            competing_scores = scores.copy()
+            competing_scores[source_label] = -np.inf
+            margin = float(scores[source_label] - np.max(competing_scores))
+            return label, margin
+        except Exception as exc:
+            recorder.mark_error("reference_prediction_failure", str(exc), phase=phase)
+            raise
+        finally:
+            recorder.record_reference_prediction(
+                time.perf_counter() - started_at, phase=phase
+            )
 
     @staticmethod
     def _should_probe_global_real(global_real_config: Any) -> bool:
@@ -153,10 +221,27 @@ class CandidateExecutionRunner:
         concolic_dict: Dict[str, Any],
     ) -> None:
         recorder = self._recorder()
-        recorder.original_label = self._engine._predict_reference(
-            all_args,
-            phase="original_reference",
-        )
+        if self._is_hybrid_bc(getattr(self._engine, "global_real_config", None)):
+            source_label = recorder.extra_meta["hybrid_de_original_label"]
+            label, margin = self._predict_hybrid_margin(
+                all_args,
+                phase="original_reference",
+                original_label=source_label,
+            )
+            if label != source_label:
+                message = "hybrid PyCT seed label differs from DE source label"
+                recorder.mark_error("hybrid_seed_prediction_mismatch", message, phase="initial_seed")
+                raise ValueError(message)
+            recorder.original_label = source_label
+            self._engine.current_reference_margin = margin
+            recorder.extra_meta["hybrid_pyct_seed_margin"] = margin
+            recorder.extra_meta["hybrid_pyct_best_margin"] = margin
+            recorder.extra_meta["hybrid_pyct_candidate_count"] = 0
+        else:
+            recorder.original_label = self._engine._predict_reference(
+                all_args,
+                phase="original_reference",
+            )
         self._engine._one_execution(all_args, concolic_dict)
 
     def one_execution(self, all_args: Dict[str, Any], concolic_dict: Dict[str, Any]) -> bool:

@@ -6,6 +6,7 @@ import math
 from typing import Any, Optional, Tuple
 
 from libct.constraint import Constraint
+from libct.global_real import TRANSFORM_MODE_AFFINE_BC
 from libct.position import summarize_indices, summarize_position
 from libct.searcher.base import Searcher
 from libct.state import ConstraintWorkItem
@@ -83,6 +84,14 @@ class ConstraintScheduler:
         return self._pop_legacy_constraint()
 
     def _compute_priority_score(self, shap_value: float, constraint: Constraint) -> Tuple[float, int]:
+        config = getattr(self._engine, "global_real_config", None)
+        if isinstance(config, dict) and config.get("transform_mode") == TRANSFORM_MODE_AFFINE_BC:
+            margin = getattr(self._engine, "current_reference_margin", None)
+            if margin is None or not math.isfinite(margin):
+                raise ValueError("hybrid branch priority requires a finite Keras margin")
+            # All branches from one concrete path inherit its measured margin.
+            # The constraint ID gives deterministic order when margins tie.
+            return -float(margin), int(getattr(constraint, "height", 0) or 0)
         if self._engine.shap_score_alpha is None:
             raise ValueError(
                 "shap_score_alpha is required when collect_constraints_with='priority_queue'; pass via --score-alpha"

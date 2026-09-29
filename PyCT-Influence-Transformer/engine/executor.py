@@ -11,6 +11,11 @@ from typing import Any, Callable, Dict, Literal, Optional, Set, Tuple
 import libct.explore
 import numpy as np
 
+from libct.global_real import (
+    GLOBAL_BRIGHTNESS_INPUT_NAME,
+    GLOBAL_CONTRAST_INPUT_NAME,
+    TRANSFORM_MODE_AFFINE_BC,
+)
 from libct.global_real_de import (
     coefficients_for_shift,
     run_global_real_differential_evolution,
@@ -52,14 +57,6 @@ def _image_from_input_dict(input_dict: Dict[str, Any]) -> np.ndarray:
     if not np.isfinite(image).all() or np.any(image < 0.0) or np.any(image > 1.0):
         raise ValueError("hybrid-de source image must be finite and inside [0, 1]")
     return image
-
-
-def _set_image_in_input_dict(input_dict: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
-    updated = dict(input_dict)
-    for index in np.ndindex(image.shape):
-        name = "v_" + "_".join(str(part) for part in index)
-        updated[name] = float(image[index])
-    return updated
 
 
 def _coefficient_mapping(coefficients: np.ndarray) -> Dict[str, float]:
@@ -109,6 +106,7 @@ def _finalize_hybrid_de_artifacts(
     if recorder is None or not hasattr(recorder, "record_hybrid_de_inputs"):
         return result
     recorder.record_hybrid_de_inputs(source_image, seed_image)
+    recorder.original_input = np.asarray(source_image, dtype=np.float32).copy()
     if isinstance(getattr(recorder, "extra_meta", None), dict):
         recorder.extra_meta["hybrid_total_wall_time_seconds"] = float(
             getattr(recorder, "total_wall_time", 0.0) or 0.0
@@ -132,6 +130,7 @@ class ExplorerConfig:
     module: ModuleType
     execute: Callable[..., Any]
     reference_execute: Callable[..., Any]
+    reference_score_predictor: Optional[Callable[[np.ndarray], np.ndarray]] = None
     solver: str = DEFAULT_SOLVER
     timeout: int = 900
     constraint_build_timeout: bool = True
@@ -260,6 +259,7 @@ def _build_explorer(explorer_cfg: ExplorerConfig) -> libct.explore.ExplorationEn
         module_=explorer_cfg.module,
         execute_=explorer_cfg.execute,
         reference_execute_=explorer_cfg.reference_execute,
+        reference_score_predictor_=explorer_cfg.reference_score_predictor,
         only_first_forward=explorer_cfg.only_first_forward,
         shap_score_alpha=explorer_cfg.shap_score_alpha,
         symbolic_path_threshold=explorer_cfg.symbolic_path_threshold,
@@ -408,7 +408,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         if global_real_config.get("hybrid_de_enabled"):
             extra_meta.update(
                 {
-                    "hybrid_de_strategy": "best1bin-batched-v1",
+                    "hybrid_de_strategy": "best1bin-margin-batched-v2",
                     "hybrid_de_maxiter": global_real_config.get(
                         "hybrid_de_maxiter", 75
                     ),
@@ -532,6 +532,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
                 "hybrid_de_best_label": hybrid_de_result.best_label,
                 "hybrid_de_best_x": hybrid_de_result.best_x,
                 "hybrid_de_best_score": hybrid_de_result.best_score,
+                "hybrid_de_best_margin": hybrid_de_result.best_margin,
                 "hybrid_de_iterations": hybrid_de_result.iterations,
                 "hybrid_de_function_evaluations": (
                     hybrid_de_result.function_evaluations
@@ -554,28 +555,39 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
             )
 
         seed_image = hybrid_de_result.best_image
-        in_dict = _set_image_in_input_dict(in_dict, seed_image)
-        in_dict[global_real_config["variable_name"]] = 0.0
+        in_dict = dict(in_dict)
+        in_dict.pop(global_real_config["variable_name"], None)
+        if global_real_config["global_shift_kind"] == "brightness":
+            seed_brightness, seed_contrast = hybrid_de_result.best_x, 0.0
+        else:
+            seed_brightness, seed_contrast = 0.0, hybrid_de_result.best_x
+        in_dict[GLOBAL_BRIGHTNESS_INPUT_NAME] = seed_brightness
+        in_dict[GLOBAL_CONTRAST_INPUT_NAME] = seed_contrast
+        con_dict = {
+            GLOBAL_BRIGHTNESS_INPUT_NAME: 1,
+            GLOBAL_CONTRAST_INPUT_NAME: 1,
+        }
         coefficients = coefficients_for_shift(
-            seed_image,
-            global_real_config["global_shift_kind"],
+            hybrid_de_source_image,
+            "contrast",
         )
         global_real_config = dict(global_real_config)
         global_real_config["coefficient_by_input"] = _coefficient_mapping(coefficients)
-        if global_real_config["global_shift_kind"] == "contrast":
-            spatial_axes = tuple(range(seed_image.ndim - 1))
-            channel_means = np.mean(
-                seed_image,
-                axis=spatial_axes,
-                keepdims=True,
-                dtype=np.float64,
-            )
-            global_real_config["contrast_channel_means"] = (
-                channel_means.reshape(-1).tolist()
-            )
-            extra_meta["global_real_contrast_channel_means"] = (
-                global_real_config["contrast_channel_means"]
-            )
+        global_real_config["transform_mode"] = TRANSFORM_MODE_AFFINE_BC
+        spatial_axes = tuple(range(hybrid_de_source_image.ndim - 1))
+        channel_means = np.mean(
+            hybrid_de_source_image,
+            axis=spatial_axes,
+            keepdims=True,
+            dtype=np.float64,
+        )
+        global_real_config["contrast_channel_means"] = channel_means.reshape(-1).tolist()
+        extra_meta["global_real_contrast_channel_means"] = (
+            global_real_config["contrast_channel_means"]
+        )
+        extra_meta["global_real_transform_mode"] = TRANSFORM_MODE_AFFINE_BC
+        extra_meta["hybrid_pyct_seed_brightness"] = seed_brightness
+        extra_meta["hybrid_pyct_seed_contrast"] = seed_contrast
         extra_meta["hybrid_de_seed_x"] = hybrid_de_result.best_x
         extra_meta["hybrid_de_seed_artifact"] = "de_seed_input.npy"
 
@@ -613,6 +625,11 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         module=module,
         execute=execute_search,
         reference_execute=execute_reference,
+        reference_score_predictor=(
+            getattr(module, "predict_reference_batch")
+            if hybrid_de_result is not None
+            else None
+        ),
         timeout=timeout,
         constraint_build_timeout=constraint_build_timeout,
         constraint_build_timeout_seconds=constraint_build_timeout_seconds,

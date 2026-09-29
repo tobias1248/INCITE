@@ -400,6 +400,7 @@ def run_launcher(args: Any) -> None:
         if args.attack_mode == "hybrid-de":
             attack_mode_parts.extend(
                 [
+                    "margin_bc2",
                     f"de{args.de_maxiter}",
                     f"pop{args.de_population_size}",
                     f"seed{args.random_seed}",

@@ -4,7 +4,10 @@ import inspect
 import logging
 from typing import Any, Dict, Tuple
 
-from libct.global_real import build_concolic_global_real_kwargs
+from libct.global_real import (
+    build_concolic_global_real_kwargs,
+    solver_variable_bounds,
+)
 from libct.utils import ConcolicObject, unwrap
 
 
@@ -58,7 +61,8 @@ class ConcolicArgumentBuilder:
 
         if getattr(self._engine, "global_real_config", None) is not None:
             if not self._engine.var_to_types:
-                self._engine.var_to_types["__pyct_global_x_VAR"] = "Real"
+                for name in solver_variable_bounds(self._engine.global_real_config):
+                    self._engine.var_to_types[name] = "Real"
         else:
             self._record_var_types(prim_args)
         log.info(
