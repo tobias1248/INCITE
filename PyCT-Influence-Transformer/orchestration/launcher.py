@@ -404,7 +404,7 @@ def run_launcher(args: Any) -> None:
         if args.attack_mode == "hybrid-de":
             attack_mode_parts.extend(
                 [
-                    "margin_bc2",
+                    "margin_aces1" if args.global_shift_kind.startswith("aces-") else "margin_bc2",
                     f"de{args.de_maxiter}",
                     f"pop{args.de_population_size}",
                     f"seed{args.random_seed}",
@@ -511,6 +511,9 @@ def run_launcher(args: Any) -> None:
             probe_initial_points=args.global_real_probe_points,
             probe_max_refinements=args.global_real_probe_refinements,
             probe_tolerance_fraction=args.global_real_probe_tolerance_fraction,
+            defer_pwl=(
+                args.attack_mode == "hybrid-de" and args.global_shift_kind.startswith("aces-")
+            ),
             shap_output_root=args.shap_output_root,
         )
     else:

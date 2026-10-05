@@ -284,10 +284,43 @@ intervals. `source_input.npy` and `ori_input.npy` contain the clean image;
 PyCT's SAT brightness/contrast pairs. Case stats distinguish DE success from
 PyCT handoff and record each stage's time. The PyCT timeout starts after DE.
 
-This mode requires CIFAR10, affine `brightness` or `contrast`, and clipped
+The affine variant requires CIFAR10, `brightness` or `contrast`, and clipped
 `[0, 1]` inputs. DE uses only the Keras reference model's predicted class
 probabilities; PyCT solver candidates continue to be verified by that reference
 model.
+
+### Hybrid DE and PyCT with ACES-like transforms
+
+`hybrid-de` also accepts `aces-brightness` and `aces-contrast`. DE evaluates
+the exact ACES-like transform on the clean source image. If DE does not change
+the reference label, its smallest-margin image becomes a fixed seed: PyCT
+searches the other appearance axis with one shared real `X`. For example,
+`aces-brightness` runs brightness in DE, then contrast on the seed in PyCT.
+`aces-contrast` reverses this order. These transforms are applied sequentially;
+the DE parameter stays fixed during PyCT exploration.
+
+```bash
+.venv/bin/python -m pyct \
+  --attack-mode hybrid-de --dataset cifar10 \
+  --model-name cifar10_concolic_transformer \
+  --global-shift-kind aces-brightness --case-indices 0 \
+  --de-maxiter 75 --de-population-size 400
+```
+
+PWL is built from the selected seed only after DE fails; `X=0` is exactly the
+seed image. Each axis uses `--global-x-min` and `--global-x-max`. Existing
+`--aces-pwl-max-segments`, `--aces-pwl-error-tolerance`, and concrete probe
+options apply to the PyCT axis. Reference validation uses the exact transform
+and the source label. Invalid PWL construction or runtime error bounds produce
+an error result rather than accepting an approximate attack.
+
+The experiment name includes `margin_aces1`. `source_input.npy` and
+`ori_input.npy` retain the clean source, `de_seed_input.npy` retains the handoff seed when DE fails,
+and `sat_global_x.npy` stores PyCT's scalar candidates. Stats record
+`hybrid_de_shift_kind`, `hybrid_de_seed_x`, `hybrid_pyct_shift_kind`,
+`hybrid_transform_order`, PWL diagnostics, and handoff time. Total hybrid time
+includes DE, PWL handoff, and PyCT. Margin ranking uses the actual SAT input's
+reference margin even when concrete probes also evaluate neighboring points.
 
 ### Experimental SMT path relaxation
 
@@ -301,7 +334,7 @@ in either mode. Path recording continues for exploration and duplicate checks.
 PYCT_SMT_PATH_MODE=last .venv/bin/python -m pyct \
   --attack-mode hybrid-de --dataset cifar10 \
   --model-name cifar10_concolic_transformer \
-  --global-shift-kind brightness --case-indices 0
+  --global-shift-kind aces-brightness --case-indices 0
 ```
 
 `last` is a search heuristic: a SAT input may change earlier branches and fail

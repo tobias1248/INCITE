@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from typing import Callable, Tuple
 
 import numpy as np
+from libct.aces_like import ACES_LIKE_SHIFT_KINDS, apply_aces_like_transform
 
 
-SUPPORTED_SHIFT_KINDS = ("brightness", "contrast")
+SUPPORTED_SHIFT_KINDS = ("brightness", "contrast") + ACES_LIKE_SHIFT_KINDS
 DEFAULT_DE_MAXITER = 75
 DEFAULT_DE_POPULATION_SIZE = 400
 DEFAULT_DE_MUTATION = (0.5, 1.0)
@@ -43,7 +44,7 @@ def coefficients_for_shift(image: np.ndarray, shift_kind: str) -> np.ndarray:
         return sample - means
     raise ValueError(
         "GlobalReal DE shift_kind must be one of "
-        + ", ".join(SUPPORTED_SHIFT_KINDS)
+        + "brightness, contrast (affine coefficients only)"
     )
 
 
@@ -58,6 +59,16 @@ def materialize_shift_candidates(
     xs = np.asarray(x_values, dtype=np.float64).reshape(-1)
     if not np.isfinite(xs).all():
         raise ValueError("GlobalReal DE candidates must be finite")
+    if shift_kind in ACES_LIKE_SHIFT_KINDS:
+        # The reference transform accepts one scalar at a time; prediction
+        # remains batched, and each candidate uses the exact color transform.
+        if len(xs) == 0:
+            apply_aces_like_transform(sample, 0.0, kind=shift_kind)
+            return np.empty((0,) + sample.shape, dtype=np.float32)
+        return np.stack([
+            apply_aces_like_transform(sample, float(x), kind=shift_kind).rgb
+            for x in xs
+        ]).astype(np.float32, copy=False)
     coefficients = coefficients_for_shift(sample, shift_kind)
     shifted = sample[np.newaxis, ...] + xs.reshape((-1,) + (1,) * sample.ndim) * coefficients
     return np.clip(shifted, 0.0, 1.0).astype(np.float32, copy=False)
@@ -83,7 +94,10 @@ def run_global_real_differential_evolution(
     """
 
     sample = np.asarray(image, dtype=np.float64)
-    coefficients_for_shift(sample, shift_kind)
+    if shift_kind in ACES_LIKE_SHIFT_KINDS:
+        apply_aces_like_transform(sample, 0.0, kind=shift_kind)
+    else:
+        coefficients_for_shift(sample, shift_kind)
     if not math.isfinite(lower) or not math.isfinite(upper) or lower >= upper:
         raise ValueError("DE bounds must be finite and satisfy lower < upper")
     if not lower <= 0.0 <= upper:

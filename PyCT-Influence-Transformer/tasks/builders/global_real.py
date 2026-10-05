@@ -15,7 +15,6 @@ from libct.aces_like import (
     ACES_LIKE_SHIFT_KINDS,
     DEFAULT_PWL_ERROR_TOLERANCE,
     DEFAULT_PWL_MAX_SEGMENTS,
-    build_adaptive_pwl_approximation,
 )
 from libct.global_real_probe import (
     DEFAULT_PROBE_INITIAL_POINTS,
@@ -32,7 +31,7 @@ from explainability.input_shap_sign import (
     build_sign_mask,
     derive_valid_affine_shift_interval,
 )
-from libct.global_real import GLOBAL_X_INPUT_NAME
+from libct.global_real import GLOBAL_X_INPUT_NAME, build_aces_like_global_real_config
 from tasks.builders.common import log, normalize_indices
 from tasks.paths import get_save_dir_from_save_exp
 
@@ -214,6 +213,7 @@ def cifar10_global_real(
     probe_initial_points: int = DEFAULT_PROBE_INITIAL_POINTS,
     probe_max_refinements: int = DEFAULT_PROBE_MAX_REFINEMENTS,
     probe_tolerance_fraction: float = DEFAULT_PROBE_TOLERANCE_FRACTION,
+    defer_pwl: bool = False,
 ) -> List[Dict[str, object]]:
     if shift_kind not in ACES_LIKE_SHIFT_KINDS:
         return _cifar10_global_real_affine(
@@ -270,14 +270,6 @@ def cifar10_global_real(
             skipped += 1
             continue
         sample = np.asarray(dataset.x_test[idx], dtype=np.float64)
-        approximation = build_adaptive_pwl_approximation(
-            sample,
-            kind=shift_kind,
-            x_min=requested_min,
-            x_max=requested_max,
-            max_segments=pwl_max_segments,
-            error_tolerance=pwl_error_tolerance,
-        )
         in_dict, _ = dataset.get_cifar10_test_data(idx)
         in_dict[GLOBAL_X_INPUT_NAME] = 0.0
         global_real_config = {
@@ -289,13 +281,10 @@ def cifar10_global_real(
             "bounds_mode": bounds_mode,
             "transform_mode": "aces-like-pwl",
             "global_shift_kind": shift_kind,
-            "pwl_knots": approximation.knots.tolist(),
             "pwl_max_segments": int(pwl_max_segments),
             "pwl_error_tolerance": float(pwl_error_tolerance),
-            "pwl_max_abs_error": float(approximation.max_abs_error),
             "pwl_error_metric": ACES_LIKE_PWL_ERROR_METRIC,
             "pwl_validator_version": ACES_LIKE_PWL_VALIDATOR_VERSION,
-            "pwl_segment_count": approximation.segment_count,
             "aces_like_color_space": ACES_LIKE_COLOR_SPACE,
             "aces_like_curve_version": ACES_LIKE_CURVE_VERSION,
             "aces_like_gamut_mapper": ACES_LIKE_GAMUT_MAPPER,
@@ -304,6 +293,11 @@ def cifar10_global_real(
             "probe_max_refinements": int(probe_max_refinements),
             "probe_tolerance_fraction": float(probe_tolerance_fraction),
         }
+        if defer_pwl:
+            # Hybrid builds the other axis only after DE selects its seed.
+            global_real_config["pwl_deferred"] = True
+        else:
+            global_real_config = build_aces_like_global_real_config(sample, global_real_config)
         inputs.append(
             {
                 "model_name": model_name,

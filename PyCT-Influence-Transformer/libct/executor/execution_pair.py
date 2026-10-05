@@ -10,6 +10,7 @@ import numpy as np
 from libct.executor.legacy import LegacyConcolicExecutor
 from libct.global_real import (
     TRANSFORM_MODE_AFFINE_BC,
+    TRANSFORM_MODE_ACES_LIKE_PWL,
     materialize_global_real_arguments,
 )
 from libct.global_real_probe import (
@@ -81,12 +82,7 @@ class CandidateExecutionRunner:
                 phase="candidate_reference",
                 original_label=recorder.original_label,
             )
-            self._engine.current_reference_margin = margin
-            recorder.extra_meta["hybrid_pyct_last_margin"] = margin
-            recorder.extra_meta["hybrid_pyct_best_margin"] = min(
-                margin,
-                recorder.extra_meta.get("hybrid_pyct_best_margin", margin),
-            )
+            self._record_hybrid_margin(margin, update_current=True)
             recorder.extra_meta["hybrid_pyct_candidate_count"] = (
                 recorder.extra_meta.get("hybrid_pyct_candidate_count", 0) + 1
             )
@@ -109,8 +105,21 @@ class CandidateExecutionRunner:
     def _is_hybrid_bc(config: Any) -> bool:
         return (
             isinstance(config, dict)
-            and config.get("transform_mode") == TRANSFORM_MODE_AFFINE_BC
+            and (
+                config.get("transform_mode") == TRANSFORM_MODE_AFFINE_BC
+                or (
+                    config.get("hybrid_de_enabled")
+                    and config.get("transform_mode") == TRANSFORM_MODE_ACES_LIKE_PWL
+                )
+            )
         )
+
+    def _record_hybrid_margin(self, margin: float, *, update_current: bool) -> None:
+        meta = self._recorder().extra_meta
+        meta["hybrid_pyct_best_margin"] = min(margin, meta.get("hybrid_pyct_best_margin", margin))
+        if update_current:
+            self._engine.current_reference_margin = margin
+            meta["hybrid_pyct_last_margin"] = margin
 
     def _predict_hybrid_margin(
         self,
@@ -184,10 +193,28 @@ class CandidateExecutionRunner:
             global_real_config.get("probe_tolerance_fraction", 1.0 / 1024.0)
         )
         tolerance = (upper - lower) * tolerance_fraction
+        hybrid = self._is_hybrid_bc(global_real_config)
+        if hybrid:
+            recorder.extra_meta["hybrid_pyct_candidate_count"] = (
+                recorder.extra_meta.get("hybrid_pyct_candidate_count", 0) + 1
+            )
 
         def evaluate(x_value: float) -> Any:
             probe_inputs = dict(inputs)
             probe_inputs[variable_name] = float(x_value)
+            if hybrid:
+                label, margin = self._predict_hybrid_margin(
+                    probe_inputs,
+                    phase="candidate_probe",
+                    original_label=recorder.original_label,
+                )
+                # After an unsuccessful probe, concolic execution uses the
+                # SAT input, so its branches must inherit that input's margin.
+                self._record_hybrid_margin(margin, update_current=(x_value == candidate_x))
+                recorder.extra_meta["hybrid_pyct_probe_count"] = (
+                    recorder.extra_meta.get("hybrid_pyct_probe_count", 0) + 1
+                )
+                return label
             return self._engine._predict_reference(
                 probe_inputs,
                 phase="candidate_probe",
@@ -309,6 +336,11 @@ class CandidateExecutionRunner:
                         materialize_global_real_arguments(
                             all_args,
                             global_real_config,
+                            # Primitive search/coverage must match the PWL
+                            # search model. Reference calls use exact hybrid RGB.
+                            exact_transform=(
+                                None if func is self._engine.reference_execute else False
+                            ),
                         )
                     )
                 break

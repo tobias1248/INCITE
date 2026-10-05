@@ -6,7 +6,7 @@ import math
 from typing import Any, Optional, Tuple
 
 from libct.constraint import Constraint
-from libct.global_real import TRANSFORM_MODE_AFFINE_BC
+from libct.global_real import TRANSFORM_MODE_AFFINE_BC, TRANSFORM_MODE_ACES_LIKE_PWL
 from libct.position import summarize_indices, summarize_position
 from libct.searcher.base import Searcher
 from libct.state import ConstraintWorkItem
@@ -85,7 +85,13 @@ class ConstraintScheduler:
 
     def _compute_priority_score(self, shap_value: float, constraint: Constraint) -> Tuple[float, int]:
         config = getattr(self._engine, "global_real_config", None)
-        if isinstance(config, dict) and config.get("transform_mode") == TRANSFORM_MODE_AFFINE_BC:
+        if isinstance(config, dict) and (
+            config.get("transform_mode") == TRANSFORM_MODE_AFFINE_BC
+            or (
+                config.get("hybrid_de_enabled")
+                and config.get("transform_mode") == TRANSFORM_MODE_ACES_LIKE_PWL
+            )
+        ):
             margin = getattr(self._engine, "current_reference_margin", None)
             if margin is None or not math.isfinite(margin):
                 raise ValueError("hybrid branch priority requires a finite Keras margin")

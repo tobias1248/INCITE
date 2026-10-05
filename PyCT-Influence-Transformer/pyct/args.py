@@ -401,10 +401,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         if not math.isfinite(args.shap_sign_epsilon) or args.shap_sign_epsilon < 0:
             parser.error("--shap-sign-epsilon must be finite and >= 0")
         if args.attack_mode == "hybrid-de":
-            if args.global_shift_kind not in {"brightness", "contrast"}:
+            if args.global_shift_kind not in {
+                "brightness", "contrast", "aces-brightness", "aces-contrast"
+            }:
                 parser.error(
                     "--attack-mode hybrid-de requires --global-shift-kind "
-                    "brightness or contrast"
+                    "brightness, contrast, aces-brightness or aces-contrast"
                 )
             if args.global_x_bounds_mode != "clip":
                 parser.error("--attack-mode hybrid-de requires --global-x-bounds-mode clip")

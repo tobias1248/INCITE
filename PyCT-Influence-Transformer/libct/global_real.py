@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Mapping, MutableMapping, Sequence, Tuple, Union
+from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -38,6 +38,37 @@ TRANSFORM_MODES = (
     TRANSFORM_MODE_AFFINE_BC,
     TRANSFORM_MODE_ACES_LIKE_PWL,
 )
+
+
+def build_aces_like_global_real_config(
+    rgb: np.ndarray, config: Mapping[str, Any]
+) -> Dict[str, Any]:
+    """Build and validate PWL metadata for the actual image used by PyCT."""
+    updated = dict(config)
+    approximation = build_adaptive_pwl_approximation(
+        rgb,
+        kind=updated["global_shift_kind"],
+        x_min=float(updated["effective_min"]),
+        x_max=float(updated["effective_max"]),
+        max_segments=updated.get("pwl_max_segments", DEFAULT_PWL_MAX_SEGMENTS),
+        error_tolerance=updated.get("pwl_error_tolerance", DEFAULT_PWL_ERROR_TOLERANCE),
+    )
+    updated.update(
+        transform_mode=TRANSFORM_MODE_ACES_LIKE_PWL,
+        pwl_knots=approximation.knots.tolist(),
+        pwl_segment_count=approximation.segment_count,
+        pwl_max_abs_error=float(approximation.max_abs_error),
+        pwl_error_metric=ACES_LIKE_PWL_ERROR_METRIC,
+        pwl_validator_version=ACES_LIKE_PWL_VALIDATOR_VERSION,
+        aces_like_color_space=ACES_LIKE_COLOR_SPACE,
+        aces_like_curve_version=ACES_LIKE_CURVE_VERSION,
+        aces_like_gamut_mapper=ACES_LIKE_GAMUT_MAPPER,
+    )
+    updated.pop("pwl_deferred", None)
+    normalized = validate_global_real_config(updated)
+    # ACES payloads describe a PWL table, without affine coefficient maps.
+    normalized.pop("coefficient_by_input", None)
+    return normalized
 
 
 def _coerce_exact_int(value: Any, name: str) -> int:
@@ -527,6 +558,8 @@ def _build_concolic_affine_bc_kwargs(
 def materialize_global_real_details(
     primitive_inputs: Mapping[str, Any],
     config: Mapping[str, Any],
+    *,
+    exact_transform: Optional[bool] = None,
 ) -> Tuple[Dict[str, Any], Union[float, Tuple[float, float]], int, Dict[str, Any]]:
     normalized = validate_global_real_config(config)
     if normalized["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
@@ -585,16 +618,21 @@ def materialize_global_real_details(
             )
         )
     materialized: MutableMapping[str, Any] = {}
+    # Hybrid reference validation and recorded images use the exact second
+    # transform. Symbolic execution still searches the PWL approximation.
+    use_exact = bool(normalized.get("hybrid_de_enabled")) if exact_transform is None else exact_transform
+    output_rgb = exact.rgb if use_exact else approximated_rgb
     for name, raw_value in primitive_inputs.items():
         if name == variable_name:
             continue
         if name not in coordinates:
             materialized[name] = unwrap(raw_value)
             continue
-        materialized[name] = float(approximated_rgb[coordinates[name]])
+        materialized[name] = float(output_rgb[coordinates[name]])
     diagnostics = exact.diagnostics
     return dict(materialized), shift, diagnostics.hard_clipped_channel_count, {
         "transform_mode": TRANSFORM_MODE_ACES_LIKE_PWL,
+        "reference_transform": "exact" if use_exact else "pwl",
         "pwl_segment_index": approximation.segment_index(shift),
         "pwl_error_at_x": error_at_x,
         "gamut_mapped_pixel_count": diagnostics.gamut_mapped_pixel_count,
@@ -666,13 +704,15 @@ def _materialize_affine_bc_arguments(
 def materialize_global_real_arguments(
     primitive_inputs: Mapping[str, Any],
     config: Mapping[str, Any],
+    *,
+    exact_transform: Optional[bool] = None,
 ) -> Tuple[Dict[str, Any], Union[float, Tuple[float, float]], int]:
     normalized = validate_global_real_config(config)
     if normalized["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
         return _materialize_affine_bc_arguments(primitive_inputs, normalized)
     if normalized["transform_mode"] == TRANSFORM_MODE_ACES_LIKE_PWL:
         materialized, shift, clipped_count, _diagnostics = materialize_global_real_details(
-            primitive_inputs, normalized
+            primitive_inputs, normalized, exact_transform=exact_transform
         )
         return materialized, shift, clipped_count
     return _materialize_global_real_affine_arguments(primitive_inputs, normalized)
@@ -689,6 +729,7 @@ __all__ = [
     "GLOBAL_BRIGHTNESS_SMT_NAME",
     "GLOBAL_CONTRAST_SMT_NAME",
     "TRANSFORM_MODE_AFFINE_BC",
+    "build_aces_like_global_real_config",
     "build_concolic_global_real_kwargs",
     "materialize_global_real_arguments",
     "solver_variable_bounds",

@@ -303,6 +303,9 @@ class ConcolicTestRecorder:
             self.extra_meta[f"{prefix}_contrast"] = shift[1]
         else:
             self.extra_meta[f"{prefix}_x"] = shift
+            if global_real_config.get("hybrid_de_enabled"):
+                self.extra_meta[f"{prefix}_de_x"] = self.extra_meta.get("hybrid_de_seed_x")
+                self.extra_meta[f"{prefix}_pyct_shift_kind"] = global_real_config.get("global_shift_kind")
         self.extra_meta[f"{prefix}_clipped_count"] = clipped_count
         for key, value in diagnostics.items():
             if value is not None:

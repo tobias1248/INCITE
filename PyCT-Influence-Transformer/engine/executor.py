@@ -12,10 +12,13 @@ import libct.explore
 import numpy as np
 
 from libct.global_real import (
+    GLOBAL_X_INPUT_NAME,
     GLOBAL_BRIGHTNESS_INPUT_NAME,
     GLOBAL_CONTRAST_INPUT_NAME,
     TRANSFORM_MODE_AFFINE_BC,
+    build_aces_like_global_real_config,
 )
+from libct.aces_like import ACES_LIKE_SHIFT_KINDS
 from libct.global_real_de import (
     coefficients_for_shift,
     run_global_real_differential_evolution,
@@ -411,6 +414,11 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
             extra_meta.update(
                 {
                     "hybrid_de_strategy": "best1bin-margin-batched-v2",
+                    "hybrid_reference_transform": (
+                        "exact"
+                        if global_real_config.get("global_shift_kind") in ACES_LIKE_SHIFT_KINDS
+                        else "affine"
+                    ),
                     "hybrid_de_maxiter": global_real_config.get(
                         "hybrid_de_maxiter", 75
                     ),
@@ -530,6 +538,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         extra_meta.update(
             {
                 "hybrid_de_status": "success" if hybrid_de_result.success else "failed",
+                "hybrid_de_shift_kind": global_real_config["global_shift_kind"],
                 "hybrid_de_original_label": hybrid_de_result.original_label,
                 "hybrid_de_best_label": hybrid_de_result.best_label,
                 "hybrid_de_best_x": hybrid_de_result.best_x,
@@ -557,41 +566,92 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
             )
 
         seed_image = hybrid_de_result.best_image
-        in_dict = dict(in_dict)
-        in_dict.pop(global_real_config["variable_name"], None)
-        if global_real_config["global_shift_kind"] == "brightness":
-            seed_brightness, seed_contrast = hybrid_de_result.best_x, 0.0
-        else:
-            seed_brightness, seed_contrast = 0.0, hybrid_de_result.best_x
-        in_dict[GLOBAL_BRIGHTNESS_INPUT_NAME] = seed_brightness
-        in_dict[GLOBAL_CONTRAST_INPUT_NAME] = seed_contrast
-        con_dict = {
-            GLOBAL_BRIGHTNESS_INPUT_NAME: 1,
-            GLOBAL_CONTRAST_INPUT_NAME: 1,
-        }
-        coefficients = coefficients_for_shift(
-            hybrid_de_source_image,
-            "contrast",
-        )
-        global_real_config = dict(global_real_config)
-        global_real_config["coefficient_by_input"] = _coefficient_mapping(coefficients)
-        global_real_config["transform_mode"] = TRANSFORM_MODE_AFFINE_BC
-        spatial_axes = tuple(range(hybrid_de_source_image.ndim - 1))
-        channel_means = np.mean(
-            hybrid_de_source_image,
-            axis=spatial_axes,
-            keepdims=True,
-            dtype=np.float64,
-        )
-        global_real_config["contrast_channel_means"] = channel_means.reshape(-1).tolist()
-        extra_meta["global_real_contrast_channel_means"] = (
-            global_real_config["contrast_channel_means"]
-        )
-        extra_meta["global_real_transform_mode"] = TRANSFORM_MODE_AFFINE_BC
-        extra_meta["hybrid_pyct_seed_brightness"] = seed_brightness
-        extra_meta["hybrid_pyct_seed_contrast"] = seed_contrast
+        de_kind = global_real_config["global_shift_kind"]
         extra_meta["hybrid_de_seed_x"] = hybrid_de_result.best_x
         extra_meta["hybrid_de_seed_artifact"] = "de_seed_input.npy"
+        if de_kind in ACES_LIKE_SHIFT_KINDS:
+            handoff_started = time.perf_counter()
+            handoff_cpu_started = time.process_time()
+            pyct_kind = "aces-contrast" if de_kind == "aces-brightness" else "aces-brightness"
+            extra_meta.update(
+                hybrid_pyct_shift_kind=pyct_kind,
+                hybrid_pyct_seed_x=0.0,
+                hybrid_transform_order=[de_kind, pyct_kind],
+            )
+            try:
+                config = dict(global_real_config)
+                config["global_shift_kind"] = pyct_kind
+                global_real_config = build_aces_like_global_real_config(seed_image, config)
+            except Exception as exc:
+                handoff_wall_time = time.perf_counter() - handoff_started
+                handoff_cpu_time = time.process_time() - handoff_cpu_started
+                extra_meta["hybrid_pyct_handoff_wall_time_seconds"] = handoff_wall_time
+                extra_meta["hybrid_pyct_handoff_cpu_time_seconds"] = handoff_cpu_time
+                result = _build_initialization_error_result(
+                    save_dir=save_dir,
+                    input_name=input_name,
+                    in_dict=in_dict,
+                    extra_meta=extra_meta,
+                    error_type="hybrid_pyct_pwl_failure",
+                    error_reason=str(exc),
+                    error_phase="hybrid_pyct_handoff",
+                )
+                return _finalize_hybrid_de_artifacts(
+                    result,
+                    source_image=hybrid_de_source_image,
+                    seed_image=seed_image,
+                    de_wall_time=hybrid_de_wall_time + handoff_wall_time,
+                    de_cpu_time=hybrid_de_cpu_time + handoff_cpu_time,
+                )
+            handoff_wall_time = time.perf_counter() - handoff_started
+            handoff_cpu_time = time.process_time() - handoff_cpu_started
+            hybrid_de_wall_time += handoff_wall_time
+            hybrid_de_cpu_time += handoff_cpu_time
+            # The DE axis is fixed. All pixel constants now belong to the
+            # selected seed; X=0 on the other axis is its exact identity.
+            in_dict = _coefficient_mapping(seed_image)
+            in_dict[GLOBAL_X_INPUT_NAME] = 0.0
+            con_dict = {GLOBAL_X_INPUT_NAME: 1}
+            input_for_shap = seed_image
+            extra_meta.update(
+                hybrid_pyct_handoff_wall_time_seconds=handoff_wall_time,
+                hybrid_pyct_handoff_cpu_time_seconds=handoff_cpu_time,
+                global_real_shift_kind=pyct_kind,
+            )
+            for key in (
+                "transform_mode", "pwl_knots", "pwl_max_segments", "pwl_segment_count",
+                "pwl_error_tolerance", "pwl_max_abs_error", "pwl_error_metric", "pwl_validator_version",
+            ):
+                extra_meta["global_real_" + key] = global_real_config[key]
+        else:
+            in_dict = dict(in_dict)
+            in_dict.pop(global_real_config["variable_name"], None)
+            if de_kind == "brightness":
+                seed_brightness, seed_contrast = hybrid_de_result.best_x, 0.0
+            else:
+                seed_brightness, seed_contrast = 0.0, hybrid_de_result.best_x
+            in_dict[GLOBAL_BRIGHTNESS_INPUT_NAME] = seed_brightness
+            in_dict[GLOBAL_CONTRAST_INPUT_NAME] = seed_contrast
+            con_dict = {
+                GLOBAL_BRIGHTNESS_INPUT_NAME: 1,
+                GLOBAL_CONTRAST_INPUT_NAME: 1,
+            }
+            coefficients = coefficients_for_shift(hybrid_de_source_image, "contrast")
+            global_real_config = dict(global_real_config)
+            global_real_config["coefficient_by_input"] = _coefficient_mapping(coefficients)
+            global_real_config["transform_mode"] = TRANSFORM_MODE_AFFINE_BC
+            spatial_axes = tuple(range(hybrid_de_source_image.ndim - 1))
+            channel_means = np.mean(
+                hybrid_de_source_image,
+                axis=spatial_axes,
+                keepdims=True,
+                dtype=np.float64,
+            )
+            global_real_config["contrast_channel_means"] = channel_means.reshape(-1).tolist()
+            extra_meta["global_real_contrast_channel_means"] = global_real_config["contrast_channel_means"]
+            extra_meta["global_real_transform_mode"] = TRANSFORM_MODE_AFFINE_BC
+            extra_meta["hybrid_pyct_seed_brightness"] = seed_brightness
+            extra_meta["hybrid_pyct_seed_contrast"] = seed_contrast
 
     if search_runtime_key not in initialized_models:
         try:
