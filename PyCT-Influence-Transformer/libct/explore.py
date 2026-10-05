@@ -7,7 +7,7 @@ import os
 import sys
 import time
 from libct.path import PathToConstraint
-from libct.solver import Solver, _ensure_smtlib2_logger
+from libct.solver import Solver, _ensure_smtlib2_logger, resolve_smt_path_mode
 from libct.utils import get_in_dict_shape
 from libct.record import ConcolicTestRecorder
 from libct.executor import CandidateExecutionRunner, ConcolicArgumentBuilder
@@ -360,6 +360,14 @@ class ExplorationEngine:
 
     def _execution_loop(self, max_iterations: int, all_args, concolic_dict, *, deadline: Optional[float] = None) -> bool:
         recorder.start()
+        recorder.extra_meta.update(
+            smt_path_mode=resolve_smt_path_mode(),
+            smt_sat_candidate_count=0,
+            smt_duplicate_candidate_count=0,
+            smt_validated_candidate_count=0,
+            smt_successful_candidate_count=0,
+            smt_candidate_validation_wall_time_seconds=0.0,
+        )
         Solver.norm = self.normalize
         Solver.limit_change_range = self.limit_change_range
         tried_input_args = [all_args.copy()]  # .copy() is important!!
@@ -436,6 +444,9 @@ class ExplorationEngine:
                     # sat
                     all_args.update(model)  # from model to argument
                     recorder.save_sat_input(all_args)
+                    recorder.extra_meta["smt_sat_candidate_count"] += 1
+                    if all_args in tried_input_args:
+                        recorder.extra_meta["smt_duplicate_candidate_count"] += 1
                     if all_args not in tried_input_args:
                         # sat and this input args have not used
                         # .copy() is important!!
@@ -452,7 +463,16 @@ class ExplorationEngine:
                 break
 
             if sat_candidate_for_execution:
-                found_adversarial = self._validate_sat_candidate(all_args)
+                recorder.extra_meta["smt_validated_candidate_count"] += 1
+                validation_started = time.perf_counter()
+                try:
+                    found_adversarial = self._validate_sat_candidate(all_args)
+                finally:
+                    recorder.extra_meta["smt_candidate_validation_wall_time_seconds"] += (
+                        time.perf_counter() - validation_started
+                    )
+                if found_adversarial:
+                    recorder.extra_meta["smt_successful_candidate_count"] += 1
 
             if found_adversarial:
                 recorder.gen_constraint.append(0)

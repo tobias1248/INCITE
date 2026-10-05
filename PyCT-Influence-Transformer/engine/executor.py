@@ -21,6 +21,7 @@ from libct.global_real_de import (
     run_global_real_differential_evolution,
 )
 from libct.record import ConcolicTestRecorder
+from libct.solver import resolve_smt_path_mode
 from libct.utils import (
     get_function_from_module_and_funcname,
     get_in_dict_shape,
@@ -348,6 +349,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         ),
         "label_source": "keras_model_predict",
         "search_model": "NNModel",
+        "smt_path_mode": resolve_smt_path_mode(),
     }
     if random_seed is not None:
         extra_meta["random_seed"] = int(random_seed)

@@ -29,6 +29,7 @@ from tasks.builders.fashion_mnist import (
 from tasks.builders.mnist import mnist_transformer_random, mnist_transformer_shap
 from tasks.builders.global_real import cifar10_global_real
 from tasks.paths import get_save_dir_from_save_exp
+from libct.solver import resolve_smt_path_mode
 
 logger = logging.getLogger("ct.cli")
 TERNARY_FALLBACK_SUFFIX = "ternaryfb"
@@ -376,7 +377,10 @@ def run_launcher(args: Any) -> None:
     os.environ["PYCT_TERNARY_SIMPLIFICATION"] = "1" if args.ternary_simplification else "0"
     os.environ["PYCT_TERNARY_THRESHOLD_SCALE"] = str(args.ternary_threshold_scale)
 
+    smt_path_mode = resolve_smt_path_mode()
     attack_mode_parts = [attack_mode]
+    if smt_path_mode != "full":
+        attack_mode_parts.append("smtlast")
     attack_mode_suffix = os.environ.get("PYCT_ATTACK_MODE_SUFFIX", "").strip()
     if attack_mode_suffix:
         attack_mode_parts.append(attack_mode_suffix)

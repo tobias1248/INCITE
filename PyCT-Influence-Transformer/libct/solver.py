@@ -16,6 +16,14 @@ _SMTLIB2_REGISTERED = False
 _MODEL_BOUND_TOLERANCE = 1e-9
 
 
+def resolve_smt_path_mode() -> str:
+    """Resolve the experimental predicate selection independently of normalization."""
+    mode = os.environ.get("PYCT_SMT_PATH_MODE", "full").strip().lower()
+    if mode not in {"full", "last"}:
+        raise ValueError("PYCT_SMT_PATH_MODE must be 'full' or 'last', got {!r}".format(mode))
+    return mode
+
+
 class InvalidSolverModelError(ValueError):
     """Raised when a SAT model value cannot be decoded into a finite primitive."""
 
@@ -832,8 +840,18 @@ class Solver:
             )
 
         query_formulas = []
+        path_mode = resolve_smt_path_mode()
+        assertions = constraint.get_all_asserts()
+        original_assertion_count = len(assertions)
+        if path_mode == "last":
+            # This is a relaxed search query. Reference execution must still
+            # verify any SAT input; the preceding branch semantics may change.
+            assertions = assertions[-1:]
         transform_stats = {
             "mode": experiment_mode,
+            "path_mode": path_mode,
+            "original_assertion_count": original_assertion_count,
+            "retained_assertion_count": len(assertions),
             "assertion_count": 0,
             "applied_count": 0,
             "fallback_count": 0,
@@ -853,7 +871,7 @@ class Solver:
             if experiment_mode == "exact_affine"
             else None
         )
-        for assertion in constraint.get_all_asserts():
+        for assertion in assertions:
             transform_stats["assertion_count"] += 1
             if experiment_mode == "raw":
                 query = assertion.get_formula()

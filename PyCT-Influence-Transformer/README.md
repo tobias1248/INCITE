@@ -289,6 +289,34 @@ This mode requires CIFAR10, affine `brightness` or `contrast`, and clipped
 probabilities; PyCT solver candidates continue to be verified by that reference
 model.
 
+### Experimental SMT path relaxation
+
+Set `PYCT_SMT_PATH_MODE=last` to solve only the final predicate of each queued
+path constraint; that predicate is already the negated branch selected for
+exploration. The default `full` includes the preceding path predicates.
+Variable bounds and `PYCT_SMT_EXPERIMENT_MODE=raw|exact_affine` remain active
+in either mode. Path recording continues for exploration and duplicate checks.
+
+```bash
+PYCT_SMT_PATH_MODE=last .venv/bin/python -m pyct \
+  --attack-mode hybrid-de --dataset cifar10 \
+  --model-name cifar10_concolic_transformer \
+  --global-shift-kind brightness --case-indices 0
+```
+
+`last` is a search heuristic: a SAT input may change earlier branches and fail
+to flip the intended branch. Every new candidate still goes through Keras
+reference validation; SAT alone is not attack success. There is no automatic
+full-path retry after an unsuccessful relaxed candidate. Relaxed experiments
+use an `smtlast` name component to avoid sharing progress with full-path runs.
+
+Solver details record `path_mode`, `original_assertion_count`, and
+`retained_assertion_count` alongside formula size, build time, and solver time.
+Case metadata records `smt_path_mode`, SAT and duplicate candidate counts,
+validated and successful candidate counts, and candidate validation wall time.
+Compare total runtime and reference-confirmed success under the same seed and
+budget; fewer assertions or more SAT results alone do not establish a speedup.
+
 ### Human-readable summary
 ```bash
 python3 -m pyct.stats --path exp/<your_experiment_dir>
