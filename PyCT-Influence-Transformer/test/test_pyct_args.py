@@ -40,7 +40,7 @@ def test_parse_args_accepts_global_real_configuration() -> None:
     assert args.global_shift_kind == "contrast"
 
 
-@pytest.mark.parametrize("shift_kind", ["brightness", "contrast"])
+@pytest.mark.parametrize("shift_kind", ["brightness", "contrast", "aces-brightness", "aces-contrast"])
 def test_parse_args_accepts_hybrid_de_for_global_real_kinds(shift_kind: str) -> None:
     args = parse_args(
         [
@@ -61,12 +61,13 @@ def test_parse_args_accepts_hybrid_de_for_global_real_kinds(shift_kind: str) -> 
     assert args.de_population_size == 400
 
 
-def test_hybrid_margin_schedule_does_not_require_shap_score_alpha() -> None:
+@pytest.mark.parametrize("shift_kind", ["brightness", "aces-brightness", "aces-contrast"])
+def test_hybrid_margin_schedule_does_not_require_shap_score_alpha(shift_kind) -> None:
     args = parse_args(
         [
             "--attack-mode", "hybrid-de",
             "--dataset", "cifar10",
-            "--global-shift-kind", "brightness",
+            "--global-shift-kind", shift_kind,
         ]
     )
 

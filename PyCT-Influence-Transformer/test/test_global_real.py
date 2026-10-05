@@ -68,6 +68,7 @@ class _Engine:
 
     def __init__(self, config):
         self.idx = 0
+        self.reference_execute = None
         self.constraints_collection_type = "priority_queue"
         self.global_real_config = config
         self.concolic_name_list = []
@@ -577,7 +578,8 @@ def test_aces_like_pwl_symbolic_formula_accepts_negative_literals_in_cvc5() -> N
     assert result.stdout.strip().splitlines()[0] in {"sat", "unsat"}
 
 
-def test_cifar10_global_real_builder_creates_aces_like_pwl_payload(monkeypatch) -> None:
+@pytest.mark.parametrize("defer_pwl", [False, True])
+def test_cifar10_global_real_builder_creates_aces_like_pwl_payload(monkeypatch, defer_pwl) -> None:
     sample = np.array([[[0.2, 0.5, 0.8], [0.9, 0.1, 0.4]]], dtype=np.float32)
     class _Dataset:
         x_test = np.stack([sample])
@@ -588,11 +590,23 @@ def test_cifar10_global_real_builder_creates_aces_like_pwl_payload(monkeypatch) 
             }, {}
     monkeypatch.setattr(global_real_builder, "Cifar10Dataset", _Dataset)
     monkeypatch.setattr(global_real_builder, "get_save_dir_from_save_exp", lambda *a, **k: "unused")
+    if defer_pwl:
+        monkeypatch.setattr(
+            global_real_builder, "build_aces_like_global_real_config",
+            lambda *_args: pytest.fail("hybrid must build PWL after DE chooses a seed"),
+        )
     config = global_real_builder.cifar10_global_real(
-        "demo", [0], force=True, shift_kind="aces-brightness"
+        "demo", [0], force=True, shift_kind="aces-brightness", defer_pwl=defer_pwl
     )[0]["global_real_config"]
     assert config["transform_mode"] == "aces-like-pwl"
     assert "coefficient_by_input" not in config
+    if defer_pwl:
+        assert config["pwl_deferred"] is True
+        assert "pwl_knots" not in config
+        assert "pwl_segment_count" not in config
+        assert "pwl_max_abs_error" not in config
+        assert config["pwl_max_segments"] == 32
+        return
     assert config["pwl_knots"][0] == pytest.approx(-0.1)
     assert config["pwl_knots"][-1] == pytest.approx(0.1)
     assert config["pwl_segment_count"] == len(config["pwl_knots"]) - 1
@@ -605,6 +619,96 @@ def test_cifar10_global_real_builder_creates_aces_like_pwl_payload(monkeypatch) 
     assert config["probe_initial_points"] == 17
     assert config["probe_max_refinements"] == 8
     assert config["probe_tolerance_fraction"] == pytest.approx(1.0 / 1024.0)
+
+
+@pytest.mark.parametrize("kind", ["aces-brightness", "aces-contrast"])
+def test_aces_hybrid_seed_builds_other_axis_and_preserves_zero_identity(kind) -> None:
+    source = np.asarray([[[0.2, 0.5, 0.8]]], dtype=np.float64)
+    seed = global_real.apply_aces_like_transform(source, 0.08, kind=kind).rgb
+    other_kind = "aces-contrast" if kind == "aces-brightness" else "aces-brightness"
+    deferred = {
+        "variable_name": GLOBAL_X_INPUT_NAME,
+        "effective_min": -0.1, "effective_max": 0.1,
+        "bounds_mode": "clip", "global_shift_kind": other_kind,
+        "pwl_deferred": True, "hybrid_de_enabled": True,
+        "pwl_max_segments": 8, "pwl_error_tolerance": 1.0 / 255.0,
+    }
+
+    config = global_real.build_aces_like_global_real_config(seed, deferred)
+    inputs = _rgb_inputs(seed, 0.0)
+    materialized, shift, clipped = materialize_global_real_arguments(inputs, config)
+
+    assert shift == 0.0
+    assert clipped == 0
+    assert config["hybrid_de_enabled"] is True
+    assert config["global_shift_kind"] == other_kind
+    assert 0.0 in config["pwl_knots"]
+    assert config["pwl_max_abs_error"] <= config["pwl_error_tolerance"]
+    assert "pwl_deferred" not in config
+    assert deferred["pwl_deferred"] is True
+    for name, value in inputs.items():
+        if name != GLOBAL_X_INPUT_NAME:
+            assert materialized[name] == value
+
+
+@pytest.mark.parametrize("kind", ["aces-brightness", "aces-contrast"])
+def test_hybrid_aces_reference_and_recorded_image_use_exact_transform_between_knots(kind):
+    seed = np.asarray([[[0.2, 0.5, 0.8]]], dtype=np.float64)
+    config = _aces_config_for_rgb(seed, kind=kind)
+    shift = (config["pwl_knots"][0] + config["pwl_knots"][1]) / 2.0
+    inputs = _rgb_inputs(seed, shift)
+    approximate, _, _ = materialize_global_real_arguments(inputs, config)
+    exact = global_real.apply_aces_like_transform(seed, shift, kind=kind).rgb
+    approximation = np.asarray([[[approximate[f"v_0_0_{i}"] for i in range(3)]]])
+    assert np.max(np.abs(approximation - exact)) > 1e-7
+    hybrid_config = {**config, "hybrid_de_enabled": True}
+
+    materialized, _, _, diagnostics = materialize_global_real_details(inputs, hybrid_config)
+
+    result = np.asarray([[[materialized[f"v_0_0_{i}"] for i in range(3)]]])
+    np.testing.assert_array_equal(result, exact)
+    assert diagnostics["pwl_error_at_x"] <= config["pwl_max_abs_error"] + 1e-12
+    recorder = ConcolicTestRecorder(None, "case_0")
+    recorder.global_real_config = hybrid_config
+    recorder.input_shape = seed.shape
+    recorder.save_sat_input(inputs)
+    recorder.find_adversarial_input(inputs, attack_label=1)
+    np.testing.assert_array_equal(recorder.sat_inputs[0], exact.astype(np.float32))
+    np.testing.assert_array_equal(recorder.adversarial_input, exact.astype(np.float32))
+    channel = int(np.argmax(np.abs(approximation - exact)))
+    midpoint = (approximation[0, 0, channel] + exact[0, 0, channel]) / 2.0
+    approximation_is_higher = approximation[0, 0, channel] > exact[0, 0, channel]
+
+    def predict_scores(images):
+        value = images[0, 0, 0, channel]
+        changed = value > midpoint if approximation_is_higher else value < midpoint
+        return np.asarray([[0.1, 0.9] if changed else [0.9, 0.1]])
+
+    assert np.argmax(predict_scores(approximation[np.newaxis, ...])[0]) == 1
+    hybrid_config["probe_enabled"] = False
+    recorder.original_label = 0
+    recorder.attack_label = None
+    engine = SimpleNamespace(
+        global_real_config=hybrid_config,
+        reference_score_predictor=predict_scores,
+        _get_recorder=lambda: recorder,
+    )
+    assert CandidateExecutionRunner(engine).validate_sat_candidate(inputs) is False
+    assert recorder.attack_label is None
+    assert engine.current_reference_margin == pytest.approx(0.8)
+
+    def reference(**kwargs):
+        return kwargs
+
+    def search(**kwargs):
+        return kwargs
+
+    engine.reference_execute = reference
+    runner = CandidateExecutionRunner(engine)
+    _, reference_inputs = runner.complete_primitive_arguments(reference, inputs)
+    _, search_inputs = runner.complete_primitive_arguments(search, inputs)
+    assert reference_inputs == materialized
+    assert search_inputs == approximate
 
 
 def test_aces_like_validation_rejects_strict_mode() -> None:

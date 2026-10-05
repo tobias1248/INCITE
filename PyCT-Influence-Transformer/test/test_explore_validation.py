@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 import libct.explore as explore
 from libct.executor import CandidateExecutionRunner
 from libct.record import ConcolicTestRecorder
+from libct.global_real import GLOBAL_X_INPUT_NAME, build_aces_like_global_real_config
 
 
 class _RecorderStub:
@@ -216,6 +217,43 @@ def test_hybrid_reference_rejects_seed_label_mismatch() -> None:
             {},
         )
     assert recorder.extra_meta["error_type"] == "hybrid_seed_prediction_mismatch"
+
+
+@pytest.mark.parametrize("kind", ["aces-brightness", "aces-contrast"])
+@pytest.mark.parametrize("seed_label", [0, 1])
+def test_aces_hybrid_initial_reference_keeps_source_label(kind, seed_label) -> None:
+    seed = np.asarray([[[0.2, 0.4, 0.7]]], dtype=np.float64)
+    config = build_aces_like_global_real_config(seed, {
+        "global_shift_kind": kind, "effective_min": -0.1, "effective_max": 0.1,
+        "bounds_mode": "clip", "pwl_max_segments": 8,
+        "pwl_error_tolerance": 1.0 / 255.0, "hybrid_de_enabled": True,
+    })
+    recorder = ConcolicTestRecorder(None, "case_0")
+    recorder.input_shape = seed.shape
+    recorder.global_real_config = config
+    recorder.extra_meta["hybrid_de_original_label"] = 0
+    engine = type("Engine", (), {})()
+    engine.global_real_config = config
+    engine.reference_score_predictor = lambda _images: np.asarray(
+        [[0.8, 0.2] if seed_label == 0 else [0.2, 0.8]]
+    )
+    engine._get_recorder = lambda: recorder
+    observed = []
+    engine._one_execution = lambda *_args: observed.append(engine.current_reference_margin)
+    inputs = {f"v_0_0_{i}": float(seed[0, 0, i]) for i in range(3)}
+    inputs[GLOBAL_X_INPUT_NAME] = 0.0
+    runner = CandidateExecutionRunner(engine)
+
+    if seed_label == 1:
+        with pytest.raises(ValueError, match="seed label differs"):
+            runner.run_initial_execution(inputs, {})
+        assert observed == []
+        assert recorder.extra_meta["error_type"] == "hybrid_seed_prediction_mismatch"
+    else:
+        runner.run_initial_execution(inputs, {})
+        assert observed == pytest.approx([0.6])
+        assert recorder.original_label == 0
+        assert recorder.extra_meta["hybrid_pyct_seed_margin"] == pytest.approx(0.6)
 
 
 def _make_engine(reference_execute):

@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 import engine.executor as executor
 from libct.global_real import GLOBAL_X_INPUT_NAME, materialize_global_real_arguments
 from libct.global_real_de import GlobalRealDEResult
+from libct.aces_like import apply_aces_like_transform
 
 
 def test_validate_collect_mode_rejects_invalid_mode() -> None:
@@ -426,7 +427,13 @@ def test_run_fails_closed_when_reference_model_cannot_load(monkeypatch) -> None:
     assert recorder.extra_meta["error_phase"] == "reference_model_load"
 
 
-def test_hybrid_de_failure_uses_last_de_image_as_pyct_seed(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("kind,pwl_error,de_success", [
+    ("contrast", False, False), ("aces-brightness", False, False),
+    ("aces-contrast", False, False), ("aces-brightness", True, False),
+    ("aces-contrast", True, False), ("aces-brightness", False, True),
+    ("aces-contrast", False, True),
+])
+def test_hybrid_de_handoff_preserves_source_and_seed(monkeypatch, tmp_path, kind, pwl_error, de_success) -> None:
     source = np.asarray(
         [[[0.2, 0.4, 0.6]], [[0.25, 0.45, 0.65]]],
         dtype=np.float32,
@@ -434,6 +441,8 @@ def test_hybrid_de_failure_uses_last_de_image_as_pyct_seed(monkeypatch, tmp_path
     seed = (
         source + 0.05 * (source - source.mean(axis=(0, 1), keepdims=True))
     ).astype(np.float32)
+    if kind.startswith("aces-"):
+        seed = apply_aces_like_transform(source, 0.05, kind=kind).rgb.astype(np.float32)
     captured = {}
 
     class _FakeEngine:
@@ -485,9 +494,9 @@ def test_hybrid_de_failure_uses_last_de_image_as_pyct_seed(monkeypatch, tmp_path
         executor,
         "run_global_real_differential_evolution",
         lambda *_args, **_kwargs: GlobalRealDEResult(
-            success=False,
+            success=de_success,
             original_label=0,
-            best_label=0,
+            best_label=1 if de_success else 0,
             best_x=0.05,
             best_score=0.7,
             best_margin=0.4,
@@ -504,7 +513,7 @@ def test_hybrid_de_failure_uses_last_de_image_as_pyct_seed(monkeypatch, tmp_path
         "effective_min": -0.1,
         "effective_max": 0.1,
         "bounds_mode": "clip",
-        "global_shift_kind": "contrast",
+        "global_shift_kind": kind,
         "coefficient_by_input": {
             "v_0_0_0": -0.1,
             "v_0_0_1": -0.1,
@@ -518,6 +527,19 @@ def test_hybrid_de_failure_uses_last_de_image_as_pyct_seed(monkeypatch, tmp_path
         "hybrid_de_population_size": 400,
         "hybrid_de_random_seed": 2024,
     }
+    if kind.startswith("aces-"):
+        config.update(
+            transform_mode="aces-like-pwl", pwl_deferred=True,
+            pwl_max_segments=8, pwl_error_tolerance=1.0 / 255.0,
+        )
+        config.pop("coefficient_by_input")
+    if pwl_error:
+        def fail_pwl(*_args):
+            raise ValueError("seed PWL exceeds tolerance")
+        monkeypatch.setattr(executor, "build_aces_like_global_real_config", fail_pwl)
+    elif de_success:
+        monkeypatch.setattr(executor, "build_aces_like_global_real_config",
+                            lambda *_args: pytest.fail("successful DE must not build PWL"))
     recorder = executor.run(
         model_name="demo",
         in_dict={
@@ -533,12 +555,53 @@ def test_hybrid_de_failure_uses_last_de_image_as_pyct_seed(monkeypatch, tmp_path
         norm=True,
         solve_order_stack=False,
         idx=0,
-        popped_log_attack_mode="hybrid-de_contrast",
+        popped_log_attack_mode="hybrid-de_" + kind,
         global_real_config=config,
         input_for_shap=source,
     )
 
+    if de_success:
+        assert "in_dict" not in captured
+        assert recorder[1].attack_label == 1
+        assert recorder[1].original_label == 0
+        np.testing.assert_array_equal(recorder[1].original_input, source)
+        np.testing.assert_array_equal(recorder[1].adversarial_input, seed)
+        assert recorder[1].extra_meta["hybrid_de_status"] == "success"
+        return
+    if pwl_error:
+        assert recorder[0] == 0
+        assert "in_dict" not in captured
+        assert recorder[1].extra_meta["error_type"] == "hybrid_pyct_pwl_failure"
+        assert recorder[1].extra_meta["error_phase"] == "hybrid_pyct_handoff"
+        assert "seed PWL exceeds tolerance" in recorder[1].extra_meta["error_reason"]
+        np.testing.assert_array_equal(recorder[1].original_input, source)
+        np.testing.assert_array_equal(np.load(tmp_path / "de_seed_input.npy"), seed)
+        return
     assert recorder[0] == 1
+    if kind.startswith("aces-"):
+        pyct_kind = "aces-contrast" if kind == "aces-brightness" else "aces-brightness"
+        runtime_config = captured["global_real_config"]
+        assert runtime_config["global_shift_kind"] == pyct_kind
+        assert runtime_config["transform_mode"] == "aces-like-pwl"
+        assert "pwl_deferred" not in runtime_config
+        assert runtime_config["pwl_max_abs_error"] <= runtime_config["pwl_error_tolerance"]
+        assert captured["in_dict"][GLOBAL_X_INPUT_NAME] == 0.0
+        assert captured["concolic_dict"] == {GLOBAL_X_INPUT_NAME: 1}
+        np.testing.assert_array_equal(
+            executor._image_from_input_dict(captured["in_dict"]), seed
+        )
+        materialized, shift, _ = materialize_global_real_arguments(
+            captured["in_dict"], runtime_config
+        )
+        assert shift == 0.0
+        np.testing.assert_array_equal(executor._image_from_input_dict(materialized), seed)
+        assert captured["extra_meta"]["hybrid_de_shift_kind"] == kind
+        assert captured["extra_meta"]["hybrid_pyct_shift_kind"] == pyct_kind
+        assert captured["extra_meta"]["hybrid_transform_order"] == [kind, pyct_kind]
+        assert captured["recorded_hybrid_inputs"][1] is not None
+        np.testing.assert_array_equal(recorder[1].original_input, source)
+        assert config["pwl_deferred"] is True
+        return
     assert captured["in_dict"]["v_0_0_0"] == pytest.approx(source[0, 0, 0])
     assert captured["in_dict"]["v_1_0_2"] == pytest.approx(source[1, 0, 2])
     assert GLOBAL_X_INPUT_NAME not in captured["in_dict"]

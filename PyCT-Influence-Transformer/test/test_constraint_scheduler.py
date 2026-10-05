@@ -62,9 +62,13 @@ def test_scheduler_push_pop_priority_modular_searcher_records_metadata() -> None
     assert engine.recorder.queue_max == 1
 
 
-def test_hybrid_scheduler_prioritizes_lower_parent_margin() -> None:
+@pytest.mark.parametrize("config", [
+    {"transform_mode": TRANSFORM_MODE_AFFINE_BC},
+    {"transform_mode": "aces-like-pwl", "hybrid_de_enabled": True},
+])
+def test_hybrid_scheduler_prioritizes_lower_parent_margin(config) -> None:
     engine = _Engine()
-    engine.global_real_config = {"transform_mode": TRANSFORM_MODE_AFFINE_BC}
+    engine.global_real_config = config
     engine.shap_score_alpha = None
     scheduler = ConstraintScheduler(engine)
     high_margin_branch = Constraint(None, None, height=1)
@@ -79,9 +83,13 @@ def test_hybrid_scheduler_prioritizes_lower_parent_margin() -> None:
     assert scheduler.pop_constraint()[0] is high_margin_branch
 
 
-def test_hybrid_scheduler_rejects_missing_margin() -> None:
+@pytest.mark.parametrize("config", [
+    {"transform_mode": TRANSFORM_MODE_AFFINE_BC},
+    {"transform_mode": "aces-like-pwl", "hybrid_de_enabled": True},
+])
+def test_hybrid_scheduler_rejects_missing_margin(config) -> None:
     engine = _Engine()
-    engine.global_real_config = {"transform_mode": TRANSFORM_MODE_AFFINE_BC}
+    engine.global_real_config = config
     engine.current_reference_margin = None
 
     with pytest.raises(ValueError, match="finite Keras margin"):

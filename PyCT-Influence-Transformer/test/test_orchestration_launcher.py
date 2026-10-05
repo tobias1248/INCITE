@@ -393,8 +393,9 @@ def test_run_launcher_disambiguates_global_real_shap_sign_epsilon(
     assert expected_component in calls[0][1]["attack_mode"].split("_")
 
 
+@pytest.mark.parametrize("kind", ["contrast", "aces-brightness", "aces-contrast"])
 @pytest.mark.parametrize("path_mode", ["full", "last"])
-def test_run_launcher_builds_hybrid_de_payload(monkeypatch, path_mode) -> None:
+def test_run_launcher_builds_hybrid_de_payload(monkeypatch, kind, path_mode) -> None:
     monkeypatch.setenv("PYCT_SMT_PATH_MODE", path_mode)
     calls = []
     payload = {
@@ -425,7 +426,7 @@ def test_run_launcher_builds_hybrid_de_payload(monkeypatch, path_mode) -> None:
         _make_args(
             dataset="cifar10",
             attack_mode="hybrid-de",
-            global_shift_kind="contrast",
+            global_shift_kind=kind,
             score_alpha=0.8,
             norm_01=True,
             de_maxiter=75,
@@ -435,8 +436,9 @@ def test_run_launcher_builds_hybrid_de_payload(monkeypatch, path_mode) -> None:
     )
 
     assert calls[0][0] == "demo"
-    assert calls[0][1]["shift_kind"] == "contrast"
-    assert "margin_bc2" in calls[0][1]["attack_mode"]
+    assert calls[0][1]["shift_kind"] == kind
+    assert ("margin_aces1" if kind.startswith("aces-") else "margin_bc2") in calls[0][1]["attack_mode"]
+    assert calls[0][1]["defer_pwl"] is kind.startswith("aces-")
     assert ("smtlast" in calls[0][1]["attack_mode"]) is (path_mode == "last")
     queued_payload = next(
         item for item in _FakeQueue.created[0].items if isinstance(item, dict)

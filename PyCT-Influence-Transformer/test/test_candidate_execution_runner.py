@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+import pytest
+
 from libct.executor import CandidateExecutionRunner
 
 
@@ -191,3 +193,67 @@ def test_candidate_runner_returns_false_after_global_real_probe_exhaustion() -> 
     assert engine.recorder.attack_label is None
     assert engine.recorder.extra_meta["global_real_probe_success"] is False
     assert len(engine.recorder.extra_meta["global_real_probe_evaluated_x"]) <= 17
+
+
+def test_hybrid_aces_probe_preserves_sat_margin_for_subsequent_branches() -> None:
+    engine = _Engine()
+    engine.global_real_config = {**_probe_config(), "hybrid_de_enabled": True}
+    engine.current_reference_margin = None
+    runner = CandidateExecutionRunner(engine)
+    seen = []
+
+    def predict_margin(inputs, *, phase, original_label):
+        seen.append((inputs["x"], phase, original_label))
+        return 0, 0.3 + inputs["x"]
+
+    runner._predict_hybrid_margin = predict_margin
+    candidate = {"x": 0.03}
+
+    assert runner.validate_sat_candidate(candidate) is False
+
+    assert len(seen) > 1
+    assert seen[-1][0] != candidate["x"]
+    assert all(source_label == 0 for _, _, source_label in seen)
+    assert engine.current_reference_margin == pytest.approx(0.33)
+    assert engine.recorder.extra_meta["hybrid_pyct_last_margin"] == pytest.approx(0.33)
+    assert engine.recorder.extra_meta["hybrid_pyct_best_margin"] == pytest.approx(0.2)
+    assert engine.recorder.extra_meta["hybrid_pyct_candidate_count"] == 1
+    assert engine.recorder.extra_meta["hybrid_pyct_probe_count"] == len(seen)
+    assert candidate == {"x": 0.03}
+
+
+def test_hybrid_aces_probe_records_success_against_original_source_label() -> None:
+    engine = _Engine()
+    engine.global_real_config = {**_probe_config(), "hybrid_de_enabled": True}
+    runner = CandidateExecutionRunner(engine)
+
+    def predict_margin(inputs, *, phase, original_label):
+        assert original_label == 0
+        return (1, -0.1) if inputs["x"] >= 0.04 else (0, 0.1)
+
+    runner._predict_hybrid_margin = predict_margin
+
+    assert runner.validate_sat_candidate({"x": 0.0}) is True
+    assert engine.recorder.attack_label == 1
+    assert 0.04 <= engine.recorder.adversarial_input["x"] <= 0.041
+
+
+def test_hybrid_aces_without_probe_updates_sat_margin_once() -> None:
+    engine = _Engine()
+    engine.global_real_config = {
+        **_probe_config(), "hybrid_de_enabled": True, "probe_enabled": False,
+    }
+    runner = CandidateExecutionRunner(engine)
+    seen = []
+
+    def predict_margin(inputs, *, phase, original_label):
+        seen.append((dict(inputs), phase, original_label))
+        return 0, 0.07
+
+    runner._predict_hybrid_margin = predict_margin
+
+    assert runner.validate_sat_candidate({"x": 0.02}) is False
+    assert seen == [({"x": 0.02}, "candidate_reference", 0)]
+    assert engine.current_reference_margin == pytest.approx(0.07)
+    assert engine.recorder.extra_meta["hybrid_pyct_candidate_count"] == 1
+    assert "hybrid_pyct_probe_count" not in engine.recorder.extra_meta

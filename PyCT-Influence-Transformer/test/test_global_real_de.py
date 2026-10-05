@@ -15,6 +15,7 @@ from libct.global_real_de import (
     materialize_shift_candidates,
     run_global_real_differential_evolution,
 )
+from libct.aces_like import apply_aces_like_transform
 
 
 def test_brightness_and_contrast_coefficients_are_built_from_seed() -> None:
@@ -41,6 +42,43 @@ def test_materialize_shift_candidates_clips_and_keeps_batch_axis() -> None:
     assert shifted.shape == (2, 2, 2, 3)
     np.testing.assert_array_equal(shifted[0], seed)
     assert np.all(shifted[1] == 1.0)
+
+
+@pytest.mark.parametrize("kind", ["aces-brightness", "aces-contrast"])
+def test_de_materializes_exact_aces_candidates_without_mutating_source(kind) -> None:
+    source = np.asarray([[[0.1, 0.4, 0.9], [0.95, 0.2, 0.05]]], dtype=np.float32)
+    original = source.copy()
+    shifts = np.asarray([-0.1, 0.0, 0.08])
+
+    images = materialize_shift_candidates(source, shifts, kind)
+
+    assert images.shape == (3, 1, 2, 3)
+    np.testing.assert_array_equal(source, original)
+    np.testing.assert_array_equal(images[1], source)
+    for image, shift in zip(images, shifts):
+        expected = apply_aces_like_transform(source, float(shift), kind=kind).rgb
+        np.testing.assert_allclose(image, expected, atol=1e-7)
+
+
+@pytest.mark.parametrize("kind", ["aces-brightness", "aces-contrast"])
+def test_de_aces_returns_exact_best_seed_against_source_label(kind) -> None:
+    source = np.asarray([[[0.2, 0.4, 0.7]]], dtype=np.float32)
+    result = run_global_real_differential_evolution(
+        source, shift_kind=kind, lower=-0.1, upper=0.1,
+        original_label=1,
+        predict_batch=lambda images: np.tile([[0.1, 0.9]], (len(images), 1)),
+        random_seed=4, maxiter=1, population_size=5,
+    )
+
+    assert result.success is False
+    assert result.original_label == 1
+    assert result.best_label == 1
+    assert result.function_evaluations == 10
+    np.testing.assert_allclose(
+        result.best_image,
+        apply_aces_like_transform(source, result.best_x, kind=kind).rgb,
+        atol=1e-7,
+    )
 
 
 def test_de_runs_requested_generations_and_is_reproducible_on_failure() -> None:
