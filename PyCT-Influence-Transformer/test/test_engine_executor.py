@@ -211,6 +211,7 @@ def test_run_reuses_cached_predictor_and_attaches_extra_meta(monkeypatch) -> Non
     assert captured["extra_meta"] == {
         "model_name": "demo",
         "attack_mode": "queue_solver1s",
+        "smt_path_mode": "full",
         "idx": 9,
         "score_alpha": 0.8,
         "symbolic_path_threshold": 2000,
@@ -300,6 +301,7 @@ def test_run_uses_defaults_when_save_exp_and_optional_args_are_missing(monkeypat
     assert captured["extra_meta"] == {
         "model_name": "demo",
         "attack_mode": "unknown",
+        "smt_path_mode": "full",
         "idx": 1,
         "score_alpha": None,
         "symbolic_path_threshold": None,

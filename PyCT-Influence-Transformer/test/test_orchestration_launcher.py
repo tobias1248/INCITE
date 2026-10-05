@@ -393,7 +393,9 @@ def test_run_launcher_disambiguates_global_real_shap_sign_epsilon(
     assert expected_component in calls[0][1]["attack_mode"].split("_")
 
 
-def test_run_launcher_builds_hybrid_de_payload(monkeypatch) -> None:
+@pytest.mark.parametrize("path_mode", ["full", "last"])
+def test_run_launcher_builds_hybrid_de_payload(monkeypatch, path_mode) -> None:
+    monkeypatch.setenv("PYCT_SMT_PATH_MODE", path_mode)
     calls = []
     payload = {
         "model_name": "demo",
@@ -435,6 +437,7 @@ def test_run_launcher_builds_hybrid_de_payload(monkeypatch) -> None:
     assert calls[0][0] == "demo"
     assert calls[0][1]["shift_kind"] == "contrast"
     assert "margin_bc2" in calls[0][1]["attack_mode"]
+    assert ("smtlast" in calls[0][1]["attack_mode"]) is (path_mode == "last")
     queued_payload = next(
         item for item in _FakeQueue.created[0].items if isinstance(item, dict)
     )

@@ -73,7 +73,14 @@ class SolverLoggingTests(unittest.TestCase):
         )
         fake_subprocess = SimpleNamespace(stdout=b"sat\n((x_VAR 1))\n")
 
-        with mock.patch("libct.solver.func_timeout.func_timeout", return_value="(check-sat)\n"):
+        def fake_build(*_args, **_kwargs):
+            solver.Solver._last_smt_transform_stats = {
+                "mode": "exact_affine", "path_mode": "last",
+                "original_assertion_count": 7, "retained_assertion_count": 1,
+            }
+            return "(check-sat)\n"
+
+        with mock.patch("libct.solver.func_timeout.func_timeout", side_effect=fake_build):
             with mock.patch("libct.solver.subprocess.run", return_value=fake_subprocess):
                 with mock.patch.object(solver.Solver, "_resolve_constraint_log_path", return_value=Path("inline.log")):
                     with mock.patch.object(solver.Solver, "_append_constraint_log"):
@@ -99,6 +106,9 @@ class SolverLoggingTests(unittest.TestCase):
         self.assertEqual(detail["assert_num"], 0)
         self.assertEqual(detail["assert_len"], [])
         self.assertEqual(detail["smt_formula"], "(check-sat)\n")
+        self.assertEqual(detail["smt_transform"]["path_mode"], "last")
+        self.assertEqual(detail["smt_transform"]["original_assertion_count"], 7)
+        self.assertEqual(detail["smt_transform"]["retained_assertion_count"], 1)
         self.assertIn("formula_build_time_s", detail)
         self.assertIn("solver_subprocess_time_s", detail)
         self.assertIn("solve_total_time_s", detail)

@@ -211,6 +211,9 @@ def test_solver_raw_mode_keeps_existing_formula(monkeypatch):
     assert predicate.get_formula() in formula
     assert Solver._last_smt_transform_stats == {
         "mode": "raw",
+        "path_mode": "full",
+        "original_assertion_count": 1,
+        "retained_assertion_count": 1,
         "assertion_count": 1,
         "applied_count": 0,
         "fallback_count": 0,

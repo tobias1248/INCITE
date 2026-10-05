@@ -95,6 +95,7 @@ class _DummyRecorder:
 
     def __init__(self) -> None:
         self.gen_constraint = []
+        self.extra_meta = {}
         self.total_iter = 0
         self.original_label = None
 

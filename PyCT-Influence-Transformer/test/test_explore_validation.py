@@ -395,6 +395,43 @@ def test_execution_loop_runs_search_only_after_reference_rejects_candidate(monke
     assert search_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
 
 
+@pytest.mark.parametrize("mode", ["full", "last"])
+def test_execution_loop_counts_duplicate_candidates_and_reference_success(monkeypatch, mode):
+    monkeypatch.setenv("PYCT_SMT_PATH_MODE", mode)
+    recorder = _RecorderStub()
+    monkeypatch.setattr(explore, "recorder", recorder)
+    monkeypatch.setattr(explore.Solver, "stats", {
+        "sat_number": 0, "sat_time": 0, "unsat_number": 0, "unsat_time": 0,
+        "otherwise_number": 0, "otherwise_time": 0,
+    }, raising=False)
+    reference_calls = []
+
+    def reference_execute(**inputs):
+        reference_calls.append(dict(inputs))
+        return int(inputs["v_0_0"] == 2.0)
+
+    engine = _make_engine(reference_execute)
+    engine.constraints_to_solve = deque([object(), object(), object()])
+    search_calls = []
+    monkeypatch.setattr(engine, "_one_execution", lambda inputs, _flags:
+                        search_calls.append(dict(inputs)) or True)
+    candidates = iter([{"v_0_0": 1.0}, {"v_0_0": 1.0}, {"v_0_0": 2.0}])
+    monkeypatch.setattr(explore.Solver, "find_model_from_constraint",
+                        lambda *_args, **_kwargs: next(candidates))
+
+    assert engine._execution_loop(0, {"v_0_0": 0.0}, {}) is False
+
+    assert recorder.extra_meta["smt_path_mode"] == mode
+    assert recorder.extra_meta["smt_sat_candidate_count"] == 3
+    assert recorder.extra_meta["smt_duplicate_candidate_count"] == 1
+    assert recorder.extra_meta["smt_validated_candidate_count"] == 2
+    assert recorder.extra_meta["smt_successful_candidate_count"] == 1
+    assert recorder.extra_meta["smt_candidate_validation_wall_time_seconds"] >= 0.0
+    assert recorder.attack_label == 1
+    assert reference_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}, {"v_0_0": 2.0}]
+    assert search_calls == [{"v_0_0": 0.0}, {"v_0_0": 1.0}]
+
+
 def test_execution_loop_ignores_search_label_disagreement(monkeypatch) -> None:
     recorder = _RecorderStub()
     explore.recorder = recorder
