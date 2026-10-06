@@ -411,9 +411,26 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
             }
         )
         if global_real_config.get("hybrid_de_enabled"):
+            if global_real_config.get("global_shift_kind") in ACES_LIKE_SHIFT_KINDS:
+                de_axes = global_real_config.get("hybrid_de_search_axes", global_real_config["global_shift_kind"].split("-", 1)[1])
+                auto_axis = de_axes if de_axes != "both" else global_real_config["global_shift_kind"].split("-", 1)[1]
+                pyct_axes = global_real_config.get("hybrid_pyct_search_axes", "contrast" if auto_axis == "brightness" else "brightness")
+                if de_axes not in ("brightness", "contrast", "both") or pyct_axes not in ("brightness", "contrast", "both"):
+                    raise ValueError("ACES hybrid search axes must be brightness, contrast or both")
+                extra_meta.update(
+                    hybrid_de_search_axes=de_axes, hybrid_pyct_search_axes=pyct_axes,
+                    hybrid_de_dimensions=2 if de_axes == "both" else 1,
+                    hybrid_pyct_dimensions=2 if pyct_axes == "both" else 1,
+                    hybrid_handoff_mode="seed-relative",
+                    hybrid_aces_transform_order=global_real_config.get("transform_order", "brightness-contrast"),
+                )
             extra_meta.update(
                 {
-                    "hybrid_de_strategy": "best1bin-margin-batched-v2",
+                    "hybrid_de_strategy": (
+                        "best1bin-margin-batched-joint2-v1"
+                        if global_real_config.get("global_shift_kind") in ACES_LIKE_SHIFT_KINDS and de_axes == "both"
+                        else "best1bin-margin-batched-v2"
+                    ),
                     "hybrid_reference_transform": (
                         "exact"
                         if global_real_config.get("global_shift_kind") in ACES_LIKE_SHIFT_KINDS
@@ -492,9 +509,16 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
                     "hybrid-de currently requires a finite CIFAR10 class-probability vector"
                 )
             original_label = int(np.argmax(source_predictions[0]))
+            de_kwargs = {}
+            de_shift_kind = global_real_config["global_shift_kind"]
+            if de_shift_kind in ACES_LIKE_SHIFT_KINDS:
+                if de_axes != "both":
+                    de_shift_kind = "aces-" + de_axes
+                if "hybrid_de_search_axes" in global_real_config:
+                    de_kwargs.update(search_axes=de_axes, transform_order=global_real_config.get("transform_order", "brightness-contrast"))
             hybrid_de_result = run_global_real_differential_evolution(
                 hybrid_de_source_image,
-                shift_kind=global_real_config["global_shift_kind"],
+                shift_kind=de_shift_kind,
                 lower=float(global_real_config["effective_min"]),
                 upper=float(global_real_config["effective_max"]),
                 original_label=original_label,
@@ -504,6 +528,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
                 population_size=int(
                     global_real_config.get("hybrid_de_population_size", 400)
                 ),
+                **de_kwargs,
             )
         except Exception as exc:
             error_meta = dict(extra_meta)
@@ -538,7 +563,7 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         extra_meta.update(
             {
                 "hybrid_de_status": "success" if hybrid_de_result.success else "failed",
-                "hybrid_de_shift_kind": global_real_config["global_shift_kind"],
+                "hybrid_de_shift_kind": "aces-both" if global_real_config["global_shift_kind"] in ACES_LIKE_SHIFT_KINDS and de_axes == "both" else de_shift_kind,
                 "hybrid_de_original_label": hybrid_de_result.original_label,
                 "hybrid_de_best_label": hybrid_de_result.best_label,
                 "hybrid_de_best_x": hybrid_de_result.best_x,
@@ -553,6 +578,11 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
                 "hybrid_de_source_artifact": "source_input.npy",
             }
         )
+        if global_real_config["global_shift_kind"] in ACES_LIKE_SHIFT_KINDS:
+            params = getattr(hybrid_de_result, "best_params", None)
+            if params is None:
+                params = (hybrid_de_result.best_x, 0.0) if de_axes == "brightness" else (0.0, hybrid_de_result.best_x)
+            extra_meta["hybrid_de_best_params"] = list(params)
         if hybrid_de_result.success:
             return _record_hybrid_de_success(
                 save_dir=save_dir,
@@ -572,15 +602,18 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         if de_kind in ACES_LIKE_SHIFT_KINDS:
             handoff_started = time.perf_counter()
             handoff_cpu_started = time.process_time()
-            pyct_kind = "aces-contrast" if de_kind == "aces-brightness" else "aces-brightness"
+            pyct_kind = de_kind if pyct_axes == "both" else "aces-" + pyct_axes
             extra_meta.update(
-                hybrid_pyct_shift_kind=pyct_kind,
+                hybrid_pyct_shift_kind="aces-both" if pyct_axes == "both" else pyct_kind,
                 hybrid_pyct_seed_x=0.0,
-                hybrid_transform_order=[de_kind, pyct_kind],
+                hybrid_de_seed_params=extra_meta["hybrid_de_best_params"],
+                hybrid_pyct_seed_params=[0.0, 0.0],
+                hybrid_transform_order=[extra_meta["hybrid_de_shift_kind"], "aces-both" if pyct_axes == "both" else pyct_kind],
             )
             try:
                 config = dict(global_real_config)
                 config["global_shift_kind"] = pyct_kind
+                config["search_axes"] = pyct_axes
                 global_real_config = build_aces_like_global_real_config(seed_image, config)
             except Exception as exc:
                 handoff_wall_time = time.perf_counter() - handoff_started
@@ -610,8 +643,12 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
             # The DE axis is fixed. All pixel constants now belong to the
             # selected seed; X=0 on the other axis is its exact identity.
             in_dict = _coefficient_mapping(seed_image)
-            in_dict[GLOBAL_X_INPUT_NAME] = 0.0
-            con_dict = {GLOBAL_X_INPUT_NAME: 1}
+            if pyct_axes == "both":
+                in_dict.update({GLOBAL_BRIGHTNESS_INPUT_NAME: 0.0, GLOBAL_CONTRAST_INPUT_NAME: 0.0})
+                con_dict = {GLOBAL_BRIGHTNESS_INPUT_NAME: 1, GLOBAL_CONTRAST_INPUT_NAME: 1}
+            else:
+                in_dict[GLOBAL_X_INPUT_NAME] = 0.0
+                con_dict = {GLOBAL_X_INPUT_NAME: 1}
             input_for_shap = seed_image
             extra_meta.update(
                 hybrid_pyct_handoff_wall_time_seconds=handoff_wall_time,
@@ -622,7 +659,9 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
                 "transform_mode", "pwl_knots", "pwl_max_segments", "pwl_segment_count",
                 "pwl_error_tolerance", "pwl_max_abs_error", "pwl_error_metric", "pwl_validator_version",
             ):
-                extra_meta["global_real_" + key] = global_real_config[key]
+                extra_meta["global_real_" + key] = global_real_config.get(key)
+            for key in ("pwl_b_knots", "pwl_c_knots", "pwl_triangle_count", "pwl_max_triangles", "transform_order"):
+                extra_meta["global_real_" + key] = global_real_config.get(key)
         else:
             in_dict = dict(in_dict)
             in_dict.pop(global_real_config["variable_name"], None)

@@ -402,14 +402,31 @@ def run_launcher(args: Any) -> None:
             ]
         )
         if args.attack_mode == "hybrid-de":
+            axes_configured = (
+                getattr(args, "de_search_axes", "auto") != "auto"
+                or getattr(args, "pyct_search_axes", "auto") != "auto"
+                or getattr(args, "aces_transform_order", "brightness-contrast") != "brightness-contrast"
+            )
+            if args.global_shift_kind.startswith("aces-"):
+                de_axes = getattr(args, "de_search_axes", "auto")
+                de_axes = args.global_shift_kind.split("-", 1)[1] if de_axes == "auto" else de_axes
+                pyct_axes = getattr(args, "pyct_search_axes", "auto")
+                single = de_axes if de_axes != "both" else args.global_shift_kind.split("-", 1)[1]
+                pyct_axes = ("contrast" if single == "brightness" else "brightness") if pyct_axes == "auto" else pyct_axes
             attack_mode_parts.extend(
                 [
-                    "margin_aces1" if args.global_shift_kind.startswith("aces-") else "margin_bc2",
+                    ("margin_aces2" if pyct_axes == "both" else "margin_aces1") if args.global_shift_kind.startswith("aces-") else "margin_bc2",
                     f"de{args.de_maxiter}",
                     f"pop{args.de_population_size}",
                     f"seed{args.random_seed}",
                 ]
             )
+            if axes_configured:
+                short = {"brightness": "b", "contrast": "c", "both": "bc"}
+                order = "bc" if getattr(args, "aces_transform_order", "brightness-contrast") == "brightness-contrast" else "cb"
+                attack_mode_parts.append(f"axes{short[de_axes]}-{short[pyct_axes]}-{order}")
+                if pyct_axes == "both":
+                    attack_mode_parts.append(f"tri{getattr(args, 'aces_pwl_max_triangles', 128)}")
         if args.global_shift_kind == "shap-sign":
             attack_mode_parts.append(
                 f"eps{_range_component(args.shap_sign_epsilon)}"
@@ -506,6 +523,7 @@ def run_launcher(args: Any) -> None:
             shift_kind=args.global_shift_kind,
             shap_sign_epsilon=args.shap_sign_epsilon,
             pwl_max_segments=args.aces_pwl_max_segments,
+            pwl_max_triangles=getattr(args, "aces_pwl_max_triangles", 128),
             pwl_error_tolerance=args.aces_pwl_error_tolerance,
             probe_enabled=args.global_real_probe,
             probe_initial_points=args.global_real_probe_points,
@@ -533,6 +551,13 @@ def run_launcher(args: Any) -> None:
                     "hybrid_de_random_seed": args.random_seed + int(payload["idx"]),
                 }
             )
+            if args.global_shift_kind.startswith("aces-"):
+                payload["global_real_config"].update(
+                    hybrid_de_search_axes=de_axes,
+                    hybrid_pyct_search_axes=pyct_axes,
+                    transform_order=getattr(args, "aces_transform_order", "brightness-contrast"),
+                    pwl_max_triangles=getattr(args, "aces_pwl_max_triangles", 128),
+                )
         payload["ternary_simplification"] = args.ternary_simplification
         if args.ternary_simplification:
             payload["ternary_threshold_scale"] = args.ternary_threshold_scale

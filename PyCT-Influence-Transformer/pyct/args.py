@@ -286,6 +286,22 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Upper bound for GlobalReal X, or each hybrid brightness/contrast variable (default: 0.1).",
     )
     parser.add_argument(
+        "--de-search-axes", choices=("auto", "brightness", "contrast", "both"), default=None,
+        help="ACES hybrid DE axes; auto uses --global-shift-kind (default: auto).",
+    )
+    parser.add_argument(
+        "--pyct-search-axes", choices=("auto", "brightness", "contrast", "both"), default=None,
+        help="ACES hybrid PyCT axes; auto searches the other scalar axis (default: auto).",
+    )
+    parser.add_argument(
+        "--aces-transform-order", choices=("brightness-contrast", "contrast-brightness"),
+        default=None, help="Order within each two-axis ACES transform (default: brightness-contrast).",
+    )
+    parser.add_argument(
+        "--aces-pwl-max-triangles", type=_parse_positive_int, default=None,
+        help="Maximum triangles in the two-axis ACES PyCT approximation (default: 128).",
+    )
+    parser.add_argument(
         "--de-maxiter",
         type=_parse_non_negative_int,
         default=75,
@@ -375,6 +391,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     args = parser.parse_args(argv)
+    axes_requested = any(value is not None for value in (
+        args.de_search_axes, args.pyct_search_axes, args.aces_transform_order, args.aces_pwl_max_triangles,
+    ))
+    args.de_search_axes = args.de_search_axes or "auto"
+    args.pyct_search_axes = args.pyct_search_axes or "auto"
+    args.aces_transform_order = args.aces_transform_order or "brightness-contrast"
+    args.aces_pwl_max_triangles = args.aces_pwl_max_triangles or 128
     if args.attack_mode not in {"queue", "hybrid-de"} and args.score_alpha is None:
         parser.error("--score-alpha is required unless --attack-mode queue or hybrid-de")
     if args.ternary_fallback and args.ternary_simplification:
@@ -387,6 +410,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "assume normalized model inputs in [0, 1] and must bind solver-generated "
             "input variables to that range."
         )
+    if axes_requested:
+        if args.attack_mode != "hybrid-de" or not args.global_shift_kind.startswith("aces-"):
+            parser.error("Explicit search axes/order require --attack-mode hybrid-de and an ACES-like --global-shift-kind")
+    if args.pyct_search_axes == "both":
+        minimum_triangles = 8 if args.global_x_min < 0 < args.global_x_max else 2
+        if args.aces_pwl_max_triangles < minimum_triangles:
+            parser.error("--aces-pwl-max-triangles is too small for a two-axis grid including zero")
     if args.attack_mode in {"global-real", "hybrid-de"}:
         if args.dataset != "cifar10":
             parser.error(

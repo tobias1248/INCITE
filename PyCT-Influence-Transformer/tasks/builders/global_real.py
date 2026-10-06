@@ -21,6 +21,7 @@ from libct.global_real_probe import (
     DEFAULT_PROBE_MAX_REFINEMENTS,
     DEFAULT_PROBE_TOLERANCE_FRACTION,
 )
+from libct.aces_like_pwl_2d import DEFAULT_PWL_MAX_TRIANGLES
 
 from datasets.cifar10 import Cifar10Dataset
 from explainability.input_shap_sign import (
@@ -208,6 +209,7 @@ def cifar10_global_real(
     shap_sign_epsilon: float = 0.0,
     shap_output_root: str = "shap_target_class",
     pwl_max_segments: int = DEFAULT_PWL_MAX_SEGMENTS,
+    pwl_max_triangles: int = DEFAULT_PWL_MAX_TRIANGLES,
     pwl_error_tolerance: float = DEFAULT_PWL_ERROR_TOLERANCE,
     probe_enabled: bool = True,
     probe_initial_points: int = DEFAULT_PROBE_INITIAL_POINTS,
@@ -282,6 +284,7 @@ def cifar10_global_real(
             "transform_mode": "aces-like-pwl",
             "global_shift_kind": shift_kind,
             "pwl_max_segments": int(pwl_max_segments),
+            "pwl_max_triangles": pwl_max_triangles,
             "pwl_error_tolerance": float(pwl_error_tolerance),
             "pwl_error_metric": ACES_LIKE_PWL_ERROR_METRIC,
             "pwl_validator_version": ACES_LIKE_PWL_VALIDATOR_VERSION,
