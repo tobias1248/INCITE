@@ -56,12 +56,35 @@ one shared X
 
 > ACES-like 是 reference transform；PWL 是讓這個 reference transform 能被目前 symbolic engine 使用的近似層。
 
-目前 ACES-like symbolic model 的另一個重要不變量是：整張 image 只有一個
-symbolic degree of freedom，也就是 `__pyct_global_x_VAR`。OKLab → OKLCh、local
+原有單軸 ACES-like symbolic model 的不變量是：整張 image 只有一個
+symbolic degree of freedom，也就是 `__pyct_global_x_VAR`。本文件後續的一維
+範例描述這條路徑。OKLab → OKLCh、local
 MINDE gamut mapping 和 chroma bisection 都在 concrete PWL 建構階段執行，不會以
 `hypot`、`atan2`、`sin`、`cos` 或 bisection constraint 的形式直接進入 SMT。
 
 這不是完整的官方 ACES output transform，而是以 OKLCh、tone curve 和 gamut mapping 組成的工程近似。
+
+### Hybrid 的一軸／兩軸組合
+
+ACES-like `hybrid-de` 現在可用 `--de-search-axes`、`--pyct-search-axes`
+各自選擇 `brightness`、`contrast` 或 `both`。預設 `auto` 保留 DE 單軸、
+PyCT 另一軸的行為。兩軸的套用順序由 `--aces-transform-order` 決定，
+每次轉換都保留精確 gamut mapping。
+
+PyCT 在 DE 最佳 seed 圖上追加轉換，初始 `(0, 0)` 保留 seed；不是從原圖
+重新搜尋 DE 的絕對參數。兩階段的 range 分別限制各自的參數，不能把它們相加。
+
+PyCT 選 `both` 時，symbolic bridge 使用 `__pyct_brightness_VAR` 與
+`__pyct_contrast_VAR` 兩個有界 real variables。新增的
+`libct/aces_like_pwl_2d.py` 在聯合轉換的參數平面上建立連續三角網格；
+每個三角形的 RGB 都是兩變數的線性式，不將兩份一維 PWL 相加，也不直接將
+色彩科學函式展開成 SMT。`--aces-pwl-max-triangles` 預設 128，單軸的
+`--aces-pwl-max-segments` 仍預設 32。誤差容忍沿用 1/255。
+
+網格誤差是對邊界及內部取樣的最大誤差，並非數學上的全域誤差保證；候選
+還會檢查當點的近似誤差，再用精確轉換和真實模型驗證。超出建構預算時
+記錄失敗，不自動放寬。二維 probe 的 17 points 是整體初始預算，並可再做
+最多 8 次已觀測標籤轉換區間的細化。各組合的命令與結果欄位見 README。
 
 ## 1. 建議閱讀順序
 

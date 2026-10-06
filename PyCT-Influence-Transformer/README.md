@@ -314,13 +314,75 @@ options apply to the PyCT axis. Reference validation uses the exact transform
 and the source label. Invalid PWL construction or runtime error bounds produce
 an error result rather than accepting an approximate attack.
 
-The experiment name includes `margin_aces1`. `source_input.npy` and
+The default experiment name includes `margin_aces1`. `source_input.npy` and
 `ori_input.npy` retain the clean source, `de_seed_input.npy` retains the handoff seed when DE fails,
 and `sat_global_x.npy` stores PyCT's scalar candidates. Stats record
 `hybrid_de_shift_kind`, `hybrid_de_seed_x`, `hybrid_pyct_shift_kind`,
 `hybrid_transform_order`, PWL diagnostics, and handoff time. Total hybrid time
 includes DE, PWL handoff, and PyCT. Margin ranking uses the actual SAT input's
 reference margin even when concrete probes also evaluate neighboring points.
+
+#### Select DE and PyCT axes independently
+
+For ACES-like `hybrid-de`, `--de-search-axes` and `--pyct-search-axes` each
+accept `auto`, `brightness`, `contrast`, or `both`. Defaults preserve the
+one-axis DE / other-axis PyCT behavior above. DE `auto` uses
+`--global-shift-kind`; PyCT `auto` uses the opposite of the resolved scalar
+DE axis (or the opposite of `--global-shift-kind` when DE uses both axes).
+Explicit axis, order, and triangle-budget flags require ACES-like `hybrid-de`.
+
+| DE setting | PyCT setting | Search dimensions |
+|---|---|---|
+| `brightness` | `contrast` | 1 + 1 |
+| `both` | `contrast` | 2 + 1 |
+| `brightness` | `both` | 1 + 2 |
+| `both` | `both` | 2 + 2 |
+
+```bash
+.venv/bin/python -m pyct \
+  --attack-mode hybrid-de --dataset cifar10 \
+  --model-name cifar10_concolic_transformer \
+  --global-shift-kind aces-brightness --first-n 1 \
+  --de-search-axes both --pyct-search-axes both \
+  --aces-transform-order brightness-contrast \
+  --global-x-min -0.2 --global-x-max 0.2 \
+  --aces-pwl-max-triangles 128
+```
+
+`--aces-transform-order` chooses `brightness-contrast` (default) or
+`contrast-brightness` within each two-axis invocation, with gamut mapping
+after each exact pass. DE's population size remains a total candidate budget;
+400 means 400 images per population for either dimension count.
+
+The handoff is **seed relative**: PyCT adds its selected transform(s) to DE's
+already transformed image. Its initial scalar zero or pair `(0, 0)` preserves
+that seed. It does not reset or re-optimize DE's original parameters. A
+two-axis DE followed by two-axis PyCT can therefore apply four sequential
+passes; parameters cannot be summed because gamut mapping intervenes. Bounds
+apply to each active control in each stage, not the accumulated image change.
+
+Two-axis PyCT uses a conforming triangular PWL mesh of the joint RGB
+transform, with two bounded SMT reals and linear planes within each triangle.
+`--aces-pwl-max-triangles` defaults to 128; the existing 32-segment limit
+applies to scalar PWL only. Both use `--aces-pwl-error-tolerance` (default
+1/255). Mesh validation samples edges and triangle interiors; it is not a
+proof of uniform approximation error. Runtime candidate error is checked
+again, and reference validation uses exact transforms. Exceeding the mesh
+budget or runtime tolerance records an error without relaxing either limit.
+The two-axis model can cost more time and memory than the scalar model.
+
+The concrete probe uses one total initial-point budget (17 by default), with
+up to 8 additional segment refinements; it does not square the budget for two
+axes. SAT candidates and probes use the clean source's reference label.
+
+Configured runs add compact `axes<DE>-<PyCT>-<order>` and, for two-axis PyCT,
+`tri<budget>` components to experiment names; two-axis PyCT uses `margin_aces2`.
+Metadata records resolved axes,
+dimensions, `hybrid_handoff_mode=seed-relative`, canonical `[brightness,
+contrast]` DE parameters, PyCT seed parameters, mesh knots, validator version,
+and sampled error. Two-axis SAT pairs are saved in `sat_hybrid_bc.npy` with
+shape `(N, 2)`; scalar runs retain `sat_global_x.npy`. Two-pass gamut/clipping
+counts describe operations across both passes and can count a pixel twice.
 
 ### Experimental SMT path relaxation
 
