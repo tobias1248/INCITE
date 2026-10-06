@@ -757,3 +757,206 @@ def test_aces_like_runtime_exact_error_check_fails_closed(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="exceeds tolerance"):
         materialize_global_real_details(_rgb_inputs(rgb, 0.05), config)
+
+
+def _joint_aces_config(rgb, *, order="brightness-contrast", hybrid=False):
+    return global_real.build_aces_like_global_real_config(rgb, {
+        "search_axes": "both", "global_shift_kind": "aces-brightness",
+        "effective_min": -0.1, "effective_max": 0.1, "bounds_mode": "clip",
+        "transform_order": order, "pwl_max_triangles": 128,
+        "pwl_error_tolerance": 1.0 / 255.0, "hybrid_de_enabled": hybrid,
+    })
+
+
+def _joint_rgb_inputs(rgb, brightness, contrast):
+    inputs = _rgb_inputs(rgb, 0.0)
+    inputs.pop(GLOBAL_X_INPUT_NAME)
+    inputs[GLOBAL_BRIGHTNESS_INPUT_NAME] = brightness
+    inputs[GLOBAL_CONTRAST_INPUT_NAME] = contrast
+    return inputs
+
+
+@pytest.mark.parametrize("order", ["brightness-contrast", "contrast-brightness"])
+def test_joint_aces_seed_zero_preserves_pixels_and_declares_two_bounded_reals(order):
+    seed = np.asarray([[[0.2, 0.5, 0.8]]])
+    config = _joint_aces_config(seed, order=order, hybrid=True)
+    primitive = _joint_rgb_inputs(seed, 0.0, 0.0)
+    engine = _Engine(config)
+    args, kwargs = ConcolicArgumentBuilder(engine).build(
+        lambda **values: values, primitive,
+        {GLOBAL_BRIGHTNESS_INPUT_NAME: 1, GLOBAL_CONTRAST_INPUT_NAME: 1},
+    )
+    assert args == []
+    assert config["transform_mode"] == "aces-like-pwl-2d"
+    assert engine.concolic_name_list == [GLOBAL_BRIGHTNESS_SMT_NAME, GLOBAL_CONTRAST_SMT_NAME]
+    assert engine.var_to_types == {
+        GLOBAL_BRIGHTNESS_SMT_NAME: "Real", GLOBAL_CONTRAST_SMT_NAME: "Real",
+    }
+    assert solver_variable_bounds(config) == {
+        GLOBAL_BRIGHTNESS_SMT_NAME: (-0.1, 0.1), GLOBAL_CONTRAST_SMT_NAME: (-0.1, 0.1),
+    }
+    materialized, parameters, clipped = materialize_global_real_arguments(primitive, config)
+    assert parameters == (0.0, 0.0)
+    assert clipped == 0
+    assert set(kwargs) == set(materialized) == {"v_0_0_0", "v_0_0_1", "v_0_0_2"}
+    for channel in range(3):
+        assert materialized[f"v_0_0_{channel}"] == seed[0, 0, channel]
+        assert float(kwargs[f"v_0_0_{channel}"]) == pytest.approx(seed[0, 0, channel])
+
+
+def test_joint_aces_symbolic_formulas_execute_as_linear_real_arithmetic_in_cvc5():
+    cvc5 = shutil.which("cvc5")
+    if cvc5 is None:
+        pytest.skip("cvc5 is required for the runtime SMT serialization regression")
+    from libct.utils import py2smt
+
+    seed = np.asarray([[[0.2, 0.5, 0.8]]])
+    config = _joint_aces_config(seed)
+    engine = _Engine(config)
+    _, kwargs = ConcolicArgumentBuilder(engine).build(
+        lambda **values: values, _joint_rgb_inputs(seed, 0.0, 0.0),
+        {GLOBAL_BRIGHTNESS_INPUT_NAME: 1, GLOBAL_CONTRAST_INPUT_NAME: 1},
+    )
+    formulas = [Predicate.get_formula_deep(kwargs[f"v_0_0_{channel}"]) for channel in range(3)]
+    assert all(GLOBAL_BRIGHTNESS_SMT_NAME in formula and GLOBAL_CONTRAST_SMT_NAME in formula
+               and "ite" in formula for formula in formulas)
+    for brightness, contrast in ((0.033, -0.046), (-0.047, 0.024), (0.075, 0.083), (0.0, 0.0)):
+        materialized, _, _ = materialize_global_real_arguments(
+            _joint_rgb_inputs(seed, brightness, contrast), config
+        )
+        statements = [
+            "(set-logic QF_LRA)",
+            f"(declare-const {GLOBAL_BRIGHTNESS_SMT_NAME} Real)",
+            f"(declare-const {GLOBAL_CONTRAST_SMT_NAME} Real)",
+            f"(assert (= {GLOBAL_BRIGHTNESS_SMT_NAME} {py2smt(brightness)}))",
+            f"(assert (= {GLOBAL_CONTRAST_SMT_NAME} {py2smt(contrast)}))",
+        ]
+        for channel, formula in enumerate(formulas):
+            value = materialized[f"v_0_0_{channel}"]
+            statements.append(
+                f"(assert (and (>= {formula} {py2smt(value - 1e-10)}) "
+                f"(<= {formula} {py2smt(value + 1e-10)})))"
+            )
+        statements.append("(check-sat)")
+        result = subprocess.run(
+            [cvc5, "--lang", "smt2", "--quiet"], input="\n".join(statements),
+            text=True, capture_output=True, check=False, timeout=10,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "sat", result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("order", ["brightness-contrast", "contrast-brightness"])
+def test_joint_aces_hybrid_reference_and_recorded_images_use_exact_transform(order):
+    from libct.aces_like import apply_aces_like_joint_transform
+
+    seed = np.asarray([[[0.2, 0.5, 0.8]]])
+    config = _joint_aces_config(seed, order=order)
+    brightness, contrast = 0.033, -0.046
+    primitive = _joint_rgb_inputs(seed, brightness, contrast)
+    approximate, _, _ = materialize_global_real_arguments(primitive, config)
+    approximation = np.asarray([[[approximate[f"v_0_0_{channel}"] for channel in range(3)]]])
+    exact = apply_aces_like_joint_transform(seed, brightness, contrast, order=order).rgb
+    assert np.max(np.abs(approximation - exact)) > 1e-7
+    hybrid = {**config, "hybrid_de_enabled": True, "probe_enabled": False}
+    materialized, parameters, _, diagnostics = materialize_global_real_details(primitive, hybrid)
+    assert parameters == (brightness, contrast)
+    result = np.asarray([[[materialized[f"v_0_0_{channel}"] for channel in range(3)]]])
+    np.testing.assert_array_equal(result, exact)
+    assert diagnostics["pwl_error_at_x"] <= hybrid["pwl_error_tolerance"]
+
+    recorder = ConcolicTestRecorder(None, "case_joint")
+    recorder.global_real_config = hybrid
+    recorder.input_shape = seed.shape
+    recorder.save_sat_input(primitive)
+    recorder.find_adversarial_input(primitive, attack_label=1)
+    np.testing.assert_array_equal(recorder.sat_inputs[0], exact.astype(np.float32))
+    np.testing.assert_array_equal(recorder.adversarial_input, exact.astype(np.float32))
+
+    channel = int(np.argmax(np.abs(approximation - exact)))
+    midpoint = (approximation[0, 0, channel] + exact[0, 0, channel]) / 2.0
+    approximate_is_higher = approximation[0, 0, channel] > exact[0, 0, channel]
+
+    def predict_scores(images):
+        value = images[0, 0, 0, channel]
+        changed = value > midpoint if approximate_is_higher else value < midpoint
+        return np.asarray([[0.1, 0.9] if changed else [0.9, 0.1]])
+
+    assert np.argmax(predict_scores(approximation[np.newaxis, ...])[0]) == 1
+    recorder.original_label = 0
+    recorder.attack_label = None
+    engine = SimpleNamespace(
+        global_real_config=hybrid, reference_score_predictor=predict_scores,
+        _get_recorder=lambda: recorder,
+    )
+    runner = CandidateExecutionRunner(engine)
+    assert runner.validate_sat_candidate(primitive) is False
+    assert recorder.attack_label is None
+    assert engine.current_reference_margin == pytest.approx(0.8)
+
+    def reference(**kwargs):
+        return kwargs
+
+    engine.reference_execute = reference
+    _, reference_inputs = runner.complete_primitive_arguments(reference, primitive)
+    _, search_inputs = runner.complete_primitive_arguments(lambda **kwargs: kwargs, primitive)
+    assert reference_inputs == materialized
+    assert search_inputs == approximate
+
+
+@pytest.mark.parametrize("field,value", [
+    ("pwl_triangle_count", 0), ("pwl_max_triangles", 1),
+    ("pwl_max_abs_error", 1.0), ("pwl_validator_version", "wrong-version"),
+    ("aces_like_gamut_mapper", "wrong-mapper"), ("transform_order", "wrong-order"),
+])
+def test_joint_aces_config_rejects_invalid_error_geometry_and_transform_metadata(field, value):
+    config = _joint_aces_config(np.asarray([[[0.2, 0.5, 0.8]]]))
+    config[field] = value
+    with pytest.raises(ValueError):
+        validate_global_real_config(config)
+
+
+@pytest.mark.parametrize("values", [
+    {GLOBAL_BRIGHTNESS_INPUT_NAME: 0.0},
+    {GLOBAL_CONTRAST_INPUT_NAME: 0.0},
+    {GLOBAL_BRIGHTNESS_INPUT_NAME: 0.0, GLOBAL_CONTRAST_INPUT_NAME: 0.11},
+    {GLOBAL_BRIGHTNESS_INPUT_NAME: float("nan"), GLOBAL_CONTRAST_INPUT_NAME: 0.0},
+    {GLOBAL_BRIGHTNESS_INPUT_NAME: 0.0, GLOBAL_CONTRAST_INPUT_NAME: 0.0, GLOBAL_X_INPUT_NAME: 0.0},
+])
+def test_joint_aces_materialization_rejects_missing_invalid_or_unbounded_parameters(values):
+    seed = np.asarray([[[0.2, 0.5, 0.8]]])
+    config = _joint_aces_config(seed)
+    primitive = {f"v_0_0_{channel}": float(seed[0, 0, channel]) for channel in range(3)}
+    with pytest.raises(ValueError):
+        materialize_global_real_arguments({**primitive, **values}, config)
+
+
+def test_joint_aces_runtime_error_check_rejects_tampered_rgb_table(monkeypatch):
+    seed = np.asarray([[[0.2, 0.5, 0.8]]])
+    config = _joint_aces_config(seed, hybrid=True)
+    cached_builder = global_real._cached_planar
+
+    def tampered_builder(*args):
+        approximation = cached_builder(*args)
+        return replace(
+            approximation, rgb_at_knots=np.clip(approximation.rgb_at_knots + 0.1, 0.0, 1.0)
+        )
+
+    monkeypatch.setattr(global_real, "_cached_planar", tampered_builder)
+    with pytest.raises(ValueError, match="exceeds tolerance"):
+        materialize_global_real_details(_joint_rgb_inputs(seed, 0.033, -0.046), config)
+
+
+def test_joint_aces_approximation_cache_does_not_reuse_different_seed_pixels():
+    from libct.aces_like import apply_aces_like_joint_transform
+
+    first = np.asarray([[[0.2, 0.5, 0.8]]])
+    second = np.asarray([[[0.7, 0.3, 0.4]]])
+    first_config = _joint_aces_config(first, hybrid=True)
+    second_config = _joint_aces_config(second, hybrid=True)
+    for seed, config in ((first, first_config), (second, second_config), (first, first_config)):
+        inputs = _joint_rgb_inputs(seed, 0.033, -0.046)
+        materialized, _, _ = materialize_global_real_arguments(inputs, config)
+        exact = apply_aces_like_joint_transform(seed, 0.033, -0.046).rgb
+        actual = np.asarray([[[materialized[f"v_0_0_{channel}"] for channel in range(3)]]])
+        np.testing.assert_array_equal(actual, exact)

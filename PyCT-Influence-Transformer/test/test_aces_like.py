@@ -25,6 +25,49 @@ def _hue(srgb: np.ndarray) -> np.ndarray:
     return oklab_to_oklch(linear_rgb_to_oklab(srgb_to_linear(srgb)))[..., 2]
 
 
+@pytest.mark.parametrize("order", ["brightness-contrast", "contrast-brightness"])
+def test_joint_transform_matches_ordered_exact_transforms(order) -> None:
+    source = np.asarray([[[0.12, 0.45, 0.85], [0.9, 0.25, 0.07]]])
+    original = source.copy()
+    parameters = {"brightness": 0.08, "contrast": -0.06}
+    expected = source
+    for axis in order.split("-"):
+        expected = apply_aces_like_transform(
+            expected, parameters[axis], kind="aces-" + axis
+        ).rgb
+
+    result = aces_like.apply_aces_like_joint_transform(
+        source, parameters["brightness"], parameters["contrast"], order=order
+    )
+
+    np.testing.assert_array_equal(result.rgb, expected)
+    np.testing.assert_array_equal(source, original)
+
+
+@pytest.mark.parametrize("order", ["brightness-contrast", "contrast-brightness"])
+@pytest.mark.parametrize("brightness,contrast", [(0.0, 0.0), (0.07, 0.0), (0.0, -0.05)])
+def test_joint_transform_zero_axes_preserve_identity_or_single_axis(order, brightness, contrast):
+    source = np.asarray([[[0.2, 0.5, 0.8]]], dtype=np.float64)
+    expected = source if brightness == contrast == 0.0 else apply_aces_like_transform(
+        source, brightness or contrast,
+        kind="aces-brightness" if brightness else "aces-contrast",
+    ).rgb
+    result = aces_like.apply_aces_like_joint_transform(source, brightness, contrast, order=order)
+    np.testing.assert_array_equal(result.rgb, expected)
+
+
+@pytest.mark.parametrize("brightness,contrast,order", [
+    (float("nan"), 0.0, "brightness-contrast"),
+    (0.0, float("inf"), "brightness-contrast"),
+    (0.0, 0.0, "brightness-brightness"),
+])
+def test_joint_transform_rejects_invalid_parameters(brightness, contrast, order):
+    with pytest.raises(ValueError):
+        aces_like.apply_aces_like_joint_transform(
+            np.asarray([[[0.2, 0.5, 0.8]]]), brightness, contrast, order=order
+        )
+
+
 def test_srgb_oklab_round_trips_are_accurate() -> None:
     rgb = np.asarray(
         [[[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]], [[0.1, 0.7, 0.3], [0.95, 0.2, 0.6]]],
@@ -235,4 +278,3 @@ def test_linear_to_srgb_handles_negative_values_without_runtime_warning() -> Non
         result = linear_to_srgb(np.asarray([[[-1.0, 0.0, 1.0]]], dtype=np.float64))
     assert np.all(np.isfinite(result))
     assert result[0, 0, 0] < 0.0
-

@@ -214,3 +214,93 @@ def test_de_detects_label_flip_even_when_margins_tie() -> None:
 def test_de_rejects_unsupported_transform(shift_kind: str) -> None:
     with pytest.raises(ValueError, match="shift_kind"):
         coefficients_for_shift(np.full((1, 1, 3), 0.5), shift_kind)
+
+
+@pytest.mark.parametrize("order", ["brightness-contrast", "contrast-brightness"])
+def test_joint_de_population_budget_determinism_and_exact_best_seed(order) -> None:
+    from libct.aces_like import apply_aces_like_joint_transform
+
+    source = np.asarray([[[0.2, 0.5, 0.8]]], dtype=np.float32)
+    original = source.copy()
+    batches = []
+
+    def predict(images):
+        batches.append(images.copy())
+        return np.tile([[0.9, 0.1]], (len(images), 1))
+
+    arguments = dict(
+        shift_kind="aces-brightness", search_axes="both", transform_order=order,
+        lower=-0.1, upper=0.1, original_label=0, random_seed=37,
+        maxiter=2, population_size=5,
+    )
+    first = run_global_real_differential_evolution(source, predict_batch=predict, **arguments)
+    first_batches = [batch.copy() for batch in batches]
+    batches.clear()
+    second = run_global_real_differential_evolution(source, predict_batch=predict, **arguments)
+
+    assert not first.success
+    assert first.iterations == 2
+    assert first.function_evaluations == 15
+    assert [len(batch) for batch in first_batches] == [5, 5, 5]
+    assert len(first.best_params) == 2
+    assert all(-0.1 <= value <= 0.1 for value in first.best_params)
+    assert first.best_params == second.best_params
+    for original_batch, repeated_batch in zip(first_batches, batches):
+        np.testing.assert_array_equal(original_batch, repeated_batch)
+    np.testing.assert_allclose(
+        first.best_image,
+        apply_aces_like_joint_transform(source, *first.best_params, order=order).rgb,
+        atol=1e-7,
+    )
+    np.testing.assert_array_equal(source, original)
+
+
+@pytest.mark.parametrize("axis", ["brightness", "contrast"])
+def test_explicit_single_axis_de_preserves_legacy_search(axis) -> None:
+    source = np.asarray([[[0.2, 0.5, 0.8]]], dtype=np.float32)
+    arguments = dict(
+        shift_kind="aces-" + axis, lower=-0.1, upper=0.1,
+        original_label=0, random_seed=14, maxiter=1, population_size=5,
+        predict_batch=lambda images: np.tile([[0.9, 0.1]], (len(images), 1)),
+    )
+    legacy = run_global_real_differential_evolution(source, **arguments)
+    explicit = run_global_real_differential_evolution(source, search_axes=axis, **arguments)
+
+    assert explicit.best_x == legacy.best_x
+    assert explicit.function_evaluations == legacy.function_evaluations
+    np.testing.assert_array_equal(explicit.best_image, legacy.best_image)
+
+
+@pytest.mark.parametrize("axis", ["brightness", "contrast"])
+def test_explicit_de_axis_is_independent_of_global_shift_kind(axis) -> None:
+    source = np.asarray([[[0.2, 0.5, 0.8]]], dtype=np.float32)
+    result = run_global_real_differential_evolution(
+        source, shift_kind="aces-contrast" if axis == "brightness" else "aces-brightness",
+        search_axes=axis, lower=-0.1, upper=0.1, original_label=0,
+        random_seed=11, maxiter=0, population_size=5,
+        predict_batch=lambda images: np.tile([[0.9, 0.1]], (len(images), 1)),
+    )
+    expected = apply_aces_like_transform(source, result.best_x, kind="aces-" + axis).rgb
+    np.testing.assert_allclose(result.best_image, expected, atol=1e-7)
+
+
+def test_joint_de_detects_non_best_index_label_flip_when_margins_tie():
+    batches = []
+
+    def predict(images):
+        batches.append(images.copy())
+        scores = np.tile([[0.0, 0.5, 0.5]], (len(images), 1))
+        scores[2] = [0.5, 0.5, 0.0]
+        return scores
+
+    result = run_global_real_differential_evolution(
+        np.asarray([[[0.2, 0.5, 0.8]]]), shift_kind="aces-brightness",
+        search_axes="both", lower=-0.1, upper=0.1, original_label=1,
+        predict_batch=predict, random_seed=37, maxiter=75, population_size=5,
+    )
+    assert result.success
+    assert result.best_label == 0
+    assert result.best_margin == 0.0
+    assert result.iterations == 0
+    assert result.function_evaluations == 5
+    np.testing.assert_array_equal(result.best_image, batches[0][2])
