@@ -121,6 +121,10 @@ def _make_args(**overrides):
         global_real_probe_tolerance_fraction=1.0 / 1024.0,
         de_maxiter=75,
         de_population_size=400,
+        de_search_axes="auto",
+        pyct_search_axes="auto",
+        aces_transform_order="brightness-contrast",
+        aces_pwl_max_triangles=128,
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -449,6 +453,81 @@ def test_run_launcher_builds_hybrid_de_payload(monkeypatch, kind, path_mode) -> 
     assert queued_payload["global_real_config"]["hybrid_de_maxiter"] == 75
     assert queued_payload["global_real_config"]["hybrid_de_population_size"] == 32
     assert queued_payload["global_real_config"]["hybrid_de_random_seed"] == 22
+
+
+@pytest.mark.parametrize("de_axes,pyct_axes", [
+    ("brightness", "contrast"), ("both", "contrast"),
+    ("brightness", "both"), ("both", "both"),
+    ("contrast", "contrast"),
+])
+@pytest.mark.parametrize("order", ["brightness-contrast", "contrast-brightness"])
+@pytest.mark.parametrize("triangle_budget", [64, 128])
+def test_launcher_preserves_independent_axes_and_distinguishes_experiments(
+    monkeypatch, de_axes, pyct_axes, order, triangle_budget,
+) -> None:
+    calls = []
+    _install_runtime_fakes(monkeypatch)
+    monkeypatch.setattr(launcher, "collect_stage_cases", lambda _inputs: [])
+    monkeypatch.setattr(launcher, "should_run_payload", lambda *_args, **_kwargs: True)
+
+    def build_payload(_model, **kwargs):
+        calls.append(kwargs)
+        return [{
+            "idx": 0, "save_exp": {}, "in_dict": {}, "con_dict": {},
+            "global_real_config": {"global_shift_kind": "aces-brightness"},
+            "popped_log_attack_mode": kwargs["attack_mode"],
+        }]
+
+    monkeypatch.setattr(launcher, "cifar10_global_real", build_payload)
+    launcher.run_launcher(_make_args(
+        dataset="cifar10", attack_mode="hybrid-de", norm_01=True,
+        global_shift_kind="aces-brightness", de_search_axes=de_axes,
+        pyct_search_axes=pyct_axes, aces_transform_order=order,
+        aces_pwl_max_triangles=triangle_budget,
+    ))
+    payload = next(item for item in _FakeQueue.created[0].items if isinstance(item, dict))
+    config = payload["global_real_config"]
+    assert config["hybrid_de_search_axes"] == de_axes
+    assert config["hybrid_pyct_search_axes"] == pyct_axes
+    assert config["transform_order"] == order
+    assert config["pwl_max_triangles"] == triangle_budget
+    short = {"brightness": "b", "contrast": "c", "both": "bc"}
+    order_tag = "bc" if order == "brightness-contrast" else "cb"
+    assert f"axes{short[de_axes]}-{short[pyct_axes]}-{order_tag}" in calls[0]["attack_mode"]
+    assert (f"tri{triangle_budget}" in calls[0]["attack_mode"]) is (pyct_axes == "both")
+    assert calls[0]["defer_pwl"] is True
+
+
+@pytest.mark.parametrize("kind", ["aces-brightness", "aces-contrast"])
+@pytest.mark.parametrize("de_axes", ["auto", "both", "contrast"])
+def test_launcher_resolves_auto_axes_without_changing_legacy_names(
+    monkeypatch, kind, de_axes,
+) -> None:
+    calls = []
+    _install_runtime_fakes(monkeypatch)
+    monkeypatch.setattr(launcher, "collect_stage_cases", lambda _inputs: [])
+    monkeypatch.setattr(launcher, "should_run_payload", lambda *_args, **_kwargs: True)
+
+    def build_payload(_model, **kwargs):
+        calls.append(kwargs)
+        return [{
+            "idx": 0, "save_exp": {}, "in_dict": {}, "con_dict": {},
+            "global_real_config": {"global_shift_kind": kind},
+        }]
+
+    monkeypatch.setattr(launcher, "cifar10_global_real", build_payload)
+    launcher.run_launcher(_make_args(
+        dataset="cifar10", attack_mode="hybrid-de", norm_01=True,
+        global_shift_kind=kind, de_search_axes=de_axes,
+    ))
+    payload = next(item for item in _FakeQueue.created[0].items if isinstance(item, dict))
+    resolved_de = kind.split("-", 1)[1] if de_axes == "auto" else de_axes
+    scalar_axis = kind.split("-", 1)[1] if resolved_de == "both" else resolved_de
+    assert payload["global_real_config"]["hybrid_de_search_axes"] == resolved_de
+    assert payload["global_real_config"]["hybrid_pyct_search_axes"] == (
+        "contrast" if scalar_axis == "brightness" else "brightness"
+    )
+    assert ("axes" in calls[0]["attack_mode"]) is (de_axes != "auto")
 
 
 def test_run_launcher_skips_payloads_when_progress_says_not_to_run(monkeypatch) -> None:

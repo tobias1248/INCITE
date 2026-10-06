@@ -257,3 +257,86 @@ def test_hybrid_aces_without_probe_updates_sat_margin_once() -> None:
     assert engine.current_reference_margin == pytest.approx(0.07)
     assert engine.recorder.extra_meta["hybrid_pyct_candidate_count"] == 1
     assert "hybrid_pyct_probe_count" not in engine.recorder.extra_meta
+
+
+def _vector_probe_config() -> Dict[str, Any]:
+    return {
+        **_probe_config(), "transform_mode": "aces-like-pwl-2d",
+        "search_axes": "both", "hybrid_de_enabled": True,
+    }
+
+
+def test_two_axis_probe_uses_one_total_budget_and_preserves_sat_margin() -> None:
+    engine = _Engine()
+    engine.global_real_config = _vector_probe_config()
+    runner = CandidateExecutionRunner(engine)
+    seen = []
+
+    def predict_margin(inputs, *, phase, original_label):
+        assert original_label == 0
+        assert phase == "candidate_probe"
+        assert inputs["v_0_0_0"] == 0.4
+        pair = (inputs["__pyct_brightness"], inputs["__pyct_contrast"])
+        seen.append(pair)
+        return 0, 0.4 + pair[0] - pair[1]
+
+    runner._predict_hybrid_margin = predict_margin
+    candidate = {"__pyct_brightness": 0.03, "__pyct_contrast": -0.02, "v_0_0_0": 0.4}
+    original = dict(candidate)
+    assert runner.validate_sat_candidate(candidate) is False
+    assert len(seen) == 17
+    assert len(set(seen)) == len(seen)
+    assert seen[0] == (0.03, -0.02)
+    assert all(-0.1 <= value <= 0.1 for pair in seen for value in pair)
+    assert engine.current_reference_margin == pytest.approx(0.45)
+    assert engine.recorder.extra_meta["hybrid_pyct_candidate_count"] == 1
+    assert engine.recorder.extra_meta["hybrid_pyct_probe_count"] == 17
+    assert candidate == original
+
+
+def test_two_axis_probe_returns_parameter_pair_against_clean_label() -> None:
+    engine = _Engine()
+    engine.global_real_config = _vector_probe_config()
+    runner = CandidateExecutionRunner(engine)
+    seen = []
+
+    def predict_margin(inputs, *, phase, original_label):
+        assert original_label == 0
+        point = (inputs["__pyct_brightness"], inputs["__pyct_contrast"])
+        seen.append(point)
+        return (1, -0.1) if sum(point) >= 0.08 else (0, 0.2)
+
+    runner._predict_hybrid_margin = predict_margin
+    assert runner.validate_sat_candidate({"__pyct_brightness": 0.0, "__pyct_contrast": 0.0}) is True
+    solved = engine.recorder.adversarial_input
+    assert engine.recorder.attack_label == 1
+    assert solved["__pyct_brightness"] + solved["__pyct_contrast"] >= 0.08
+    assert len(seen) <= 17 + 8
+    assert engine.recorder.extra_meta["global_real_probe_refinement_steps"] <= 8
+    assert engine.recorder.extra_meta["global_real_probe_bracket_count"] == 1
+
+
+@pytest.mark.parametrize("seed_label", [0, 1])
+def test_two_axis_initial_execution_requires_clean_reference_label(seed_label) -> None:
+    engine = _Engine()
+    engine.global_real_config = _vector_probe_config()
+    engine.recorder.extra_meta["hybrid_de_original_label"] = 0
+    runner = CandidateExecutionRunner(engine)
+    engine._one_execution = runner.one_execution
+    def predict_margin(_inputs, *, phase, original_label):
+        assert phase == "original_reference"
+        assert original_label == 0
+        return seed_label, 0.2 if seed_label == 0 else -0.2
+
+    runner._predict_hybrid_margin = predict_margin
+    inputs = {"__pyct_brightness": 0.0, "__pyct_contrast": 0.0}
+    if seed_label == 1:
+        with pytest.raises(ValueError, match="seed label differs"):
+            runner.run_initial_execution(inputs, {name: 1 for name in inputs})
+        assert engine.recorder.extra_meta["error_type"] == "hybrid_seed_prediction_mismatch"
+        assert engine.concolic_calls == []
+    else:
+        runner.run_initial_execution(inputs, {name: 1 for name in inputs})
+        assert engine.recorder.original_label == 0
+        assert len(engine.concolic_calls) == 1
+        assert engine.recorder.attack_label is None

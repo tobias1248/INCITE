@@ -522,3 +522,58 @@ def test_global_shift_kind_help_mentions_aces_variants(capsys) -> None:
         parse_args(["--help"])
 
     assert "aces-brightness" in capsys.readouterr().out
+
+
+def test_hybrid_axes_defaults_preserve_scalar_search() -> None:
+    args = parse_args([
+        "--attack-mode", "hybrid-de", "--dataset", "cifar10",
+        "--global-shift-kind", "aces-brightness",
+    ])
+    assert args.de_search_axes == "auto"
+    assert args.pyct_search_axes == "auto"
+    assert args.aces_transform_order == "brightness-contrast"
+    assert args.aces_pwl_max_triangles == 128
+
+
+@pytest.mark.parametrize("de_axes", ["auto", "brightness", "contrast", "both"])
+@pytest.mark.parametrize("pyct_axes", ["auto", "brightness", "contrast", "both"])
+@pytest.mark.parametrize("order", ["brightness-contrast", "contrast-brightness"])
+def test_hybrid_axes_can_be_configured_independently(de_axes, pyct_axes, order) -> None:
+    args = parse_args([
+        "--attack-mode", "hybrid-de", "--dataset", "cifar10",
+        "--global-shift-kind", "aces-contrast",
+        "--de-search-axes", de_axes, "--pyct-search-axes", pyct_axes,
+        "--aces-transform-order", order, "--aces-pwl-max-triangles", "64",
+    ])
+    assert (args.de_search_axes, args.pyct_search_axes) == (de_axes, pyct_axes)
+    assert args.aces_transform_order == order
+    assert args.aces_pwl_max_triangles == 64
+
+
+@pytest.mark.parametrize("mode,kind", [
+    ("hybrid-de", "brightness"), ("hybrid-de", "contrast"),
+    ("global-real", "aces-brightness"), ("queue", "aces-contrast"),
+])
+@pytest.mark.parametrize("option,value", [
+    ("--de-search-axes", "both"), ("--pyct-search-axes", "contrast"),
+    ("--aces-transform-order", "contrast-brightness"),
+    ("--de-search-axes", "auto"), ("--pyct-search-axes", "auto"),
+    ("--aces-transform-order", "brightness-contrast"),
+    ("--aces-pwl-max-triangles", "128"),
+])
+def test_explicit_axes_require_aces_hybrid(mode, kind, option, value) -> None:
+    with pytest.raises(SystemExit):
+        parse_args([
+            "--attack-mode", mode, "--dataset", "cifar10", "--score-alpha", "0.8",
+            "--global-shift-kind", kind, option, value,
+        ])
+
+
+@pytest.mark.parametrize("budget", ["-1", "0", "1", "7"])
+def test_two_axis_pyct_rejects_insufficient_triangle_budget(budget) -> None:
+    with pytest.raises(SystemExit):
+        parse_args([
+            "--attack-mode", "hybrid-de", "--dataset", "cifar10",
+            "--global-shift-kind", "aces-brightness", "--pyct-search-axes", "both",
+            "--aces-pwl-max-triangles", budget,
+        ])

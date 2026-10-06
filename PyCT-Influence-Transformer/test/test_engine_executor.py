@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 import engine.executor as executor
 from libct.global_real import GLOBAL_X_INPUT_NAME, materialize_global_real_arguments
 from libct.global_real_de import GlobalRealDEResult
-from libct.aces_like import apply_aces_like_transform
+from libct.aces_like import apply_aces_like_transform, apply_aces_like_joint_transform
 
 
 def test_validate_collect_mode_rejects_invalid_mode() -> None:
@@ -427,13 +427,10 @@ def test_run_fails_closed_when_reference_model_cannot_load(monkeypatch) -> None:
     assert recorder.extra_meta["error_phase"] == "reference_model_load"
 
 
-@pytest.mark.parametrize("kind,pwl_error,de_success", [
-    ("contrast", False, False), ("aces-brightness", False, False),
-    ("aces-contrast", False, False), ("aces-brightness", True, False),
-    ("aces-contrast", True, False), ("aces-brightness", False, True),
-    ("aces-contrast", False, True),
-])
-def test_hybrid_de_handoff_preserves_source_and_seed(monkeypatch, tmp_path, kind, pwl_error, de_success) -> None:
+def _assert_hybrid_handoff(
+    monkeypatch, tmp_path, kind, pwl_error, de_success,
+    *, de_axes=None, pyct_axes=None, order="brightness-contrast",
+) -> None:
     source = np.asarray(
         [[[0.2, 0.4, 0.6]], [[0.25, 0.45, 0.65]]],
         dtype=np.float32,
@@ -442,7 +439,11 @@ def test_hybrid_de_handoff_preserves_source_and_seed(monkeypatch, tmp_path, kind
         source + 0.05 * (source - source.mean(axis=(0, 1), keepdims=True))
     ).astype(np.float32)
     if kind.startswith("aces-"):
-        seed = apply_aces_like_transform(source, 0.05, kind=kind).rgb.astype(np.float32)
+        if de_axes == "both":
+            seed = apply_aces_like_joint_transform(source, 0.05, -0.02, order=order).rgb.astype(np.float32)
+        else:
+            seed_kind = "aces-" + de_axes if de_axes else kind
+            seed = apply_aces_like_transform(source, 0.05, kind=seed_kind).rgb.astype(np.float32)
     captured = {}
 
     class _FakeEngine:
@@ -490,21 +491,21 @@ def test_hybrid_de_handoff_preserves_source_and_seed(monkeypatch, tmp_path, kind
     )
     monkeypatch.setattr(executor, "_build_explorer", lambda _cfg: _FakeEngine())
     monkeypatch.setattr(executor.libct.explore, "clear_global_context", lambda: None)
-    monkeypatch.setattr(
-        executor,
-        "run_global_real_differential_evolution",
-        lambda *_args, **_kwargs: GlobalRealDEResult(
+    def run_de(*_args, **kwargs):
+        captured["de_kwargs"] = kwargs
+        return GlobalRealDEResult(
             success=de_success,
             original_label=0,
             best_label=1 if de_success else 0,
-            best_x=0.05,
+            best_x=None if de_axes == "both" else 0.05,
+            best_params=(0.05, -0.02) if de_axes == "both" else None,
             best_score=0.7,
             best_margin=0.4,
             best_image=seed,
             iterations=75,
             function_evaluations=30400,
-        ),
-    )
+        )
+    monkeypatch.setattr(executor, "run_global_real_differential_evolution", run_de)
 
     config = {
         "variable_name": GLOBAL_X_INPUT_NAME,
@@ -533,6 +534,11 @@ def test_hybrid_de_handoff_preserves_source_and_seed(monkeypatch, tmp_path, kind
             pwl_max_segments=8, pwl_error_tolerance=1.0 / 255.0,
         )
         config.pop("coefficient_by_input")
+        if de_axes:
+            config.update(
+                hybrid_de_search_axes=de_axes, hybrid_pyct_search_axes=pyct_axes,
+                transform_order=order, pwl_max_triangles=128,
+            )
     if pwl_error:
         def fail_pwl(*_args):
             raise ValueError("seed PWL exceeds tolerance")
@@ -560,6 +566,17 @@ def test_hybrid_de_handoff_preserves_source_and_seed(monkeypatch, tmp_path, kind
         input_for_shap=source,
     )
 
+    if de_axes:
+        assert captured["de_kwargs"]["search_axes"] == de_axes
+        assert captured["de_kwargs"]["transform_order"] == order
+        assert captured["de_kwargs"]["original_label"] == 0
+        meta = recorder[1].extra_meta if de_success or pwl_error else captured["extra_meta"]
+        params = [0.05, -0.02] if de_axes == "both" else ([0.05, 0.0] if de_axes == "brightness" else [0.0, 0.05])
+        assert meta["hybrid_de_best_params"] == params
+        assert meta["hybrid_de_dimensions"] == (2 if de_axes == "both" else 1)
+        assert meta["hybrid_pyct_dimensions"] == (2 if pyct_axes == "both" else 1)
+        assert meta["hybrid_aces_transform_order"] == order
+
     if de_success:
         assert "in_dict" not in captured
         assert recorder[1].attack_label == 1
@@ -579,25 +596,41 @@ def test_hybrid_de_handoff_preserves_source_and_seed(monkeypatch, tmp_path, kind
         return
     assert recorder[0] == 1
     if kind.startswith("aces-"):
-        pyct_kind = "aces-contrast" if kind == "aces-brightness" else "aces-brightness"
+        resolved_de = de_axes or kind.split("-", 1)[1]
+        resolved_pyct = pyct_axes or ("contrast" if resolved_de == "brightness" else "brightness")
+        pyct_kind = kind if resolved_pyct == "both" else "aces-" + resolved_pyct
         runtime_config = captured["global_real_config"]
         assert runtime_config["global_shift_kind"] == pyct_kind
-        assert runtime_config["transform_mode"] == "aces-like-pwl"
+        assert runtime_config["transform_mode"] == ("aces-like-pwl-2d" if resolved_pyct == "both" else "aces-like-pwl")
         assert "pwl_deferred" not in runtime_config
         assert runtime_config["pwl_max_abs_error"] <= runtime_config["pwl_error_tolerance"]
-        assert captured["in_dict"][GLOBAL_X_INPUT_NAME] == 0.0
-        assert captured["concolic_dict"] == {GLOBAL_X_INPUT_NAME: 1}
+        if resolved_pyct == "both":
+            assert GLOBAL_X_INPUT_NAME not in captured["in_dict"]
+            assert captured["in_dict"]["__pyct_brightness"] == 0.0
+            assert captured["in_dict"]["__pyct_contrast"] == 0.0
+            assert captured["concolic_dict"] == {"__pyct_brightness": 1, "__pyct_contrast": 1}
+            assert runtime_config["transform_order"] == order
+            assert runtime_config["pwl_triangle_count"] <= 128
+        else:
+            assert captured["in_dict"][GLOBAL_X_INPUT_NAME] == 0.0
+            assert captured["concolic_dict"] == {GLOBAL_X_INPUT_NAME: 1}
         np.testing.assert_array_equal(
             executor._image_from_input_dict(captured["in_dict"]), seed
         )
         materialized, shift, _ = materialize_global_real_arguments(
             captured["in_dict"], runtime_config
         )
-        assert shift == 0.0
+        assert shift == ((0.0, 0.0) if resolved_pyct == "both" else 0.0)
         np.testing.assert_array_equal(executor._image_from_input_dict(materialized), seed)
-        assert captured["extra_meta"]["hybrid_de_shift_kind"] == kind
-        assert captured["extra_meta"]["hybrid_pyct_shift_kind"] == pyct_kind
-        assert captured["extra_meta"]["hybrid_transform_order"] == [kind, pyct_kind]
+        de_kind = "aces-both" if resolved_de == "both" else "aces-" + resolved_de
+        recorded_pyct_kind = "aces-both" if resolved_pyct == "both" else pyct_kind
+        assert captured["extra_meta"]["hybrid_de_shift_kind"] == de_kind
+        assert captured["extra_meta"]["hybrid_pyct_shift_kind"] == recorded_pyct_kind
+        assert captured["extra_meta"]["hybrid_transform_order"] == [de_kind, recorded_pyct_kind]
+        if de_axes:
+            assert captured["extra_meta"]["hybrid_de_seed_params"] == params
+            assert captured["extra_meta"]["hybrid_pyct_seed_params"] == [0.0, 0.0]
+            assert captured["extra_meta"]["hybrid_handoff_mode"] == "seed-relative"
         assert captured["recorded_hybrid_inputs"][1] is not None
         np.testing.assert_array_equal(recorder[1].original_input, source)
         assert config["pwl_deferred"] is True
@@ -636,6 +669,37 @@ def test_hybrid_de_handoff_preserves_source_and_seed(monkeypatch, tmp_path, kind
     np.testing.assert_array_equal(recorder[1].original_input, source)
 
 
+@pytest.mark.parametrize("kind,pwl_error,de_success", [
+    ("contrast", False, False), ("aces-brightness", False, False),
+    ("aces-contrast", False, False), ("aces-brightness", True, False),
+    ("aces-contrast", True, False), ("aces-brightness", False, True),
+    ("aces-contrast", False, True),
+])
+def test_hybrid_de_handoff_preserves_source_and_seed(monkeypatch, tmp_path, kind, pwl_error, de_success) -> None:
+    _assert_hybrid_handoff(monkeypatch, tmp_path, kind, pwl_error, de_success)
+
+
+@pytest.mark.parametrize("de_axes,pyct_axes", [
+    ("brightness", "contrast"), ("both", "contrast"),
+    ("brightness", "both"), ("both", "both"), ("contrast", "contrast"),
+])
+@pytest.mark.parametrize("order", ["brightness-contrast", "contrast-brightness"])
+def test_hybrid_independent_axes_preserve_exact_de_seed(monkeypatch, tmp_path, de_axes, pyct_axes, order) -> None:
+    _assert_hybrid_handoff(
+        monkeypatch, tmp_path, "aces-brightness", False, False,
+        de_axes=de_axes, pyct_axes=pyct_axes, order=order,
+    )
+
+
+@pytest.mark.parametrize("de_success", [False, True])
+@pytest.mark.parametrize("order", ["brightness-contrast", "contrast-brightness"])
+def test_hybrid_two_axis_failure_and_early_success_artifacts(monkeypatch, tmp_path, de_success, order) -> None:
+    _assert_hybrid_handoff(
+        monkeypatch, tmp_path, "aces-brightness", not de_success, de_success,
+        de_axes="both", pyct_axes="both", order=order,
+    )
+
+
 def test_record_hybrid_de_success_without_starting_pyct() -> None:
     source = np.zeros((1, 1, 3), dtype=np.float32)
     adv = np.ones((1, 1, 3), dtype=np.float32)
@@ -667,6 +731,42 @@ def test_record_hybrid_de_success_without_starting_pyct() -> None:
     np.testing.assert_array_equal(recorder.original_input, source)
     np.testing.assert_array_equal(recorder.adversarial_input, adv)
     assert recorder.extra_meta["hybrid_de_status"] == "success"
+
+
+@pytest.mark.parametrize("params", [[], [(0.01, -0.02), (-0.03, 0.04)]])
+def test_two_axis_sat_artifacts_keep_parameter_pairs_and_exact_images(tmp_path, params) -> None:
+    from libct.global_real import build_aces_like_global_real_config
+    from libct.record import ConcolicTestRecorder
+
+    clean = np.asarray([[[0.2, 0.4, 0.6]]], dtype=np.float32)
+    seed = apply_aces_like_joint_transform(clean, 0.03, -0.02).rgb.astype(np.float32)
+    config = build_aces_like_global_real_config(seed, {
+        "global_shift_kind": "aces-brightness", "search_axes": "both",
+        "requested_min": -0.1, "requested_max": 0.1,
+        "effective_min": -0.1, "effective_max": 0.1, "bounds_mode": "clip",
+        "pwl_max_triangles": 128, "pwl_error_tolerance": 1.0 / 255.0,
+        "transform_order": "brightness-contrast", "hybrid_de_enabled": True,
+    })
+    recorder = ConcolicTestRecorder(str(tmp_path), "case_0")
+    recorder.input_shape = seed.shape
+    recorder.global_real_config = config
+    recorder.extra_meta["hybrid_de_seed_params"] = [0.03, -0.02]
+    recorder.record_hybrid_de_inputs(clean, seed)
+    for brightness, contrast in params:
+        inputs = executor._coefficient_mapping(seed)
+        inputs.update(__pyct_brightness=brightness, __pyct_contrast=contrast)
+        recorder.save_sat_input(inputs)
+        expected = apply_aces_like_joint_transform(seed, brightness, contrast).rgb
+        np.testing.assert_allclose(recorder.sat_inputs[-1], expected, atol=1e-7)
+    recorder.save_stats_dict()
+    saved_params = np.load(tmp_path / "sat_hybrid_bc.npy")
+    assert saved_params.shape == (len(params), 2)
+    np.testing.assert_array_equal(saved_params, np.asarray(params).reshape(-1, 2))
+    assert np.load(tmp_path / "sat_global_gamut_mapped_pixel_count.npy").shape == (len(params),)
+    assert np.load(tmp_path / "sat_global_pwl_error.npy").shape == (len(params),)
+    assert not (tmp_path / "sat_global_x.npy").exists()
+    np.testing.assert_array_equal(np.load(tmp_path / "source_input.npy"), clean)
+    np.testing.assert_array_equal(np.load(tmp_path / "de_seed_input.npy"), seed)
 
 
 def test_run_attaches_complete_aces_like_pwl_metadata(monkeypatch) -> None:
