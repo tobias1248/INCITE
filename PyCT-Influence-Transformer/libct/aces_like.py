@@ -29,6 +29,7 @@ ACES_LIKE_PWL_ERROR_METRIC = "sampled-max-abs-rgb"
 ACES_LIKE_PWL_VALIDATOR_VERSION = "adaptive-31-point-v1"
 DEFAULT_PWL_ERROR_TOLERANCE = 1.0 / 255.0
 DEFAULT_PWL_MAX_SEGMENTS = 32
+ACES_LIKE_TRANSFORM_ORDERS = ("brightness-contrast", "contrast-brightness")
 
 
 class AcesLikeTransformError(ValueError):
@@ -461,6 +462,40 @@ def apply_aces_like_transform(
     )
 
 
+def apply_aces_like_joint_transform(
+    rgb: np.ndarray, brightness: float, contrast: float,
+    *, order: str = "brightness-contrast",
+) -> AcesLikeTransformResult:
+    """Apply both exact controls sequentially, with gamut mapping at each step.
+
+    Parameters are absolute within this invocation. A hybrid invocation on a
+    DE seed adds these transforms to the already transformed seed.
+    """
+    if order not in ACES_LIKE_TRANSFORM_ORDERS:
+        raise AcesLikeTransformError("unknown ACES-like transform order: {!r}".format(order))
+    values = {
+        "brightness": _finite_scalar(brightness, "brightness"),
+        "contrast": _finite_scalar(contrast, "contrast"),
+    }
+    source = _as_rgb(rgb, normalized_srgb=True)
+    result = source
+    gamut_mask_count = 0
+    clipped_count = 0
+    for axis in order.split("-"):
+        transformed = apply_aces_like_transform(result, values[axis], kind="aces-" + axis)
+        result = transformed.rgb
+        # Counts describe mapping operations across both passes; the same
+        # pixel/channel can be counted twice. Colour drift is source-to-final.
+        gamut_mask_count += transformed.diagnostics.gamut_mapped_pixel_count
+        clipped_count += transformed.diagnostics.hard_clipped_channel_count
+    diagnostics = _diagnostics(source, result, np.zeros(source.shape[:-1], dtype=bool), 0)
+    diagnostics = AcesLikeDiagnostics(
+        **{**diagnostics.__dict__, "gamut_mapped_pixel_count": gamut_mask_count,
+           "hard_clipped_channel_count": clipped_count}
+    )
+    return AcesLikeTransformResult(rgb=result, diagnostics=diagnostics)
+
+
 def _pwl_interval_error(
     rgb: np.ndarray,
     kind: str,
@@ -581,6 +616,7 @@ __all__ = [
     "ACES_LIKE_PWL_ERROR_METRIC",
     "ACES_LIKE_PWL_VALIDATOR_VERSION",
     "ACES_LIKE_SHIFT_KINDS",
+    "ACES_LIKE_TRANSFORM_ORDERS",
     "AcesLikeDiagnostics",
     "AcesLikeTransformError",
     "AcesLikeTransformResult",
@@ -588,6 +624,7 @@ __all__ = [
     "DEFAULT_PWL_MAX_SEGMENTS",
     "PiecewiseLinearApproximation",
     "apply_aces_like_transform",
+    "apply_aces_like_joint_transform",
     "build_adaptive_pwl_approximation",
     "linear_rgb_to_oklab",
     "linear_to_srgb",

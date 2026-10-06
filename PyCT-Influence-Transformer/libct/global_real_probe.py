@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple, Union
 
 
 PROBE_STRATEGY_VERSION = "candidate-centered-dyadic-v1"
@@ -24,11 +24,87 @@ class ScalarProbeResult:
     """Outcome and diagnostics for a scalar concrete probe."""
 
     success: bool
-    solved_x: Optional[float]
+    solved_x: Optional[Union[float, Tuple[float, float]]]
     attack_label: Any
-    evaluated_x: Tuple[float, ...]
+    evaluated_x: Tuple[Union[float, Tuple[float, float]], ...]
     bracket_count: int
     refinement_steps: int
+    strategy_version: str = PROBE_STRATEGY_VERSION
+
+
+def probe_vector_domain(
+    candidate_x: Tuple[float, float], lower: float, upper: float,
+    *, original_label: Any, evaluate: Callable[[Tuple[float, float]], Any],
+    initial_points: int = DEFAULT_PROBE_INITIAL_POINTS,
+    max_refinements: int = DEFAULT_PROBE_MAX_REFINEMENTS,
+    tolerance: Optional[float] = None,
+) -> ScalarProbeResult:
+    """Probe a bounded two-axis domain with one total scaffold budget.
+
+    Refinement only bisects a segment between observed different labels. It
+    does not assume that labels are monotone anywhere in the two-axis domain.
+    """
+    if len(candidate_x) != 2:
+        raise ValueError("vector probe requires two parameters")
+    candidate = tuple(float(v) for v in candidate_x)
+    for value in candidate:
+        _validate_domain(value, lower, upper)
+    for value, minimum, name in ((initial_points, 1, "initial_points"), (max_refinements, 0, "max_refinements")):
+        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+            raise ValueError(name + " must be a valid integer")
+    tolerance = (upper - lower) * DEFAULT_PROBE_TOLERANCE_FRACTION if tolerance is None else tolerance
+    if not math.isfinite(tolerance) or tolerance <= 0:
+        raise ValueError("probe tolerance must be finite and positive")
+    points = [candidate]
+
+    def append(point):
+        point = tuple(min(upper, max(lower, float(v))) for v in point)
+        if len(points) < initial_points and not any(
+            all(math.isclose(a, b, rel_tol=0, abs_tol=1e-12) for a, b in zip(point, prior))
+            for prior in points
+        ):
+            points.append(point)
+
+    for point in ((lower, lower), (lower, upper), (upper, lower), (upper, upper),
+                  ((lower + upper) / 2, (lower + upper) / 2)):
+        append(point)
+    radius = (upper - lower) / 32
+    while len(points) < initial_points and radius <= upper - lower:
+        for db, dc in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)):
+            append((candidate[0] + db * radius, candidate[1] + dc * radius))
+        radius *= 2
+    # Arbitrary larger budgets also get deterministic global coverage.
+    side = max(2, math.ceil(math.sqrt(initial_points)))
+    for i in range(side):
+        for j in range(side):
+            append((lower + (upper - lower) * i / (side - 1), lower + (upper - lower) * j / (side - 1)))
+    distance = lambda point: math.hypot(point[0] - candidate[0], point[1] - candidate[1])
+    evaluated, labels = [], {}
+    version = "candidate-centered-vector-dyadic-v1"
+    for point in sorted(points, key=lambda p: (distance(p), p)):
+        labels[point] = evaluate(point)
+        evaluated.append(point)
+        if point == candidate and _is_attack(labels[point], original_label):
+            return ScalarProbeResult(True, point, labels[point], tuple(evaluated), 0, 0, version)
+    attacks = [p for p in points if _is_attack(labels[p], original_label)]
+    if not attacks:
+        return ScalarProbeResult(False, None, None, tuple(evaluated), 0, 0, version)
+    attack = min(attacks, key=lambda p: (distance(p), p))
+    safe = candidate
+    steps = 0
+    while steps < max_refinements and math.dist(safe, attack) > tolerance:
+        midpoint = tuple((a + b) / 2 for a, b in zip(safe, attack))
+        if midpoint == safe or midpoint == attack:
+            break
+        label = evaluate(midpoint)
+        labels[midpoint] = label
+        evaluated.append(midpoint)
+        if _is_attack(label, original_label):
+            attack = midpoint
+        else:
+            safe = midpoint
+        steps += 1
+    return ScalarProbeResult(True, attack, labels[attack], tuple(evaluated), 1, steps, version)
 
 
 def _validate_domain(candidate_x: float, lower: float, upper: float) -> None:
@@ -238,4 +314,5 @@ __all__ = [
     "ScalarProbeResult",
     "build_probe_points",
     "probe_scalar_domain",
+    "probe_vector_domain",
 ]

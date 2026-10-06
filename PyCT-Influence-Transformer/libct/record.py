@@ -8,6 +8,7 @@ from pathlib import Path
 
 from libct.global_real import (
     TRANSFORM_MODE_AFFINE_BC,
+    TRANSFORM_MODE_ACES_LIKE_PWL_2D,
     materialize_global_real_details,
     materialize_global_real_arguments,
 )
@@ -131,7 +132,7 @@ class ConcolicTestRecorder:
 
         evaluated = list(getattr(result, "evaluated_x", ()))
         self.extra_meta["global_real_probe_strategy_version"] = (
-            PROBE_STRATEGY_VERSION
+            getattr(result, "strategy_version", PROBE_STRATEGY_VERSION)
         )
         self.extra_meta["global_real_probe_rounds"] = int(
             self.extra_meta.get("global_real_probe_rounds", 0)
@@ -154,7 +155,7 @@ class ConcolicTestRecorder:
         )
         solved_x = getattr(result, "solved_x", None)
         if solved_x is not None:
-            self.extra_meta["global_real_probe_solved_x"] = float(solved_x)
+            self.extra_meta["global_real_probe_solved_x"] = list(solved_x) if isinstance(solved_x, tuple) else float(solved_x)
             self.extra_meta["global_real_probe_attack_label"] = getattr(
                 result, "attack_label", None
             )
@@ -239,7 +240,7 @@ class ConcolicTestRecorder:
             else:
                 self.global_real_sat_x.append(shift)
             self.global_real_sat_clipped_count.append(clipped_count)
-            if not isinstance(shift, tuple):
+            if self.global_real_config.get("transform_mode") != TRANSFORM_MODE_AFFINE_BC:
                 self.global_real_sat_gamut_mapped_pixel_count.append(
                     self.extra_meta.get("global_real_last_sat_gamut_mapped_pixel_count", 0)
                 )
@@ -301,6 +302,7 @@ class ConcolicTestRecorder:
         if isinstance(shift, tuple):
             self.extra_meta[f"{prefix}_brightness"] = shift[0]
             self.extra_meta[f"{prefix}_contrast"] = shift[1]
+            self.extra_meta[f"{prefix}_de_params"] = self.extra_meta.get("hybrid_de_seed_params")
         else:
             self.extra_meta[f"{prefix}_x"] = shift
             if global_real_config.get("hybrid_de_enabled"):
@@ -712,7 +714,7 @@ class ConcolicTestRecorder:
                 np.save(os.path.join(self.save_dir, "sat_inputs.npy"),
                         np.stack(self.sat_inputs).astype(np.float32))
             if getattr(self, "global_real_config", None) is not None:
-                if self.global_real_config.get("transform_mode") == TRANSFORM_MODE_AFFINE_BC:
+                if self.global_real_config.get("transform_mode") in (TRANSFORM_MODE_AFFINE_BC, TRANSFORM_MODE_ACES_LIKE_PWL_2D):
                     np.save(
                         os.path.join(self.save_dir, "sat_hybrid_bc.npy"),
                         np.asarray(self.hybrid_sat_params, dtype=np.float64).reshape(-1, 2),

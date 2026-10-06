@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -16,9 +17,14 @@ from libct.aces_like import (
     DEFAULT_PWL_ERROR_TOLERANCE,
     DEFAULT_PWL_MAX_SEGMENTS,
     apply_aces_like_transform,
+    apply_aces_like_joint_transform,
+    ACES_LIKE_TRANSFORM_ORDERS,
     build_adaptive_pwl_approximation,
 )
 from libct.utils import ConcolicObject, get_in_dict_shape, py2smt, unwrap
+from libct.aces_like_pwl_2d import (
+    build_adaptive_pwl_2d, DEFAULT_PWL_MAX_TRIANGLES, PWL_2D_VALIDATOR_VERSION,
+)
 
 
 GLOBAL_X_INPUT_NAME = "__pyct_global_x"
@@ -33,10 +39,12 @@ BOUNDS_MODES = (BOUNDS_MODE_CLIP, BOUNDS_MODE_STRICT)
 TRANSFORM_MODE_AFFINE = "affine"
 TRANSFORM_MODE_AFFINE_BC = "affine-brightness-contrast"
 TRANSFORM_MODE_ACES_LIKE_PWL = "aces-like-pwl"
+TRANSFORM_MODE_ACES_LIKE_PWL_2D = "aces-like-pwl-2d"
 TRANSFORM_MODES = (
     TRANSFORM_MODE_AFFINE,
     TRANSFORM_MODE_AFFINE_BC,
     TRANSFORM_MODE_ACES_LIKE_PWL,
+    TRANSFORM_MODE_ACES_LIKE_PWL_2D,
 )
 
 
@@ -45,6 +53,31 @@ def build_aces_like_global_real_config(
 ) -> Dict[str, Any]:
     """Build and validate PWL metadata for the actual image used by PyCT."""
     updated = dict(config)
+    if updated.get("search_axes") == "both":
+        source = np.asarray(rgb, dtype=np.float64)
+        approximation = _cached_planar(
+            source.shape, source.tobytes(),
+            float(updated["effective_min"]), float(updated["effective_max"]),
+            updated.get("transform_order", "brightness-contrast"),
+            updated.get("pwl_max_triangles", DEFAULT_PWL_MAX_TRIANGLES),
+            updated.get("pwl_error_tolerance", DEFAULT_PWL_ERROR_TOLERANCE),
+        )
+        updated.update(
+            transform_mode=TRANSFORM_MODE_ACES_LIKE_PWL_2D,
+            pwl_b_knots=approximation.b_knots.tolist(), pwl_c_knots=approximation.c_knots.tolist(),
+            pwl_triangle_count=approximation.triangle_count,
+            pwl_max_triangles=updated.get("pwl_max_triangles", DEFAULT_PWL_MAX_TRIANGLES),
+            pwl_max_abs_error=float(approximation.max_abs_error),
+            pwl_error_tolerance=approximation.error_tolerance,
+            pwl_error_metric=ACES_LIKE_PWL_ERROR_METRIC,
+            pwl_validator_version=PWL_2D_VALIDATOR_VERSION,
+            transform_order=updated.get("transform_order", "brightness-contrast"),
+            aces_like_color_space=ACES_LIKE_COLOR_SPACE,
+            aces_like_curve_version=ACES_LIKE_CURVE_VERSION,
+            aces_like_gamut_mapper=ACES_LIKE_GAMUT_MAPPER,
+        )
+        updated.pop("pwl_deferred", None)
+        return validate_global_real_config(updated)
     approximation = build_adaptive_pwl_approximation(
         rgb,
         kind=updated["global_shift_kind"],
@@ -84,6 +117,8 @@ def _coerce_exact_int(value: Any, name: str) -> int:
 
 
 def validate_global_real_config(config: Mapping[str, Any]) -> Dict[str, Any]:
+    if config.get("transform_mode") == TRANSFORM_MODE_ACES_LIKE_PWL_2D:
+        return _validate_planar_config(config)
     if config.get("transform_mode") == TRANSFORM_MODE_AFFINE_BC:
         return _validate_affine_bc_config(config)
 
@@ -361,6 +396,147 @@ def _build_aces_like_approximation(
     return approximation, rgb, coordinates
 
 
+@lru_cache(maxsize=2)
+def _cached_planar(shape, data, lower, upper, order, cap, tolerance):
+    # The image bytes are part of the key: never reuse a table for a different
+    # DE seed. A small cache avoids rebuilding the mesh for each SAT/probe.
+    return build_adaptive_pwl_2d(
+        np.frombuffer(data, dtype=np.float64).reshape(shape), lower=lower, upper=upper,
+        order=order, max_triangles=cap, error_tolerance=tolerance,
+    )
+
+
+def _validate_planar_config(config):
+    normalized = dict(config)
+    lower, upper = float(config["effective_min"]), float(config["effective_max"])
+    if (not math.isfinite(lower) or not math.isfinite(upper) or lower >= upper
+            or not lower <= 0 <= upper or config.get("bounds_mode") != BOUNDS_MODE_CLIP):
+        raise ValueError("2D ACES-like bounds must be clip, finite, and include zero")
+    if config.get("search_axes") != "both" or config.get("global_shift_kind") not in ACES_LIKE_SHIFT_KINDS:
+        raise ValueError("2D ACES-like config requires both search axes and an ACES-like kind")
+    if config.get("transform_order") not in ACES_LIKE_TRANSFORM_ORDERS:
+        raise ValueError("2D ACES-like config requires a valid transform_order")
+    for name in ("pwl_b_knots", "pwl_c_knots"):
+        raw = config.get(name)
+        if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+            raise ValueError("2D ACES-like config requires knot lists")
+        knots = [float(v) for v in raw]
+        if (len(knots) < 2 or not all(math.isfinite(v) for v in knots)
+                or any(b <= a for a, b in zip(knots, knots[1:]))
+                or knots[0] != lower or knots[-1] != upper or 0.0 not in knots):
+            raise ValueError("2D ACES-like knots must span bounds, increase, and include zero")
+        normalized[name] = knots
+    count = _coerce_exact_int(config["pwl_triangle_count"], "pwl_triangle_count")
+    cap = _coerce_exact_int(config["pwl_max_triangles"], "pwl_max_triangles")
+    expected = 2 * (len(normalized["pwl_b_knots"]) - 1) * (len(normalized["pwl_c_knots"]) - 1)
+    tolerance = float(config["pwl_error_tolerance"])
+    error = float(config["pwl_max_abs_error"])
+    if (count != expected or cap < count or not math.isfinite(tolerance) or tolerance <= 0
+            or not math.isfinite(error) or error < 0 or error > tolerance):
+        raise ValueError("2D ACES-like PWL budget or error metadata is invalid")
+    for name, value in {
+        "pwl_validator_version": PWL_2D_VALIDATOR_VERSION,
+        "pwl_error_metric": ACES_LIKE_PWL_ERROR_METRIC,
+        "aces_like_color_space": ACES_LIKE_COLOR_SPACE,
+        "aces_like_curve_version": ACES_LIKE_CURVE_VERSION,
+        "aces_like_gamut_mapper": ACES_LIKE_GAMUT_MAPPER,
+    }.items():
+        if config.get(name) != value:
+            raise ValueError("2D ACES-like {} metadata does not match".format(name))
+    normalized.update(effective_min=lower, effective_max=upper, pwl_triangle_count=count,
+                      pwl_max_triangles=cap, pwl_error_tolerance=tolerance, pwl_max_abs_error=error)
+    return normalized
+
+
+def _planar_for_inputs(inputs, config):
+    rgb, coordinates = _input_mapping_to_rgb(inputs)
+    approximation = _cached_planar(
+        rgb.shape, np.asarray(rgb, dtype=np.float64).tobytes(),
+        config["effective_min"], config["effective_max"], config["transform_order"],
+        config["pwl_max_triangles"], config["pwl_error_tolerance"],
+    )
+    for name, actual in (("pwl_b_knots", approximation.b_knots), ("pwl_c_knots", approximation.c_knots)):
+        recorded = np.asarray(config[name])
+        if recorded.shape != actual.shape or not np.allclose(recorded, actual, rtol=0, atol=1e-12):
+            raise ValueError("2D PWL knots do not match the deterministic seed approximation")
+    if not math.isclose(config["pwl_max_abs_error"], approximation.max_abs_error, rel_tol=0, abs_tol=1e-12):
+        raise ValueError("2D PWL sampled error does not match the seed approximation")
+    return approximation, rgb, coordinates
+
+
+def _planar_params(inputs, config):
+    if GLOBAL_X_INPUT_NAME in inputs:
+        raise ValueError("2D ACES-like inputs must not retain scalar X")
+    if any(name not in inputs for name in (GLOBAL_BRIGHTNESS_INPUT_NAME, GLOBAL_CONTRAST_INPUT_NAME)):
+        raise ValueError("2D ACES-like inputs require brightness and contrast")
+    params = tuple(float(unwrap(inputs[name])) for name in (GLOBAL_BRIGHTNESS_INPUT_NAME, GLOBAL_CONTRAST_INPUT_NAME))
+    if any(not math.isfinite(v) or v < config["effective_min"] or v > config["effective_max"] for v in params):
+        raise ValueError("2D ACES-like parameter is outside configured bounds")
+    return params
+
+
+def _build_concolic_planar_kwargs(engine, inputs, config):
+    params = _planar_params(inputs, config)
+    approximation, _rgb, coordinates = _planar_for_inputs(inputs, config)
+    symbols = []
+    for value, name in zip(params, (GLOBAL_BRIGHTNESS_SMT_NAME, GLOBAL_CONTRAST_SMT_NAME)):
+        symbols.append(ConcolicObject(value, name, engine))
+        engine.concolic_name_list.append(name)
+        engine.concolic_flag_dict[name] = 1
+    b, c = symbols
+    regions = []
+    for index, (i, j, half) in enumerate(approximation.regions):
+        lo_b, hi_b = approximation.b_knots[i:i + 2]
+        lo_c, hi_c = approximation.c_knots[j:j + 2]
+        diagonal = [">=" if half == 0 else "<=",
+                    ["*", ["-", b, py2smt(float(lo_b))], py2smt(float(hi_c - lo_c))],
+                    ["*", ["-", c, py2smt(float(lo_c))], py2smt(float(hi_b - lo_b))]]
+        condition = ["and", [">=", b, py2smt(float(lo_b))], ["<=", b, py2smt(float(hi_b))],
+                     [">=", c, py2smt(float(lo_c))], ["<=", c, py2smt(float(hi_c))], diagonal]
+        regions.append((condition, approximation.affine_for_region(index)))
+    concrete = approximation.evaluate(*params)
+    kwargs = {}
+    for name, value in inputs.items():
+        if name in (GLOBAL_BRIGHTNESS_INPUT_NAME, GLOBAL_CONTRAST_INPUT_NAME):
+            continue
+        if name not in coordinates:
+            kwargs[name] = value
+            continue
+        coordinate = coordinates[name]
+        branch = None
+        for condition, (a, d, intercept) in reversed(regions):
+            candidate = ["+", ["*", b, py2smt(float(a[coordinate]))],
+                         ["*", c, py2smt(float(d[coordinate]))], py2smt(float(intercept[coordinate]))]
+            branch = candidate if branch is None else ["ite", condition, candidate, branch]
+        engine.concolic_flag_dict[name + "_VAR"] = 0
+        kwargs[name] = ConcolicObject(float(concrete[coordinate]), branch, engine)
+    return kwargs
+
+
+def _materialize_planar_details(inputs, config, exact_transform):
+    params = _planar_params(inputs, config)
+    approximation, rgb, coordinates = _planar_for_inputs(inputs, config)
+    exact = apply_aces_like_joint_transform(rgb, *params, order=config["transform_order"])
+    approximated = approximation.evaluate(*params)
+    error = float(np.max(np.abs(exact.rgb - approximated)))
+    if error > config["pwl_error_tolerance"] + 1e-12:
+        raise ValueError("2D ACES-like PWL error at candidate exceeds tolerance (observed {})".format(error))
+    use_exact = bool(config.get("hybrid_de_enabled")) if exact_transform is None else exact_transform
+    output = exact.rgb if use_exact else approximated
+    materialized = {
+        name: float(output[coordinates[name]]) if name in coordinates else unwrap(value)
+        for name, value in inputs.items()
+        if name not in (GLOBAL_BRIGHTNESS_INPUT_NAME, GLOBAL_CONTRAST_INPUT_NAME)
+    }
+    diagnostics = {
+        **exact.diagnostics.__dict__, "transform_mode": TRANSFORM_MODE_ACES_LIKE_PWL_2D,
+        "reference_transform": "exact" if use_exact else "pwl",
+        "pwl_region_index": approximation.region_index(*params), "pwl_error_at_x": error,
+        "gamut_count_semantics": "mapping-operations-across-both-passes",
+    }
+    return materialized, params, exact.diagnostics.hard_clipped_channel_count, diagnostics
+
+
 def _pwl_symbolic_expression(
     shared_x: Any,
     approximation: Any,
@@ -393,7 +569,7 @@ def _pwl_symbolic_expression(
 
 def solver_variable_bounds(config: Mapping[str, Any]) -> Dict[str, Tuple[float, float]]:
     normalized = validate_global_real_config(config)
-    if normalized["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
+    if normalized["transform_mode"] in (TRANSFORM_MODE_AFFINE_BC, TRANSFORM_MODE_ACES_LIKE_PWL_2D):
         bounds = (normalized["effective_min"], normalized["effective_max"])
         return {
             GLOBAL_BRIGHTNESS_SMT_NAME: bounds,
@@ -412,6 +588,8 @@ def build_concolic_global_real_kwargs(
     primitive_inputs: Mapping[str, Any],
 ) -> Dict[str, Any]:
     config = validate_global_real_config(engine.global_real_config)
+    if config["transform_mode"] == TRANSFORM_MODE_ACES_LIKE_PWL_2D:
+        return _build_concolic_planar_kwargs(engine, primitive_inputs, config)
     if config["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
         return _build_concolic_affine_bc_kwargs(engine, primitive_inputs, config)
     variable_name = config["variable_name"]
@@ -562,6 +740,8 @@ def materialize_global_real_details(
     exact_transform: Optional[bool] = None,
 ) -> Tuple[Dict[str, Any], Union[float, Tuple[float, float]], int, Dict[str, Any]]:
     normalized = validate_global_real_config(config)
+    if normalized["transform_mode"] == TRANSFORM_MODE_ACES_LIKE_PWL_2D:
+        return _materialize_planar_details(primitive_inputs, normalized, exact_transform)
     if normalized["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
         materialized, params, clipped_count = _materialize_affine_bc_arguments(
             primitive_inputs, normalized
@@ -710,7 +890,7 @@ def materialize_global_real_arguments(
     normalized = validate_global_real_config(config)
     if normalized["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
         return _materialize_affine_bc_arguments(primitive_inputs, normalized)
-    if normalized["transform_mode"] == TRANSFORM_MODE_ACES_LIKE_PWL:
+    if normalized["transform_mode"] in (TRANSFORM_MODE_ACES_LIKE_PWL, TRANSFORM_MODE_ACES_LIKE_PWL_2D):
         materialized, shift, clipped_count, _diagnostics = materialize_global_real_details(
             primitive_inputs, normalized, exact_transform=exact_transform
         )
@@ -729,6 +909,7 @@ __all__ = [
     "GLOBAL_BRIGHTNESS_SMT_NAME",
     "GLOBAL_CONTRAST_SMT_NAME",
     "TRANSFORM_MODE_AFFINE_BC",
+    "TRANSFORM_MODE_ACES_LIKE_PWL_2D",
     "build_aces_like_global_real_config",
     "build_concolic_global_real_kwargs",
     "materialize_global_real_arguments",

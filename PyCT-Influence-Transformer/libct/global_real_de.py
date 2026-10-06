@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Callable, Tuple
+from typing import Callable, Optional, Tuple
 
 import numpy as np
-from libct.aces_like import ACES_LIKE_SHIFT_KINDS, apply_aces_like_transform
+from libct.aces_like import (
+    ACES_LIKE_SHIFT_KINDS, apply_aces_like_transform, apply_aces_like_joint_transform,
+)
 
 
 SUPPORTED_SHIFT_KINDS = ("brightness", "contrast") + ACES_LIKE_SHIFT_KINDS
@@ -21,12 +23,13 @@ class GlobalRealDEResult:
     success: bool
     original_label: int
     best_label: int
-    best_x: float
+    best_x: Optional[float]
     best_score: float  # Original-class score, retained for artifact compatibility.
     best_margin: float  # Original-class score minus the strongest competing score.
     best_image: np.ndarray
     iterations: int
     function_evaluations: int
+    best_params: Optional[Tuple[float, float]] = None
 
 
 def coefficients_for_shift(image: np.ndarray, shift_kind: str) -> np.ndarray:
@@ -86,6 +89,8 @@ def run_global_real_differential_evolution(
     maxiter: int = DEFAULT_DE_MAXITER,
     population_size: int = DEFAULT_DE_POPULATION_SIZE,
     mutation: Tuple[float, float] = DEFAULT_DE_MUTATION,
+    search_axes: Optional[str] = None,
+    transform_order: str = "brightness-contrast",
 ) -> GlobalRealDEResult:
     """Minimize the source-to-runner-up margin with a vectorized best1bin search.
 
@@ -94,6 +99,12 @@ def run_global_real_differential_evolution(
     """
 
     sample = np.asarray(image, dtype=np.float64)
+    if search_axes not in (None, "brightness", "contrast", "both"):
+        raise ValueError("DE search_axes must be brightness, contrast or both")
+    if search_axes == "both" and shift_kind not in ACES_LIKE_SHIFT_KINDS:
+        raise ValueError("joint DE search currently requires ACES-like transforms")
+    if search_axes in ("brightness", "contrast"):
+        shift_kind = ("aces-" if shift_kind in ACES_LIKE_SHIFT_KINDS else "") + search_axes
     if shift_kind in ACES_LIKE_SHIFT_KINDS:
         apply_aces_like_transform(sample, 0.0, kind=shift_kind)
     else:
@@ -118,6 +129,12 @@ def run_global_real_differential_evolution(
         or mutation[1] >= 2.0
     ):
         raise ValueError("DE mutation bounds must satisfy 0 <= low < high < 2")
+
+    if search_axes == "both":
+        return _run_joint_de(
+            sample, lower, upper, original_label, predict_batch, random_seed,
+            maxiter, population_size, mutation, transform_order,
+        )
 
     rng = np.random.RandomState(random_seed)
     population = lower + (
@@ -213,6 +230,77 @@ def run_global_real_differential_evolution(
         best_image=best_image,
         iterations=iterations,
         function_evaluations=evaluations,
+    )
+
+
+def _run_joint_de(
+    sample, lower, upper, original_label, predict_batch, random_seed,
+    maxiter, population_size, mutation, transform_order,
+) -> GlobalRealDEResult:
+    apply_aces_like_joint_transform(sample, 0.0, 0.0, order=transform_order)
+    rng = np.random.RandomState(random_seed)
+    population = np.column_stack([
+        lower + ((rng.permutation(population_size) + rng.random_sample(population_size))
+                 / population_size) * (upper - lower)
+        for _ in range(2)
+    ])
+    evaluations = 0
+
+    def score(points):
+        nonlocal evaluations
+        images = np.stack([
+            apply_aces_like_joint_transform(sample, *point, order=transform_order).rgb
+            for point in points
+        ]).astype(np.float32)
+        predictions = np.asarray(predict_batch(images), dtype=np.float64)
+        if (predictions.ndim != 2 or predictions.shape[0] != len(points)
+                or predictions.shape[1] < 2 or not np.isfinite(predictions).all()
+                or not 0 <= original_label < predictions.shape[1]):
+            raise ValueError("DE predictor returned invalid class scores")
+        evaluations += len(points)
+        source_scores = predictions[:, original_label]
+        others = predictions.copy()
+        others[:, original_label] = -np.inf
+        return source_scores - np.max(others, axis=1), source_scores, np.argmax(predictions, axis=1)
+
+    energies, scores, labels = score(population)
+    iterations = 0
+    for generation in range(maxiter + 1):
+        successful = np.flatnonzero(labels != original_label)
+        if len(successful):
+            best = int(successful[np.argmin(energies[successful])])
+            break
+        best = int(np.argmin(energies))
+        if generation == maxiter:
+            break
+        scale = rng.uniform(*mutation)
+        trials = np.empty_like(population)
+        for candidate in range(population_size):
+            available = np.concatenate((np.arange(candidate), np.arange(candidate + 1, population_size)))
+            first, second = rng.choice(available, size=2, replace=False)
+            mutant = population[best] + scale * (population[first] - population[second])
+            outside = (mutant < lower) | (mutant > upper)
+            mutant[outside] = rng.uniform(lower, upper, size=int(outside.sum()))
+            # CR=1, as in the existing scalar schedule: both mutant coordinates
+            # are selected, while the total population budget stays unchanged.
+            trials[candidate] = mutant
+        trial_energies, trial_scores, trial_labels = score(trials)
+        iterations = generation + 1
+        successful = np.flatnonzero(trial_labels != original_label)
+        if len(successful):
+            best = int(successful[np.argmin(trial_energies[successful])])
+            population, energies, scores, labels = trials, trial_energies, trial_scores, trial_labels
+            break
+        improved = trial_energies < energies
+        population[improved], energies[improved] = trials[improved], trial_energies[improved]
+        scores[improved], labels[improved] = trial_scores[improved], trial_labels[improved]
+    params = tuple(float(value) for value in population[best])
+    return GlobalRealDEResult(
+        success=bool(labels[best] != original_label), original_label=int(original_label),
+        best_label=int(labels[best]), best_x=None, best_params=params,
+        best_score=float(scores[best]), best_margin=float(energies[best]),
+        best_image=apply_aces_like_joint_transform(sample, *params, order=transform_order).rgb.astype(np.float32),
+        iterations=iterations, function_evaluations=evaluations,
     )
 
 

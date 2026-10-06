@@ -11,6 +11,8 @@ from libct.executor.legacy import LegacyConcolicExecutor
 from libct.global_real import (
     TRANSFORM_MODE_AFFINE_BC,
     TRANSFORM_MODE_ACES_LIKE_PWL,
+    TRANSFORM_MODE_ACES_LIKE_PWL_2D,
+    GLOBAL_BRIGHTNESS_INPUT_NAME, GLOBAL_CONTRAST_INPUT_NAME,
     materialize_global_real_arguments,
 )
 from libct.global_real_probe import (
@@ -18,6 +20,7 @@ from libct.global_real_probe import (
     DEFAULT_PROBE_MAX_REFINEMENTS,
     DEFAULT_PROBE_TOLERANCE_FRACTION,
     probe_scalar_domain,
+    probe_vector_domain,
 )
 from libct.utils import unwrap
 
@@ -109,7 +112,7 @@ class CandidateExecutionRunner:
                 config.get("transform_mode") == TRANSFORM_MODE_AFFINE_BC
                 or (
                     config.get("hybrid_de_enabled")
-                    and config.get("transform_mode") == TRANSFORM_MODE_ACES_LIKE_PWL
+                    and config.get("transform_mode") in (TRANSFORM_MODE_ACES_LIKE_PWL, TRANSFORM_MODE_ACES_LIKE_PWL_2D)
                 )
             )
         )
@@ -165,7 +168,7 @@ class CandidateExecutionRunner:
     def _should_probe_global_real(global_real_config: Any) -> bool:
         if not isinstance(global_real_config, dict):
             return False
-        if global_real_config.get("transform_mode") != "aces-like-pwl":
+        if global_real_config.get("transform_mode") not in (TRANSFORM_MODE_ACES_LIKE_PWL, TRANSFORM_MODE_ACES_LIKE_PWL_2D):
             return False
         if global_real_config.get("probe_enabled", True) is False:
             return False
@@ -180,11 +183,13 @@ class CandidateExecutionRunner:
         global_real_config: Dict[str, Any],
     ) -> bool:
         recorder = self._recorder()
+        vector = global_real_config.get("transform_mode") == TRANSFORM_MODE_ACES_LIKE_PWL_2D
         variable_name = global_real_config.get("variable_name")
-        if not isinstance(variable_name, str) or variable_name not in inputs:
+        variables = (GLOBAL_BRIGHTNESS_INPUT_NAME, GLOBAL_CONTRAST_INPUT_NAME) if vector else (variable_name,)
+        if any(not isinstance(name, str) or name not in inputs for name in variables):
             raise ValueError("GlobalReal probe requires a named X input")
 
-        candidate_x = float(unwrap(inputs[variable_name]))
+        candidate_x = tuple(float(unwrap(inputs[name])) for name in variables) if vector else float(unwrap(inputs[variable_name]))
         lower = float(global_real_config["effective_min"])
         upper = float(global_real_config["effective_max"])
         initial_points = int(global_real_config.get("probe_initial_points", 17))
@@ -199,9 +204,10 @@ class CandidateExecutionRunner:
                 recorder.extra_meta.get("hybrid_pyct_candidate_count", 0) + 1
             )
 
-        def evaluate(x_value: float) -> Any:
+        def evaluate(x_value) -> Any:
             probe_inputs = dict(inputs)
-            probe_inputs[variable_name] = float(x_value)
+            values = x_value if vector else (x_value,)
+            probe_inputs.update(zip(variables, values))
             if hybrid:
                 label, margin = self._predict_hybrid_margin(
                     probe_inputs,
@@ -221,7 +227,8 @@ class CandidateExecutionRunner:
             )
 
         started_at = time.perf_counter()
-        result = probe_scalar_domain(
+        probe = probe_vector_domain if vector else probe_scalar_domain
+        result = probe(
             candidate_x,
             lower,
             upper,
@@ -237,7 +244,8 @@ class CandidateExecutionRunner:
 
         if result.success:
             solved_inputs = dict(inputs)
-            solved_inputs[variable_name] = float(result.solved_x)
+            values = result.solved_x if vector else (result.solved_x,)
+            solved_inputs.update(zip(variables, values))
             recorder.find_adversarial_input(solved_inputs, result.attack_label)
             return True
         return False
