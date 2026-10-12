@@ -351,6 +351,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default="shap_target_class",
         help="Root directory for canonical target-class SHAP caches.",
     )
+    parser.add_argument("--global-real-shap-priority", action="store_true",
+                        help="Rank standalone ACES branches using validated target SHAP caches.")
     parser.add_argument(
         "--aces-pwl-max-segments",
         type=_parse_non_negative_int,
@@ -392,6 +394,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     args = parser.parse_args(argv)
+    if args.global_real_shap_priority and (
+        args.attack_mode != "global-real" or args.global_shift_kind not in ACES_LIKE_SHIFT_KINDS
+    ):
+        parser.error("SHAP priority requires standalone global-real with an ACES-like control")
     axes_requested = any(value is not None for value in (
         args.de_search_axes, args.pyct_search_axes, args.aces_transform_order, args.aces_pwl_max_triangles,
     ))

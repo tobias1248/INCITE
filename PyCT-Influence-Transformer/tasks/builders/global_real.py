@@ -217,7 +217,10 @@ def cifar10_global_real(
     probe_max_refinements: int = DEFAULT_PROBE_MAX_REFINEMENTS,
     probe_tolerance_fraction: float = DEFAULT_PROBE_TOLERANCE_FRACTION,
     defer_pwl: bool = False,
+    shap_priority_enabled: bool = False,
 ) -> List[Dict[str, object]]:
+    if shap_priority_enabled and (shift_kind not in ACES_LIKE_SHIFT_KINDS or defer_pwl):
+        raise ValueError("SHAP priority requires standalone scalar ACES")
     if shift_kind not in ACES_LIKE_SHIFT_KINDS:
         return _cifar10_global_real_affine(
             model_name,
@@ -298,12 +301,17 @@ def cifar10_global_real(
             "probe_initial_points": int(probe_initial_points),
             "probe_max_refinements": int(probe_max_refinements),
             "probe_tolerance_fraction": float(probe_tolerance_fraction),
+            "shap_priority_enabled": bool(shap_priority_enabled),
         }
         if defer_pwl:
             # Hybrid builds the other axis only after DE selects its seed.
             global_real_config["pwl_deferred"] = True
         else:
             global_real_config = build_aces_like_global_real_config(sample, global_real_config)
+        shap_input, shap_background = sample, None
+        if shap_priority_enabled:
+            # Match the float32 input and balanced background used by pyct.shap.
+            _, _, shap_input, shap_background = dataset.get_cifar10_test_data_and_set_condict(idx, [])
         inputs.append(
             {
                 "model_name": model_name,
@@ -311,8 +319,8 @@ def cifar10_global_real(
                 "in_dict": in_dict,
                 "con_dict": {GLOBAL_X_INPUT_NAME: 1},
                 "solve_order_stack": "priority_queue",
-                "input_for_shap": sample,
-                "background_dataset_for_shap": None,
+                "input_for_shap": shap_input,
+                "background_dataset_for_shap": shap_background,
                 "shap_value_pre_calculated": True,
                 "shap_output_root": shap_output_root,
                 "popped_log_attack_mode": attack_mode,

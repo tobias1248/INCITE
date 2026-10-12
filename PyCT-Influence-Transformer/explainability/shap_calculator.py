@@ -527,10 +527,16 @@ class ShapValuesComparator:
         shap_value_pre_calculated,
         explainer_type: Literal["gradient", "kernel"] = "gradient",
         output_root: str = DEFAULT_TARGET_CLASS_SHAP_ROOT,
+        require_cached: bool = False,
     ) -> None:
         lookup_mode = str(os.environ.get("PYCT_SHAP_LOOKUP_MODE", "all")).strip().lower()
         self._input_only_lookup = lookup_mode in {"input-only", "input_only", "inputonly"}
+        if require_cached and self._input_only_lookup:
+            raise ValueError("Branch SHAP priority requires all-layer lookup")
         cache_path = Path(output_root) / Path(model_path).stem / f"shap_value_{idx}.json"
+        self.cache_path = cache_path
+        self.cache_metadata = None
+        self._cached_branch_lookup = require_cached
         if shap_value_pre_calculated and cache_path.is_file():
             try:
                 expected_identity = build_cache_identity(
@@ -540,22 +546,31 @@ class ShapValuesComparator:
                     background_dataset=np.asarray(background_dataset),
                     explainer_type=explainer_type,
                 )
-                _, self.shap_values = load_target_class_cache(
+                self.cache_metadata, self.shap_values = load_target_class_cache(
                     cache_path,
                     expected_identity=expected_identity,
                     case_index=idx,
                 )
                 self.layer_count = _infer_layer_count_from_cached_values(self.shap_values)
+                if require_cached and not any(
+                    key.split("_", 1)[0].isdigit() for key in self.shap_values
+                ):
+                    raise ValueError("Branch SHAP priority requires internal-layer values")
                 self.model = None
                 self.calculator = None
                 log.debug("Loaded SHAP cache without model load: %s", cache_path)
                 return
             except Exception as exc:
+                if require_cached:
+                    raise ValueError("Required target SHAP cache is incompatible: {}".format(cache_path)) from exc
                 log.warning(
                     "Failed to load SHAP cache '%s' in fast path (%r); falling back to model-backed path.",
                     cache_path,
                     exc,
                 )
+
+        if require_cached:
+            raise ValueError("Required target SHAP cache is missing: {}".format(cache_path))
 
         self.calculator = ShapValuesCalculator(
             model_path=model_path,
@@ -588,7 +603,10 @@ class ShapValuesComparator:
         layer_number: int,
         indices: tuple[int, ...] | list[tuple[int, ...]],
     ) -> float:
-        if layer_number == self.layer_count - 1:
+        # Cache keys alone cannot identify the final output layer: sequential
+        # caches end at the last hidden layer. Strict branch priority uses the
+        # saved influence rather than suppressing that highest cached index.
+        if layer_number == self.layer_count - 1 and not self._cached_branch_lookup:
             return 0.0
         if isinstance(indices, list):
             if not indices:

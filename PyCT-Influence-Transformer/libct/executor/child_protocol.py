@@ -119,12 +119,16 @@ class ChildProtocol:
             handle.write(contents)
 
     def build_child_shared_state(self, updated_args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        return {
+        state = {
             "updated_args": updated_args,
             "var_to_types": self._engine.var_to_types,
             "concolic_name_list": self._engine.concolic_name_list,
             "concolic_flag_dict": self._engine.concolic_flag_dict,
         }
+        priority = getattr(self._engine, "_shap_priority_stats", None)
+        if priority is not None:
+            state["shap_priority_stats"] = dict(priority)
+        return state
 
     def build_child_ok_envelope(
         self,
@@ -228,6 +232,17 @@ class ChildProtocol:
             "concolic_flag_dict",
             self._engine.concolic_flag_dict,
         )
+        recorder = self._recorder()
+        if recorder is not None:
+            meta = recorder.extra_meta
+            priority = envelope.get("shap_priority_stats")
+            if priority is not None:
+                for key, field in (("lookups", "global_real_shap_lookup_total"),
+                                   ("nonzero", "global_real_shap_nonzero_total")):
+                    value = priority[key]
+                    if type(value) is not int or value < 0:
+                        raise ValueError("Invalid child SHAP counter")
+                    meta[field] = meta.get(field, 0) + value
 
     def raise_transport_failure(
         self,

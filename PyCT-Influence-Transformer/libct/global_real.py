@@ -602,6 +602,8 @@ def build_concolic_global_real_kwargs(
         raise ValueError(f"global real input is missing {variable_name!r}")
 
     shift_value = float(primitive_inputs[variable_name])
+    engine._shap_priority_stats = ({"lookups": 0, "nonzero": 0}
+                                   if config.get("shap_priority_enabled") else None)
     shared_x = ConcolicObject(shift_value, GLOBAL_X_SMT_NAME, engine)
     engine.concolic_name_list.append(GLOBAL_X_SMT_NAME)
     engine.concolic_flag_dict[GLOBAL_X_SMT_NAME] = 1

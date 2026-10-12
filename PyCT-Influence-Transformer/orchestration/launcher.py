@@ -533,6 +533,7 @@ def run_launcher(args: Any) -> None:
                 args.attack_mode == "hybrid-de" and args.global_shift_kind.startswith("aces-")
             ),
             shap_output_root=args.shap_output_root,
+            shap_priority_enabled=getattr(args, "global_real_shap_priority", False),
         )
     else:
         raise ValueError(f"Unsupported attack mode: {args.attack_mode}")

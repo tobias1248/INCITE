@@ -47,7 +47,8 @@ def _requires_shap_comparator(global_real_config: Optional[Dict[str, Any]]) -> b
     """Return whether priority scheduling needs a SHAP comparator."""
     if global_real_config is None:
         return True
-    return global_real_config.get("global_shift_kind", "shap-sign") == "shap-sign"
+    return (global_real_config.get("global_shift_kind", "shap-sign") == "shap-sign"
+            or global_real_config.get("shap_priority_enabled") is True)
 
 def prepare():
     prepare_child_environment()
@@ -573,6 +574,8 @@ class ExplorationEngine:
                 input=np.expand_dims(self.input_for_shap, axis=0),
                 idx=self.idx,
                 shap_value_pre_calculated=self.shap_value_pre_calculated,
+                **({"require_cached": True} if self.global_real_config and
+                   self.global_real_config.get("shap_priority_enabled") else {}),
                 **({"output_root": self.shap_output_root} if self.shap_output_root else {}),
             )
             self.compare = self.comparator.compare
@@ -592,6 +595,15 @@ class ExplorationEngine:
             recorder.global_real_config = self.global_real_config
         if hasattr(self, "extra_meta") and isinstance(self.extra_meta, dict):
             recorder.extra_meta.update(self.extra_meta)
+
+        if self.global_real_config and self.global_real_config.get("shap_priority_enabled"):
+            import hashlib
+            recorder.extra_meta.update({
+                "global_real_shap_priority_enabled": True,
+                "global_real_shap_cache_path": str(self.comparator.cache_path.resolve()),
+                "global_real_shap_cache_sha256": hashlib.sha256(self.comparator.cache_path.read_bytes()).hexdigest(),
+                "global_real_shap_cache_metadata": self.comparator.cache_metadata,
+            })
 
         recorder.input_shape = get_in_dict_shape(all_args)
         self.original_args = all_args.copy()

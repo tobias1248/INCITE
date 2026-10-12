@@ -30,6 +30,10 @@ class ConstraintScheduler:
         ):
             layer_number, indices = position
             shap_value = self._engine.comparator.get_shap_influence(layer_number, indices)
+        priority_stats = getattr(self._engine, "_shap_priority_stats", None)
+        if priority_stats is not None:
+            priority_stats["lookups"] += 1
+            priority_stats["nonzero"] += int(abs(shap_value) > 0)
 
         layer_number = None
         index_summary = "None"
