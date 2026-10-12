@@ -1231,14 +1231,20 @@ class MultiHeadAttentionLayer:
 
     def forwardSingle(self, input, mask=None):
         canonical_input, meta = self._canonicalize_input(input)
+        input_engines = self._attention_engines(canonical_input)
+        if self._attention_tracking_stopped(input_engines):
+            canonical_input = self._concrete_attention_matrix(canonical_input)
         Q = self.transform_and_split(canonical_input, self.WQ, self.BQ, meta["feature_dim"], self._delta_wq)
         K = self.transform_and_split(canonical_input, self.WK, self.BK, meta["feature_dim"], self._delta_wk)
         V = self.transform_and_split(canonical_input, self.WV, self.BV, meta["feature_dim"], self._delta_wv)
+        engines = self._attention_engines(*(Q + K + V))
         attentions = [
             self.dot_product_attention(Q[i], K[i], V[i], meta=meta, mask=mask)
             for i in range(self.num_heads)
         ]
         merged = self.concatenate_heads(attentions)
+        if self._attention_tracking_stopped(engines):
+            merged = self._concrete_attention_matrix(merged)
         outputs = self.output_transform(merged, self.WO, self.BO, self._delta_wo)
         return self._restore_output(outputs, meta)
 
@@ -1364,19 +1370,51 @@ class MultiHeadAttentionLayer:
             for i in x:
                 s = s + i
             return s
+    @staticmethod
+    def _attention_engines(*matrices):
+        """Find all owning engines, including dependencies present only in V."""
+        engines = {}
+        for matrix in matrices:
+            for row in matrix:
+                for value in row:
+                    engine = getattr(value, "engine", None)
+                    if engine is not None:
+                        engines[id(engine)] = engine
+        return tuple(engines.values())
+
+    @staticmethod
+    def _attention_tracking_stopped(engines):
+        # Missing engine metadata is not permission to discard expressions.
+        return bool(engines) and all(
+            getattr(engine, "symbolic_enabled", True) is False for engine in engines
+        )
+
+    @staticmethod
+    def _concrete_attention_matrix(matrix):
+        # Copy values: saved predicates may still reference the original objects.
+        return [[unwrap(value) for value in row] for row in matrix]
+
     def dot_product_attention(self, Q, K, V, meta=None, mask=None):
-        # print('$$$$$ dot product attention')
-        K_T = [*zip(*K)]#32,500
-    
-        attention_scores = self.matrix_multiply(Q, K_T)#500,500
-        # print("777")
-        attention_scores = [[score / (self.key_dim_per_heads ** 0.5) for score in attention_score ]for attention_score in attention_scores]#500,500
-        # print("779")
-        attention_scores = self.softmax(attention_scores, meta=meta)#500,500
-        # print("781")
-        context_vector = self.matrix_multiply(attention_scores, V)#500,32
-        # print("783")
-        return context_vector
+        engines = self._attention_engines(Q, K, V)
+        concrete = False
+        K_T = list(zip(*K))
+        scale = self.key_dim_per_heads ** 0.5
+        attention_scores = []
+        for query_idx in range(len(Q)):
+            if not concrete and self._attention_tracking_stopped(engines):
+                Q = self._concrete_attention_matrix(Q)
+                K_T = self._concrete_attention_matrix(K_T)
+                V = self._concrete_attention_matrix(V)
+                concrete = True
+            # Match the original multiply/add and scale order for each score.
+            row = self.matrix_multiply([Q[query_idx]], K_T)[0]
+            row = [score / scale for score in row]
+            row_max = self._attention_row_max(row, query_idx, meta, engines)
+            attention_scores.append(self._attention_softmax_row(row, row_max))
+        if not concrete and self._attention_tracking_stopped(engines):
+            V = self._concrete_attention_matrix(V)
+        # Keep context operations after every score comparison, as before.
+        return self.matrix_multiply(attention_scores, V)
 
     def _register_attention_position(self, query_idx, key_idx, meta):
         del key_idx
@@ -1392,23 +1430,31 @@ class MultiHeadAttentionLayer:
         rows, cols = token_shape
         return index // cols, index % cols
 
-    def myMax(self, x, i, meta):
+    def _attention_row_max(self, row, query_idx, meta, engines):
+        maximum = row[0]
+        for key_idx in range(len(row)):
+            if self._attention_tracking_stopped(engines):
+                row = [unwrap(value) for value in row]
+                maximum = unwrap(maximum)
+                engines = ()
+            self._register_attention_position(query_idx, key_idx, meta)
+            if row[key_idx] > maximum:
+                maximum = row[key_idx]
+        return maximum
 
-        max = x[i][0]
-        for j in range(len(x[i])):
-            self._register_attention_position(i, j, meta)
-            if x[i][j] > max:
-                max = x[i][j]
-        return max
+    def myMax(self, x, i, meta):
+        return self._attention_row_max(x[i], i, meta, self._attention_engines([x[i]]))
+
+    def _attention_softmax_row(self, row, maximum):
+        concrete_row = [float(unwrap(value)) for value in row]
+        concrete_max = float(unwrap(maximum))
+        exponentials = [math.exp(value - concrete_max) for value in concrete_row]
+        denominator = self.mySum(exponentials)
+        return [value / denominator for value in exponentials]
     
     def softmax(self, x, meta):
         x_max = [self.myMax(x, i, meta) for i in range(len(x))]
-        concrete_x = [[float(unwrap(val)) for val in row] for row in x]
-        concrete_max = [float(unwrap(val)) for val in x_max]
-        e_x = [[math.exp(concrete_x[i][j] - concrete_max[i]) for j in range(len(concrete_x[i]))] for i in range(len(concrete_x))]
-        e_x_sum = [self.mySum(e_x[i]) for i in range(len(e_x))]
-        result = [[e_x[i][j] / e_x_sum[i] for j in range(len(e_x[i]))] for i in range(len(e_x)) ]
-        return result
+        return [self._attention_softmax_row(row, maximum) for row, maximum in zip(x, x_max)]
     
     def matrix_multiply(self, matrix1, matrix2):
         # print("start")
