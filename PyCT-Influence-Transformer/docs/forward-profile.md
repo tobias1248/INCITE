@@ -41,6 +41,28 @@ different controls. The selected control is recorded in the manifest and each
 successful worker report. A single mode measures its bottlenecks; it cannot
 supply a path-versus-no-path speedup comparison.
 
+## Concrete computation after tracking stops
+
+`NNModel.forward` remembers the engines owning its input for each forward.
+When every owning engine explicitly reports `symbolic_enabled=False`, the
+next layer receives a copy containing ordinary values instead of concolic
+objects. Cached inputs are converted when consumed, once per cache entry,
+including residual skip inputs used by `Add`. Original inputs, layer output
+objects and recorded predicates are not rewritten. Each new forward starts
+with fresh conversion state.
+
+This applies to the shared VGG, ResNet and Transformer execution path.
+Conversion happens at a layer boundary: the layer that disables tracking
+finishes normally. The first convolution and work before the threshold are
+still symbolic, and subsequent concrete convolutions still use Python loops.
+The existing streaming attention conversion can also act within attention.
+Missing engine metadata or a missing/active tracking flag does not authorize
+conversion. No additional CLI setting is required.
+
+Compare the same model, image, control, threshold and profiling settings on
+the two source revisions. Check prediction, branch prefix and disable depth
+as well as time; Transformer speedups do not establish a VGG or ResNet speedup.
+
 All modes include **cProfile overhead**. These are diagnostic timings, not
 unprofiled experiment timings. Native Keras and NNModel can have different
 predictions because NNModel contains numerical/activation approximations.

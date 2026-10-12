@@ -1676,9 +1676,48 @@ class NNModel:
         self.my_layer_keys.append(cache_key)
         return cache_key
 
+    @staticmethod
+    def _input_engines(tensor):
+        engines = {}
+        pending = [tensor]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, (list, tuple)):
+                pending.extend(value)
+            else:
+                engine = getattr(value, "engine", None)
+                if engine is not None:
+                    engines[id(engine)] = engine
+        return tuple(engines.values())
+
+    @staticmethod
+    def _concrete_tensor(tensor):
+        # Copy containers and values; saved predicates may reference the inputs.
+        if isinstance(tensor, list):
+            return [NNModel._concrete_tensor(value) for value in tensor]
+        if isinstance(tensor, tuple):
+            return tuple(NNModel._concrete_tensor(value) for value in tensor)
+        return unwrap(tensor)
+
     def forward(self, tensor_in):
         log.info("DNN start forwarding")
         cache = {"layer_input": tensor_in}
+        # Keep the owners even when later arithmetic drops disabled engine refs.
+        # This state is local: the next solver candidate starts tracking afresh.
+        engines = self._input_engines(tensor_in)
+        concrete_keys = set()
+        previous_key = "layer_input"
+
+        def layer_input(name):
+            if name not in concrete_keys and engines and all(
+                getattr(engine, "symbolic_enabled", True) is False
+                for engine in engines
+            ):
+                cache[name] = self._concrete_tensor(cache[name])
+                concrete_keys.add(name)
+                log.debug("Using concrete layer input from cache %s", name)
+            return cache[name]
+
         x = tensor_in
         for i, layer in enumerate(self.layers):
             register_current_layer_number(to_Keras_layer_number(i))
@@ -1692,14 +1731,15 @@ class NNModel:
                             f"Missing cached input '{name}' while forwarding layer "
                             f"index={i} type={layer.__class__.__name__}"
                         )
-                    inputs.append(cache[name])
+                    inputs.append(layer_input(name))
                 if getattr(layer, "multi_input", False):
                     x = layer.forward(inputs)
                 else:
                     x = layer.forward(inputs[0])
             else:
-                x = layer.forward(x)
+                x = layer.forward(layer_input(previous_key))
             cache[layer_key] = x
+            previous_key = layer_key
         log.info("DNN finish forwarding")
         return x
 
