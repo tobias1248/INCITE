@@ -55,6 +55,30 @@ def test_runner_dry_run_generates_scalar_no_probe_commands_without_files(tmp_pat
     assert not (tmp_path / "campaign").exists()
 
 
+def test_runner_passes_shap_flags_and_zero_alpha_in_dry_run(tmp_path):
+    result = _run(_environment(tmp_path, SHAP_PRIORITY="1", SHAP_SENSITIVITY="1",
+                               SHAP_OUTPUT_ROOT=str(tmp_path / "shap"), SCORE_ALPHA="0"))
+    assert result.returncode == 0, result.stderr
+    commands = [shlex.split(line.removeprefix("Running:")) for line in result.stdout.splitlines() if line.startswith("Running:")]
+    assert len(commands) == 4
+    for command in commands:
+        assert "--global-real-shap-priority" in command
+        assert "--global-real-shap-sensitivity" in command
+        assert command[command.index("--score-alpha") + 1] == "0"
+    assert not (tmp_path / "campaign").exists()
+
+
+@pytest.mark.parametrize("overrides", [
+    {"SHAP_SENSITIVITY": "1", "SHAP_PRIORITY": "0"},
+    {"SHAP_PRIORITY": "maybe"},
+    {"SHAP_SENSITIVITY": "2"},
+])
+def test_runner_rejects_invalid_shap_mode_before_files(tmp_path, overrides):
+    result = _run(_environment(tmp_path, **overrides))
+    assert result.returncode != 0
+    assert not (tmp_path / "campaign").exists()
+
+
 @pytest.mark.parametrize("overrides", [
     {"CONTROLS": "exposure exposure"}, {"CONTROLS": "unknown"},
     {"MODEL_NAMES": "model_a model_a"}, {"CAMPAIGN_ID": "../escape"},
@@ -120,6 +144,24 @@ def test_runner_records_manifest_limits_parallelism_and_checks_each_wave(tmp_pat
     assert sum("--check-launched" in args for args in state["reports"]) == 2
     assert "--require-complete" in state["reports"][-1]
     assert len(list((tmp_path / "campaign").glob("*.completion.json"))) == 4
+
+
+def test_runner_manifest_records_shap_and_background_provenance(tmp_path):
+    fake = _fake_python(tmp_path)
+    result = _run(_environment(tmp_path, DRY_RUN="0", PYTHON_BIN=str(fake),
+        FAKE_STATE=str(tmp_path / "state.json"), MODEL_NAMES="model_a", CONTROLS="exposure",
+        SHAP_PRIORITY="1", SHAP_SENSITIVITY="1", SHAP_OUTPUT_ROOT=str(tmp_path / "cache"),
+        BG_PER_CLASS="3", BG_SEED="2233", SCORE_ALPHA="0"))
+    assert result.returncode == 0, result.stderr
+    manifest = json.loads((tmp_path / "campaign" / "manifest.json").read_text())
+    settings = manifest["settings"]
+    assert settings["shap_priority_enabled"] == settings["shap_sensitivity_enabled"] == "1"
+    assert settings["shap_output_root"] == str(tmp_path / "cache")
+    assert settings["bg_per_class"] == "3"
+    assert settings["bg_seed"] == "2233"
+    assert manifest["environment"]["PYCT_BG_PER_CLASS"] == "3"
+    assert manifest["environment"]["PYCT_BG_SEED"] == "2233"
+    assert manifest["environment"]["PYCT_SHAP_LOOKUP_MODE"] == "all"
 
 
 @pytest.mark.parametrize("failure", ["FAKE_ATTACK_EXIT", "FAKE_REPORT_EXIT"])

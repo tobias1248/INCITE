@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import sys
 
 import numpy as np
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -13,6 +14,44 @@ if str(ROOT) not in sys.path:
 
 import explainability.shap_calculator as shap_mod
 from explainability.shap_contract import build_cache_metadata
+
+
+@pytest.mark.parametrize("damage", ["missing", "corrupt", "input", "background", "model", "case", "input-only", "empty-values", "input-values"])
+def test_required_comparator_cache_never_computes_or_loads_model(monkeypatch, tmp_path, damage):
+    model_path = tmp_path / "strict.h5"
+    model_path.write_bytes(b"fake-model")
+    image = np.zeros((1, 2), dtype=np.float32)
+    background = np.zeros((2, 2), dtype=np.float32)
+    cache_dir = tmp_path / "strict"
+    cache_dir.mkdir()
+    meta = build_cache_metadata(case_index=7, model_path=model_path, input_data=image,
+                                background_dataset=background, explainer_type="gradient",
+                                target_class=1, class_count=2)
+    cache_path = cache_dir / "shap_value_7.json"
+    cache_path.write_text(json.dumps({"__meta__": meta, "values": {"0_0": 0.5, "1_0": 0.1}}))
+    if damage == "missing":
+        cache_path.unlink()
+    elif damage == "corrupt":
+        cache_path.write_text("{broken")
+    elif damage == "input":
+        image[0, 0] = 1
+    elif damage == "background":
+        background[0, 0] = 1
+    elif damage == "model":
+        model_path.write_bytes(b"different-model")
+    elif damage == "case":
+        meta["case_index"] = 8
+        cache_path.write_text(json.dumps({"__meta__": meta, "values": {"0_0": 0.5}}))
+    elif damage == "input-only":
+        monkeypatch.setenv("PYCT_SHAP_LOOKUP_MODE", "input-only")
+    elif damage in ("empty-values", "input-values"):
+        values = {} if damage == "empty-values" else {"-1_0": 0.5}
+        cache_path.write_text(json.dumps({"__meta__": meta, "values": values}))
+    monkeypatch.setattr(shap_mod, "_load_model_with_compat", lambda *a, **k: pytest.fail("model load forbidden"))
+    monkeypatch.setattr(shap_mod, "ShapValuesCalculator", lambda **k: pytest.fail("cache recomputation forbidden"))
+    with pytest.raises((ValueError, FileNotFoundError)):
+        shap_mod.ShapValuesComparator(model_path=str(model_path), background_dataset=background,
+            input=image, idx=7, shap_value_pre_calculated=True, output_root=str(tmp_path), require_cached=True)
 
 
 class _FakeLayer:
@@ -454,11 +493,20 @@ def test_shap_values_comparator_fast_path_uses_cached_values(monkeypatch, tmp_pa
         idx=4,
         shap_value_pre_calculated=True,
         output_root=str(tmp_path),
+        require_cached=True,
     )
 
     assert comparator.model is None
     assert comparator.layer_count == 2
     assert comparator.get_shap_influence(0, (1,)) == 1.25
+    assert comparator.cache_metadata == metadata
+    assert comparator.cache_path == cache_dir / "shap_value_4.json"
+    assert comparator.get_shap_influence(1, (0, 0)) == 2.0
+    legacy = shap_mod.ShapValuesComparator(
+        model_path=str(model_path), background_dataset=background, input=input_data,
+        idx=4, shap_value_pre_calculated=True, output_root=str(tmp_path),
+    )
+    assert legacy.get_shap_influence(1, (0, 0)) == 0.0
 
 
 def test_shap_values_comparator_falls_back_to_calculator_when_fast_path_fails(monkeypatch, tmp_path: Path) -> None:

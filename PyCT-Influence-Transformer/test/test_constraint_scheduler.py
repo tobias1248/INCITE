@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import heapq
+import math
 from collections import deque
 from typing import Any
 
@@ -9,6 +10,8 @@ import pytest
 from libct.constraint import Constraint
 from libct.global_real import TRANSFORM_MODE_AFFINE_BC
 from libct.searcher import ConstraintScheduler, create_constraint_searcher
+from libct.predicate import Predicate
+from libct.searcher.constraint_sensitivity import SensitivityEstimator
 
 
 class _Recorder:
@@ -156,3 +159,57 @@ def test_scheduler_priority_requires_score_alpha() -> None:
 
     with pytest.raises(ValueError, match="shap_score_alpha"):
         scheduler.push_constraint(Constraint(None, None), None)
+
+
+def test_alpha_zero_ranks_shap_times_sensitivity_instead_of_depth():
+    engine = _Engine()
+    engine.shap_score_alpha = 0.0
+    engine.global_real_config = {"transform_mode": "aces-like-pwl", "shap_sensitivity_enabled": True}
+    engine._global_x_sensitivity = SensitivityEstimator("X", 0.0, -0.2, 0.2)
+    engine._shap_priority_stats = {"lookups": 0, "nonzero": 0}
+
+    class Comparator:
+        def get_shap_influence(self, layer, indices):
+            return {0: 0.9, 1: 0.3, 2: 0.2}[indices[0]]
+
+    engine.comparator = Comparator()
+    scheduler = ConstraintScheduler(engine)
+    insensitive = Constraint(None, Predicate([">", "1", "0"], True), height=1)
+    sensitive = Constraint(None, Predicate([">", "X", "0.01"], False), height=999)
+    lower_shap = Constraint(None, Predicate([">", "X", "0.01"], False), height=1)
+    predicates_before = [item.last_predicate.get_formula() for item in [insensitive, sensitive, lower_shap]]
+    for index, constraint in enumerate([insensitive, sensitive, lower_shap]):
+        scheduler.push_constraint(constraint, (0, (index,)))
+    assert [scheduler.pop_constraint()[0] for _ in range(3)] == [sensitive, lower_shap, insensitive]
+    assert engine._global_x_sensitivity.stats["evaluated"] == 3
+    assert engine._shap_priority_stats == {"lookups": 3, "nonzero": 3}
+    assert [item.last_predicate.get_formula() for item in [insensitive, sensitive, lower_shap]] == predicates_before
+
+
+def test_sensitivity_fallback_preserves_shap_priority_and_reports_reason():
+    engine = _Engine()
+    engine.shap_score_alpha = 0.0
+    engine.comparator = _Comparator()
+    engine.global_real_config = {"transform_mode": "aces-like-pwl", "shap_sensitivity_enabled": True}
+    engine._global_x_sensitivity = SensitivityEstimator("X", 0.0, -0.2, 0.2)
+    scheduler = ConstraintScheduler(engine)
+    constraint = Constraint(None, Predicate([">", ["unsupported", "X"], "0"], False), height=500)
+    score, _ = scheduler._compute_priority_score(0.75, constraint)
+    assert score == pytest.approx(math.log10(0.75 + engine.SHAP_SCORE_EPS))
+    assert engine._global_x_sensitivity.stats["fallback"] == 1
+    assert engine._global_x_sensitivity.stats["fallback_reasons"]
+
+
+def test_alpha_zero_breaks_equal_weighted_scores_by_constraint_id():
+    engine = _Engine()
+    engine.shap_score_alpha = 0.0
+    engine.comparator = _Comparator()
+    engine.global_real_config = {"transform_mode": "aces-like-pwl", "shap_sensitivity_enabled": True}
+    engine._global_x_sensitivity = SensitivityEstimator("X", 0.0, -0.2, 0.2)
+    scheduler = ConstraintScheduler(engine)
+    first = Constraint(None, Predicate([">", "X", "0.01"], False), height=900)
+    second = Constraint(None, Predicate([">", "X", "0.01"], False), height=1)
+    scheduler.push_constraint(second, ("layer", (1, 2)))
+    scheduler.push_constraint(first, ("layer", (1, 2)))
+    assert scheduler.pop_constraint()[0] is first
+    assert scheduler.pop_constraint()[0] is second

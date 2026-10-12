@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import pickle
 import sys
@@ -9,6 +10,8 @@ import numpy as np
 import pytest
 
 from reporting.aces_no_probe_stats import build_report, main
+from explainability.shap_contract import build_cache_metadata
+from datasets.common import select_background_per_class
 
 
 def _fixture(tmp_path, case_ids=None, control="aces-exposure"):
@@ -38,6 +41,104 @@ def _case(result, images, index, original, final=None, status=None, **metadata):
     if final is not None:
         np.save(directory / "adv_input.npy", images[index] + np.float32(0.01))
     return path
+
+
+def _shap_fixture(tmp_path):
+    root, result, truth, images = _fixture(tmp_path, [0])
+    model = tmp_path / "model_a.h5"
+    model.write_bytes(b"offline-model-identity")
+    background = select_background_per_class(images, np.asarray(truth), per_class=3, seed=2233)
+    meta = build_cache_metadata(case_index=0, model_path=model, input_data=images[0][None],
+        background_dataset=background, explainer_type="gradient", target_class=0, class_count=10,
+        background_per_class=3, background_seed=2233)
+    cache_root = root / "shap"
+    cache = cache_root / "model_a" / "shap_value_0.json"
+    cache.parent.mkdir(parents=True)
+    cache.write_text(json.dumps({"__meta__": meta, "values": {"0_0": 0.1, "1_0": 0.2}}))
+    manifest = json.loads((root / "manifest.json").read_text())
+    manifest["settings"] = {"shap_priority_enabled": "1", "shap_sensitivity_enabled": "1",
+        "shap_output_root": str(cache_root), "bg_per_class": "3", "bg_seed": "2233"}
+    manifest["model_sha256"] = {"model_a": meta["model"]["sha256"]}
+    (root / "manifest.json").write_text(json.dumps(manifest))
+    path = _case(result, images, 0, 0, 1,
+        global_real_shap_priority_enabled=True, global_real_shap_sensitivity_enabled=True,
+        global_real_shap_cache_path=str(cache),
+        global_real_shap_cache_sha256=hashlib.sha256(cache.read_bytes()).hexdigest(),
+        global_real_shap_cache_metadata=meta,
+        global_real_shap_lookup_total=3, global_real_shap_nonzero_total=2,
+        global_real_sensitivity_stats={"version": "target-shap-constraint-sensitivity-v1",
+            "attempted": 3, "evaluated": 2, "fallback": 1, "interrupted": 0,
+            "fallback_reasons": {"unsupported_operator": 1}, "nodes": 20, "seconds": 0.01,
+            "step_fraction": 0.01, "epsilon": 1e-8, "max_nodes": 200000,
+            "wall_budget": 2.0, "forwards": 1})
+    return root, truth, images, path, cache
+
+
+def test_report_accepts_opt_in_cached_shap_provenance(tmp_path):
+    root, truth, images, _, _ = _shap_fixture(tmp_path)
+    report = build_report(root, truth, images)
+    assert report["complete"] is True, report["errors"]
+    assert report["groups"][0]["asr_complete"] == 1.0
+    row = report["rows"][0]
+    assert row["sensitivity_attempted"] == 3
+    assert row["sensitivity_evaluated"] == 2
+    assert row["sensitivity_fallback"] == 1
+    assert row["shap_lookups"] == 3
+    assert row["shap_nonzero"] == 2
+    assert report["groups"][0]["sensitivity_coverage"] == pytest.approx(2 / 3)
+
+
+@pytest.mark.parametrize("damage", ["priority_flag", "sensitivity_flag", "missing_cache", "cache_hash", "input", "case", "target"])
+def test_report_rejects_wrong_cached_shap_provenance(tmp_path, damage):
+    root, truth, images, path, cache = _shap_fixture(tmp_path)
+    data = json.loads(path.read_text())
+    meta = data["meta"]
+    if damage == "priority_flag":
+        meta["global_real_shap_priority_enabled"] = False
+    elif damage == "sensitivity_flag":
+        meta["global_real_shap_sensitivity_enabled"] = False
+    elif damage == "missing_cache":
+        cache.unlink()
+    elif damage == "cache_hash":
+        cache.write_text(cache.read_text() + " ")
+    else:
+        payload = json.loads(cache.read_text())
+        cache_meta = payload["__meta__"]
+        if damage == "input":
+            cache_meta["input"]["sha256"] = "0" * 64
+        elif damage == "case":
+            cache_meta["case_index"] = 1
+        elif damage == "target":
+            cache_meta["target_class"] = 1
+        meta["global_real_shap_cache_metadata"] = cache_meta
+        cache.write_text(json.dumps(payload))
+        meta["global_real_shap_cache_sha256"] = hashlib.sha256(cache.read_bytes()).hexdigest()
+    path.write_text(json.dumps(data))
+    report = build_report(root, truth, images)
+    assert report["complete"] is False
+    assert report["errors"]
+    assert report["rows"] == []
+
+
+@pytest.mark.parametrize("damage", ["negative", "counter_sum", "reason_sum", "algorithm", "settings"])
+def test_report_rejects_malformed_sensitivity_telemetry(tmp_path, damage):
+    root, truth, images, path, _ = _shap_fixture(tmp_path)
+    data = json.loads(path.read_text())
+    stats = data["meta"]["global_real_sensitivity_stats"]
+    if damage == "negative":
+        stats["seconds"] = -1
+    elif damage == "counter_sum":
+        stats["attempted"] = 100
+    elif damage == "reason_sum":
+        stats["fallback_reasons"] = {}
+    elif damage == "algorithm":
+        stats["version"] = "different-method"
+    else:
+        stats["step_fraction"] = 0.1
+    path.write_text(json.dumps(data))
+    report = build_report(root, truth, images)
+    assert report["complete"] is False
+    assert report["errors"]
 
 
 def test_report_distinguishes_three_flip_outcomes_and_correct_denominator(tmp_path):
