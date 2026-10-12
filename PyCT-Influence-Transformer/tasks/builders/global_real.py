@@ -218,7 +218,10 @@ def cifar10_global_real(
     probe_tolerance_fraction: float = DEFAULT_PROBE_TOLERANCE_FRACTION,
     defer_pwl: bool = False,
     shap_priority_enabled: bool = False,
+    shap_sensitivity_enabled: bool = False,
 ) -> List[Dict[str, object]]:
+    if shap_sensitivity_enabled and not shap_priority_enabled:
+        raise ValueError("SHAP sensitivity requires SHAP priority")
     if shap_priority_enabled and (shift_kind not in ACES_LIKE_SHIFT_KINDS or defer_pwl):
         raise ValueError("SHAP priority requires standalone scalar ACES")
     if shift_kind not in ACES_LIKE_SHIFT_KINDS:
@@ -302,6 +305,7 @@ def cifar10_global_real(
             "probe_max_refinements": int(probe_max_refinements),
             "probe_tolerance_fraction": float(probe_tolerance_fraction),
             "shap_priority_enabled": bool(shap_priority_enabled),
+            "shap_sensitivity_enabled": bool(shap_sensitivity_enabled),
         }
         if defer_pwl:
             # Hybrid builds the other axis only after DE selects its seed.

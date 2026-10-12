@@ -19,6 +19,13 @@ X_MAX="${X_MAX:-0.2}"
 SCORE_ALPHA="${SCORE_ALPHA:-0.8}"
 PWL_MAX_SEGMENTS="${PWL_MAX_SEGMENTS:-32}"
 PWL_ERROR="${PWL_ERROR:-0.00392156862745098}"
+SHAP_PRIORITY="${SHAP_PRIORITY:-0}"
+SHAP_SENSITIVITY="${SHAP_SENSITIVITY:-0}"
+SHAP_OUTPUT_ROOT="${SHAP_OUTPUT_ROOT:-shap_target_class}"
+BG_PER_CLASS="${BG_PER_CLASS:-3}"
+BG_SEED="${BG_SEED:-2233}"
+export SHAP_PRIORITY SHAP_SENSITIVITY SHAP_OUTPUT_ROOT
+export PYCT_BG_PER_CLASS="$BG_PER_CLASS" PYCT_BG_SEED="$BG_SEED" PYCT_SHAP_LOOKUP_MODE=all
 DRY_RUN="${DRY_RUN:-0}"
 CHECK_MODELS="${CHECK_MODELS:-1}"
 CAMPAIGN_ID="${CAMPAIGN_ID:-aces_noprobe_$(date +%Y%m%d_%H%M%S)}"
@@ -30,6 +37,13 @@ export PYCT_ALLOW_DATASET_DOWNLOAD=0
 export OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1
 
 # Validate before any directory creation or attack subprocess.
+"$MANIFEST_PYTHON" - "$SHAP_PRIORITY" "$SHAP_SENSITIVITY" "$BG_PER_CLASS" "$BG_SEED" <<'PY'
+import sys
+priority,sensitivity,count,seed=sys.argv[1:]
+if priority not in ('0','1') or sensitivity not in ('0','1'): raise SystemExit('Invalid SHAP flags')
+if sensitivity=='1' and priority!='1': raise SystemExit('SHAP sensitivity requires SHAP priority')
+if not count.isdigit() or int(count)<1 or not seed.isdigit(): raise SystemExit('Invalid SHAP background settings')
+PY
 "$MANIFEST_PYTHON" - "$CAMPAIGN_ID" "$MODEL_NAMES" "$CONTROLS" "$FIRST_N" "$TIMEOUT" "$SOLVER_RUN_TIMEOUT" "$BUILD_TIMEOUT" "$PATH_THRESHOLD" "$NUM_PROCESS" "$MAX_PARALLEL" "$X_MIN" "$X_MAX" "$SCORE_ALPHA" "$PWL_MAX_SEGMENTS" "$PWL_ERROR" "$DRY_RUN" "$CHECK_MODELS" <<'PY'
 import math,re,sys
 v=sys.argv[1:]
@@ -58,7 +72,10 @@ command_for() {
     --timeout "$TIMEOUT" --solver-run-timeout "$SOLVER_RUN_TIMEOUT"
     --constraint-build-timeout-seconds "$BUILD_TIMEOUT" --symbolic-path-threshold "$PATH_THRESHOLD"
     --score-alpha "$SCORE_ALPHA" --aces-pwl-max-segments "$PWL_MAX_SEGMENTS"
-    --aces-pwl-error-tolerance "$PWL_ERROR" --random-seed 2024 --log-level INFO)
+    --aces-pwl-error-tolerance "$PWL_ERROR" --random-seed 2024 --log-level INFO
+    --shap-output-root "$SHAP_OUTPUT_ROOT")
+  if [[ "$SHAP_PRIORITY" == 1 ]]; then cmd+=(--global-real-shap-priority); fi
+  if [[ "$SHAP_SENSITIVITY" == 1 ]]; then cmd+=(--global-real-shap-sensitivity); fi
 }
 printf 'campaign=%s; models=%s; controls=%s; cases=%s; parallel=%s x workers=%s; SMT=last; Probe=off; CPU-only\n' "$CAMPAIGN_ID" "$MODEL_NAMES" "$CONTROLS" "$FIRST_N" "$MAX_PARALLEL" "$NUM_PROCESS"
 for model in "${models[@]}"; do
@@ -96,8 +113,11 @@ manifest={'schema_version':'aces-no-probe-campaign-v1','created_at':datetime.now
  'source_commit':commit,'source_dirty':bool(git('status','--porcelain')) if commit else None,'source_files_sha256':source_hashes,
  'python':v[16],'host':platform.node(),'model_sha256':hashes,
  'settings':dict(zip(['first_n','timeout','solver_timeout','build_timeout','path_threshold','num_process','max_parallel','x_min','x_max','score_alpha','pwl_max_segments','pwl_error'],v[4:16])),
- 'environment':{k:os.environ.get(k) for k in ['PYCT_SMT_PATH_MODE','PYCT_ATTACK_MODE_SUFFIX','CUDA_VISIBLE_DEVICES','PYCT_ALLOW_DATASET_DOWNLOAD','OMP_NUM_THREADS','TF_NUM_INTRAOP_THREADS','TF_NUM_INTEROP_THREADS']},
+'environment':{k:os.environ.get(k) for k in ['PYCT_SMT_PATH_MODE','PYCT_ATTACK_MODE_SUFFIX','CUDA_VISIBLE_DEVICES','PYCT_ALLOW_DATASET_DOWNLOAD','OMP_NUM_THREADS','TF_NUM_INTRAOP_THREADS','TF_NUM_INTEROP_THREADS','PYCT_BG_PER_CLASS','PYCT_BG_SEED','PYCT_SHAP_LOOKUP_MODE']},
  'experiments':[{'model':m,'control':'aces-'+c,'case_ids':list(range(int(v[4])))} for m in v[2].split() for c in v[3].split()]}
+manifest['settings'].update(shap_priority_enabled=os.environ['SHAP_PRIORITY'],
+ shap_sensitivity_enabled=os.environ['SHAP_SENSITIVITY'],shap_output_root=str(Path(os.environ['SHAP_OUTPUT_ROOT']).resolve()),
+ bg_per_class=os.environ['PYCT_BG_PER_CLASS'],bg_seed=os.environ['PYCT_BG_SEED'])
 Path(v[0],'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 PY
 run_one() {

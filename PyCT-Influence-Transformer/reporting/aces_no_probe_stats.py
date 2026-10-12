@@ -14,6 +14,9 @@ from typing import Any, Dict, Sequence
 import numpy as np
 
 from libct.aces_like import ACES_LIKE_EXPERIMENT_CONTROLS
+from explainability.shap_contract import fingerprint_array, load_target_class_cache
+from datasets.common import select_background_per_class
+from libct.searcher.constraint_sensitivity import ALGORITHM_VERSION
 
 
 TERMINAL_STATUSES = {"success", "timeout", "exhausted", "incomplete"}
@@ -24,6 +27,72 @@ def _read_json(path: Path) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("Expected a JSON object: {}".format(path))
     return data
+
+
+def _audit_shap(meta, manifest, model, index, image, background, cache_memo):
+    settings = manifest.get("settings", {})
+    flags = {}
+    for name in ("shap_priority_enabled", "shap_sensitivity_enabled"):
+        value = settings.get(name, "0")
+        if value not in ("0", "1"):
+            raise ValueError("Invalid manifest SHAP flag: {}".format(name))
+        flags[name] = value == "1"
+        if name in settings and meta.get("global_real_" + name) is not flags[name]:
+            raise ValueError("SHAP flag mismatch: {}".format(name))
+    if flags["shap_sensitivity_enabled"] and not flags["shap_priority_enabled"]:
+        raise ValueError("Sensitivity requires SHAP priority")
+    if flags["shap_priority_enabled"]:
+        cache = Path(meta["global_real_shap_cache_path"])
+        expected = Path(settings["shap_output_root"]) / model / "shap_value_{}.json".format(index)
+        if not cache.is_absolute() or cache.resolve() != expected.resolve():
+            raise ValueError("SHAP cache path mismatch")
+        if cache not in cache_memo:
+            metadata, values = load_target_class_cache(cache)
+            if not any(key.split("_", 1)[0].isdigit() for key in values):
+                raise ValueError("SHAP cache lacks internal-layer values")
+            cache_memo[cache] = metadata, hashlib.sha256(cache.read_bytes()).hexdigest()
+        metadata, digest = cache_memo[cache]
+        if meta.get("global_real_shap_cache_sha256") != digest or meta.get("global_real_shap_cache_metadata") != metadata:
+            raise ValueError("SHAP cache provenance mismatch")
+        identity = {"case_index": index, "input": fingerprint_array(image[None]),
+                    "background": background, "explainer_type": "gradient",
+                    "background_per_class": int(settings.get("bg_per_class", 3)),
+                    "background_seed": int(settings.get("bg_seed", 2233)), "class_count": 10}
+        if any(metadata.get(key) != value for key, value in identity.items()):
+            raise ValueError("SHAP cache identity mismatch")
+        if metadata["model"]["sha256"] != manifest.get("model_sha256", {}).get(model):
+            raise ValueError("SHAP model hash mismatch")
+        if meta.get("original_label") is not None and metadata["target_class"] != meta["original_label"]:
+            raise ValueError("SHAP target differs from original prediction")
+    result = {}
+    for name, field in (("shap_lookups", "global_real_shap_lookup_total"),
+                        ("shap_nonzero", "global_real_shap_nonzero_total")):
+        value = meta.get(field, 0)
+        if type(value) is not int or value < 0:
+            raise ValueError("Invalid SHAP lookup counter")
+        result[name] = value
+    if result["shap_nonzero"] > result["shap_lookups"]:
+        raise ValueError("Invalid nonzero SHAP count")
+    stats = meta.get("global_real_sensitivity_stats")
+    if stats is not None:
+        if not flags["shap_sensitivity_enabled"] or not isinstance(stats, dict) or stats.get("version") != ALGORITHM_VERSION:
+            raise ValueError("Invalid sensitivity telemetry")
+        for key, expected in (("step_fraction", .01), ("epsilon", 1e-8), ("max_nodes", 200000), ("wall_budget", 2.0)):
+            if stats.get(key) != expected:
+                raise ValueError("Sensitivity settings mismatch")
+    for key in ("attempted", "evaluated", "fallback", "interrupted", "nodes", "seconds", "forwards"):
+        value = (stats or {}).get(key, 0)
+        valid_type = type(value) in (int, float) if key == "seconds" else type(value) is int
+        if not valid_type or not math.isfinite(value) or value < 0:
+            raise ValueError("Invalid sensitivity counter: {}".format(key))
+        result["sensitivity_" + key] = value
+    if result["sensitivity_attempted"] != sum(result["sensitivity_" + key] for key in ("evaluated", "fallback", "interrupted")):
+        raise ValueError("Sensitivity counter totals differ")
+    reasons = (stats or {}).get("fallback_reasons", {})
+    if not isinstance(reasons, dict) or any(type(v) is not int or v < 0 for v in reasons.values()) or sum(reasons.values()) != result["sensitivity_fallback"]:
+        raise ValueError("Invalid sensitivity fallback reasons")
+    result["sensitivity_fallback_reasons"] = reasons
+    return result
 
 
 def build_report(root: Path, ground_truth: Sequence[int], source_images: np.ndarray) -> Dict[str, Any]:
@@ -37,6 +106,13 @@ def build_report(root: Path, ground_truth: Sequence[int], source_images: np.ndar
         raise ValueError("Ground truth and source image counts differ")
     manifest_path = root / "manifest.json"
     manifest = _read_json(manifest_path) if manifest_path.exists() else {}
+    cache_memo = {}
+    settings = manifest.get("settings", {})
+    background = None
+    if settings.get("shap_priority_enabled") == "1":
+        background = fingerprint_array(select_background_per_class(
+            np.asarray(source_images, dtype=np.float32), np.asarray(ground_truth),
+            per_class=int(settings.get("bg_per_class", 3)), seed=int(settings.get("bg_seed", 2233))))
     errors, rows, groups = [], [], []
     specifications = manifest.get("experiments")
     if specifications is None:
@@ -186,6 +262,7 @@ def build_report(root: Path, ground_truth: Sequence[int], source_images: np.ndar
                        "ground_truth": truth, "original_label": original, "attack_label": final,
                        "original_correct": correct, "primary_gt_outcome": outcome, "stats_path": str(path),
                        "source_sha256": hashlib.sha256(source.tobytes()).hexdigest()}
+                row.update(_audit_shap(meta, manifest, model, index, cached, background, cache_memo))
                 for name in ("total_wall_time", "total_cpu_time", "solve_constraint_wall_time_total"):
                     value = data.get("summary", {}).get(name)
                     if value is not None and (type(value) not in (float, int) or not math.isfinite(value) or value < 0):
@@ -220,6 +297,12 @@ def build_report(root: Path, ground_truth: Sequence[int], source_images: np.ndar
                        "asr_observed": outcomes["correct_to_wrong"] / denominator if denominator else None,
                        "asr_complete": outcomes["correct_to_wrong"] / denominator if complete and not unknown and denominator else None,
                        "solver_totals": {k: sum(r[k] or 0 for r in group_rows) for k in ("sat", "unsat", "unknown", "generated_total", "solved_total")}})
+        totals = {key: sum(row["sensitivity_" + key] for row in group_rows)
+                  for key in ("attempted", "evaluated", "fallback", "interrupted", "nodes", "seconds", "forwards")}
+        groups[-1]["sensitivity_totals"] = totals
+        groups[-1]["sensitivity_coverage"] = totals["evaluated"] / totals["attempted"] if totals["attempted"] else None
+        groups[-1]["shap_lookup_totals"] = {key: sum(row[key] for row in group_rows) for key in ("shap_lookups", "shap_nonzero")}
+        groups[-1]["sensitivity_fallback_reasons"] = dict(sum((Counter(row["sensitivity_fallback_reasons"]) for row in group_rows), Counter()))
         rows.extend(group_rows)
         errors.extend("{}/{}: {}".format(model, control, e) for e in group_errors)
     return {"schema_version": "aces-no-probe-report-v1", "root": str(root), "manifest": manifest,
@@ -227,6 +310,7 @@ def build_report(root: Path, ground_truth: Sequence[int], source_images: np.ndar
             "errors": errors, "groups": groups, "rows": rows,
             "notes": ["ASR = correct-to-wrong / originally correct; ground truth is fixed.",
                       "Solver totals are cumulative recorded iterations; interrupted iterations may be omitted.",
+                      "Sensitivity counters cover returned child envelopes; hard-killed forwards may be omitted. Budget/unsupported fallbacks use raw SHAP and may outrank weighted branches.",
                       "Exact predictions are audited from runtime metadata, not independently replayed."]}
 
 

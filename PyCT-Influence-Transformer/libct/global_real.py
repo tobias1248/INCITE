@@ -604,6 +604,12 @@ def build_concolic_global_real_kwargs(
     shift_value = float(primitive_inputs[variable_name])
     engine._shap_priority_stats = ({"lookups": 0, "nonzero": 0}
                                    if config.get("shap_priority_enabled") else None)
+    engine._global_x_sensitivity = None
+    if config.get("shap_sensitivity_enabled"):
+        from libct.searcher.constraint_sensitivity import SensitivityEstimator
+        engine._global_x_sensitivity = SensitivityEstimator(
+            GLOBAL_X_SMT_NAME, shift_value, config["effective_min"], config["effective_max"],
+        )
     shared_x = ConcolicObject(shift_value, GLOBAL_X_SMT_NAME, engine)
     engine.concolic_name_list.append(GLOBAL_X_SMT_NAME)
     engine.concolic_flag_dict[GLOBAL_X_SMT_NAME] = 1

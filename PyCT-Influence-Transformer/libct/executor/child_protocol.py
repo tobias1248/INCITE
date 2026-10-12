@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 import traceback
@@ -126,8 +127,11 @@ class ChildProtocol:
             "concolic_flag_dict": self._engine.concolic_flag_dict,
         }
         priority = getattr(self._engine, "_shap_priority_stats", None)
+        sensitivity = getattr(self._engine, "_global_x_sensitivity", None)
         if priority is not None:
             state["shap_priority_stats"] = dict(priority)
+        if sensitivity is not None:
+            state["shap_sensitivity_stats"] = sensitivity.stats
         return state
 
     def build_child_ok_envelope(
@@ -243,6 +247,23 @@ class ChildProtocol:
                     if type(value) is not int or value < 0:
                         raise ValueError("Invalid child SHAP counter")
                     meta[field] = meta.get(field, 0) + value
+            stats = envelope.get("shap_sensitivity_stats")
+            if stats is not None:
+                total = meta.setdefault("global_real_sensitivity_stats", {
+                    key: stats[key] for key in ("version", "step_fraction", "epsilon", "max_nodes", "wall_budget")
+                })
+                for key in ("attempted", "evaluated", "fallback", "interrupted", "nodes", "seconds"):
+                    value = stats[key]
+                    valid = (type(value) in (int, float) if key == "seconds" else type(value) is int)
+                    if not valid or not math.isfinite(value) or value < 0:
+                        raise ValueError("Invalid child sensitivity counter")
+                    total[key] = total.get(key, 0) + value
+                reasons = total.setdefault("fallback_reasons", {})
+                for key, value in stats["fallback_reasons"].items():
+                    if type(value) is not int or value < 0:
+                        raise ValueError("Invalid child sensitivity fallback")
+                    reasons[key] = reasons.get(key, 0) + value
+                total["forwards"] = total.get("forwards", 0) + 1
 
     def raise_transport_failure(
         self,

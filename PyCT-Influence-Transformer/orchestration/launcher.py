@@ -534,6 +534,7 @@ def run_launcher(args: Any) -> None:
             ),
             shap_output_root=args.shap_output_root,
             shap_priority_enabled=getattr(args, "global_real_shap_priority", False),
+            shap_sensitivity_enabled=getattr(args, "global_real_shap_sensitivity", False),
         )
     else:
         raise ValueError(f"Unsupported attack mode: {args.attack_mode}")

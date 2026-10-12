@@ -108,6 +108,16 @@ class ConstraintScheduler:
             )
         path_len = int(getattr(constraint, "height", 0) or 0)
         alpha = self._engine.shap_score_alpha
+        if isinstance(config, dict) and config.get("shap_sensitivity_enabled"):
+            estimator = getattr(self._engine, "_global_x_sensitivity", None)
+            if estimator is None:
+                raise ValueError("SHAP sensitivity requires a per-forward estimator")
+            weight = estimator.estimate(constraint.last_predicate.expr)
+            if weight is not None:
+                shap_value *= weight
+            if self._constraint_log_enabled():
+                log.info("[SENSITIVITY] idx=%s constraint=%s weight=%s influence=%.3e",
+                         self._engine.idx, constraint.id, weight, abs(shap_value))
         score = (1 - alpha) * math.log10(abs(shap_value) + self._engine.SHAP_SCORE_EPS)
         score -= alpha * math.log10(path_len + 1)
         return score, path_len

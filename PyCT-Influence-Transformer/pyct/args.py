@@ -353,6 +353,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--global-real-shap-priority", action="store_true",
                         help="Rank standalone ACES branches using validated target SHAP caches.")
+    parser.add_argument("--global-real-shap-sensitivity", action="store_true",
+                        help="Weight target SHAP by scalar-X predicate sensitivity (requires SHAP priority).")
     parser.add_argument(
         "--aces-pwl-max-segments",
         type=_parse_non_negative_int,
@@ -394,6 +396,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     args = parser.parse_args(argv)
+    if args.global_real_shap_sensitivity and not args.global_real_shap_priority:
+        parser.error("--global-real-shap-sensitivity requires --global-real-shap-priority")
     if args.global_real_shap_priority and (
         args.attack_mode != "global-real" or args.global_shift_kind not in ACES_LIKE_SHIFT_KINDS
     ):

@@ -127,3 +127,65 @@ Solver SAT/UNSAT/constraint totals are cumulative across recorded iterations;
 an interrupted iteration can be omitted by the existing recorder.
 
 Experiment artifacts belong under ignored `exp/` and are not committed.
+
+## Target SHAP and scalar-X sensitivity priority
+
+Standalone ACES runs can explicitly enable `--global-real-shap-priority` and
+`--global-real-shap-sensitivity`. Both default to off. Sensitivity requires
+SHAP priority; these flags are restricted to standalone ACES photo controls.
+Priority requires an existing compatible all-layer target-class cache and
+fails on missing/incompatible/input-only caches. The attack never recomputes
+SHAP. Model, input, background and case fingerprints must match.
+
+Refresh a separate cache for each model before running the reviewed campaign:
+
+```bash
+.venv/bin/python -m pyct.shap --dataset cifar10 \
+  --model-name cifar10_concolic_transformer --first-n 100 \
+  --explainer-type gradient --background-per-class 3 --background-seed 2233 \
+  --output-root shap_target_class --force-refresh
+```
+
+The target is the original image's predicted class, fixed across controls.
+Sequential models use layerwise Gradient SHAP. Functional/DAG models use input
+Gradient SHAP and internal `gradient * (activation - background_mean)` influence.
+The sensitivity multiplier changes constraint priority, not these attributions.
+
+For a recorded comparison, define `g(X) = lhs(X) - rhs(X)`. Evaluate its existing
+PWL expression at the current candidate X and two clipped neighbors separated
+by 1% of the allowed range. Let `slope` be the largest absolute one-sided slope
+and `distance` the largest displacement from X to either bound:
+
+```text
+S = min(1, distance * slope / (abs(g(X)) + 1e-8))
+influence = abs(target_SHAP) * S
+score = (1-alpha) * log10(influence + score_epsilon)
+        - alpha * log10(path_length + 1)
+```
+
+With `alpha=0`, depth does not affect score. This is a branch reachability
+heuristic; it does not guarantee SAT or an adversarial example. No additional
+neural-network forward, reference probe, or attack candidate is produced.
+Expressions are evaluated iteratively without mutation, with shared per-X
+memoization. Each forward has a cumulative 200,000-node / 2-second estimator
+budget. Unsupported expressions or budget exhaustion use raw target SHAP;
+such branches can outrank branches whose sensitivity multiplier is below one.
+The estimator resets at each new candidate X.
+
+Preview the approved six-control settings (repeat cache refresh for all five
+models; this preview does not launch the campaign):
+
+```bash
+DRY_RUN=1 CONTROLS='exposure highlights shadows saturation vibrance curves' \
+  FIRST_N=100 TIMEOUT=1800 PATH_THRESHOLD=2000 SCORE_ALPHA=0 \
+  PWL_MAX_SEGMENTS=64 SHAP_PRIORITY=1 SHAP_SENSITIVITY=1 \
+  SHAP_OUTPUT_ROOT=shap_target_class bash scripts/run_aces_no_probe_batch.sh
+```
+
+The runner records flags, background settings and an absolute cache root.
+Results retain the cache SHA256 and metadata; the report checks model/input/
+background/case identity and original target when available. It reports SHAP
+lookup/nonzero counts, sensitivity coverage, fallback reasons, evaluated nodes
+and estimator seconds. Counters are cumulative over returned child envelopes;
+a hard-killed forward may not return its counters. Nonzero lookup counts should
+be checked before attributing an experiment effect to SHAP priority.
