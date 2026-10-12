@@ -9,6 +9,41 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from pyct.args import parse_args
+from libct.aces_like import ACES_LIKE_EXPERIMENT_CONTROLS
+
+
+@pytest.mark.parametrize("kind", ACES_LIKE_EXPERIMENT_CONTROLS)
+def test_photo_controls_accept_standalone_no_probe(kind):
+    args = parse_args([
+        "--attack-mode", "global-real", "--dataset", "cifar10", "--score-alpha", "0.8",
+        "--global-shift-kind", kind, "--global-x-min", "-0.2", "--global-x-max", "0.2",
+        "--no-global-real-probe",
+    ])
+    assert args.global_shift_kind == kind
+    assert args.global_real_probe is False
+
+
+@pytest.mark.parametrize("kind", [
+    "aces-exposure", "aces-highlights", "aces-shadows", "aces-saturation", "aces-vibrance", "aces-curves"
+])
+def test_new_photo_controls_reject_hybrid_configuration(kind):
+    with pytest.raises(SystemExit):
+        parse_args(["--attack-mode", "hybrid-de", "--dataset", "cifar10", "--global-shift-kind", kind])
+
+
+@pytest.mark.parametrize("kind,bounds", [
+    ("aces-highlights", ["--global-x-min", "-0.51"]),
+    ("aces-shadows", ["--global-x-max", "0.51"]),
+    ("aces-saturation", ["--global-x-min", "-1.01"]),
+    ("aces-vibrance", ["--global-x-min", "-1.01"]),
+    ("aces-curves", ["--global-x-max", "1"]),
+])
+def test_photo_control_cli_rejects_nonphysical_bounds(kind, bounds):
+    with pytest.raises(SystemExit):
+        parse_args([
+            "--attack-mode", "global-real", "--dataset", "cifar10", "--score-alpha", "0.8",
+            "--global-shift-kind", kind, *bounds,
+        ])
 
 
 def test_parse_args_accepts_global_real_configuration() -> None:

@@ -79,7 +79,7 @@ def test_srgb_oklab_round_trips_are_accurate() -> None:
     assert np.allclose(oklab_to_linear_rgb(linear_rgb_to_oklab(linear)), linear, atol=3e-7)
 
 
-@pytest.mark.parametrize("kind", ("aces-brightness", "aces-contrast"))
+@pytest.mark.parametrize("kind", aces_like.ACES_LIKE_SHIFT_KINDS)
 def test_zero_shift_is_exact_identity(kind: str) -> None:
     rgb = np.asarray([[[0.05, 0.2, 0.9], [0.3, 0.6, 0.1]]], dtype=np.float64)
 
@@ -89,6 +89,98 @@ def test_zero_shift_is_exact_identity(kind: str) -> None:
     assert result.diagnostics.gamut_mapped_pixel_count == 0
     assert result.diagnostics.hard_clipped_channel_count == 0
     assert result.diagnostics.max_hue_drift_degrees == 0.0
+
+
+def test_exposure_uses_ev_in_linear_rgb_and_clips_channels() -> None:
+    source = np.asarray([[[0.2, 0.5, 0.9]]])
+    exposed = apply_aces_like_transform(source, 1.0, kind="aces-exposure")
+    expected = np.clip(srgb_to_linear(source) * 2.0, 0.0, 1.0)
+    np.testing.assert_allclose(srgb_to_linear(exposed.rgb), expected, atol=1e-12)
+    assert exposed.diagnostics.hard_clipped_channel_count == 1
+    brightness = apply_aces_like_transform(source, 1.0, kind="aces-brightness").rgb
+    assert not np.allclose(exposed.rgb, brightness)
+    darker = apply_aces_like_transform(source, -1.0, kind="aces-exposure").rgb
+    np.testing.assert_allclose(srgb_to_linear(darker), srgb_to_linear(source) / 2.0)
+
+
+@pytest.mark.parametrize("kind,unaffected", [
+    ("aces-highlights", slice(None, 501)),
+    ("aces-shadows", slice(500, None)),
+])
+@pytest.mark.parametrize("shift", [-0.5, -0.2, 0.2, 0.5])
+def test_selective_tone_preserves_other_region_and_monotonicity(kind, unaffected, shift):
+    lightness = np.linspace(0.0, 1.0, 1001)
+    neutral = linear_to_srgb(np.repeat(lightness[:, None] ** 3, 3, axis=1))
+    result = apply_aces_like_transform(neutral, shift, kind=kind).rgb
+    measured = linear_rgb_to_oklab(srgb_to_linear(result))[..., 0]
+    np.testing.assert_allclose(measured[unaffected], lightness[unaffected], atol=2e-7)
+    assert np.all(np.diff(measured) >= -1e-8)
+    assert measured[0] == pytest.approx(0.0)
+    assert measured[-1] == pytest.approx(1.0, abs=1e-7)
+    affected_index = 750 if kind == "aces-highlights" else 250
+    assert np.sign(measured[affected_index] - lightness[affected_index]) == np.sign(shift)
+
+
+def test_vibrance_adjusts_low_chroma_more_than_high_chroma():
+    source = np.asarray([[[0.45, 0.5, 0.55], [0.2, 0.5, 0.7]]])
+    lch = oklab_to_oklch(linear_rgb_to_oklab(srgb_to_linear(source)))
+    outputs = {}
+    for kind in ("aces-saturation", "aces-vibrance"):
+        transformed = apply_aces_like_transform(source, 0.2, kind=kind)
+        assert transformed.diagnostics.gamut_mapped_pixel_count == 0
+        outputs[kind] = oklab_to_oklch(linear_rgb_to_oklab(srgb_to_linear(transformed.rgb)))
+        np.testing.assert_allclose(outputs[kind][..., 0], lch[..., 0], atol=1e-7)
+        np.testing.assert_allclose(outputs[kind][..., 2], lch[..., 2], atol=1e-6)
+    saturation_gain = outputs["aces-saturation"][..., 1] / lch[..., 1]
+    np.testing.assert_allclose(saturation_gain, 1.2, atol=1e-6)
+    vibrance_gain = outputs["aces-vibrance"][..., 1] / lch[..., 1]
+    assert 1.0 < vibrance_gain[0, 1] < vibrance_gain[0, 0] < 1.2
+    desaturated = apply_aces_like_transform(source, -1.0, kind="aces-saturation").rgb
+    np.testing.assert_allclose(desaturated[..., 0], desaturated[..., 1], atol=1e-6)
+    np.testing.assert_allclose(desaturated[..., 1], desaturated[..., 2], atol=1e-6)
+
+
+@pytest.mark.parametrize("shift", [-0.2, 0.2])
+def test_curves_preserves_endpoints_and_moves_middle_anchor(shift):
+    lightness = np.asarray([0.0, 0.25, 0.5, 0.75, 1.0])
+    source = linear_to_srgb(np.repeat(lightness[:, None] ** 3, 3, axis=1))
+    result = apply_aces_like_transform(source, shift, kind="aces-curves").rgb
+    measured = linear_rgb_to_oklab(srgb_to_linear(result))[..., 0]
+    np.testing.assert_allclose(
+        measured, [0.0, 0.25 + shift / 4, 0.5 + shift / 2, 0.75 + shift / 4, 1.0], atol=2e-7
+    )
+    assert np.all(np.diff(measured) > 0)
+
+
+@pytest.mark.parametrize("kind", aces_like.ACES_LIKE_SHIFT_KINDS)
+@pytest.mark.parametrize("shift", [float("nan"), float("inf"), -float("inf")])
+def test_all_controls_reject_nonfinite_shift(kind, shift):
+    with pytest.raises(AcesLikeTransformError):
+        apply_aces_like_transform(np.asarray([[[0.2, 0.5, 0.8]]]), shift, kind=kind)
+
+
+@pytest.mark.parametrize("kind,lower,upper", [
+    ("aces-saturation", -1.01, 0.2), ("aces-vibrance", -1.01, 0.2),
+    ("aces-curves", -1.0, 0.2), ("aces-curves", -0.2, 1.0),
+    ("aces-highlights", -0.51, 0.2), ("aces-shadows", -0.2, 0.51),
+    ("aces-exposure", 0.2, -0.2), ("aces-exposure", float("nan"), 0.2),
+])
+def test_control_ranges_reject_invalid_curves_and_chroma(kind, lower, upper):
+    with pytest.raises(AcesLikeTransformError):
+        aces_like.validate_control_range(kind, lower, upper)
+
+
+@pytest.mark.parametrize("kind", aces_like.ACES_LIKE_EXPERIMENT_CONTROLS)
+def test_each_photo_control_has_bounded_pwl_and_zero_knot(kind):
+    source = np.asarray([[[0.2, 0.5, 0.8], [0.85, 0.3, 0.2]]])
+    approximation = build_adaptive_pwl_approximation(
+        source, kind=kind, x_min=-0.2, x_max=0.2, max_segments=32
+    )
+    assert 0.0 in approximation.knots
+    np.testing.assert_array_equal(approximation.evaluate(0.0), source)
+    for shift in np.linspace(-0.2, 0.2, 41):
+        exact = apply_aces_like_transform(source, shift, kind=kind).rgb
+        assert np.max(np.abs(approximation.evaluate(shift) - exact)) <= 1.0 / 255.0 + 1e-10
 
 
 def test_brightness_and_contrast_have_expected_direction() -> None:

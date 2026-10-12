@@ -26,6 +26,7 @@ from libct.global_real import (
 )
 import libct.global_real as global_real
 from libct.aces_like import (
+    ACES_LIKE_EXPERIMENT_CONTROLS,
     ACES_LIKE_COLOR_SPACE,
     ACES_LIKE_CURVE_VERSION,
     ACES_LIKE_GAMUT_MAPPER,
@@ -519,9 +520,10 @@ def test_aces_like_materialization_preserves_rgb_layout_and_reports_diagnostics(
     assert np.all((output >= 0.0) & (output <= 1.0))
 
 
-def test_aces_like_symbolic_arguments_use_one_shared_x_and_piecewise_ites() -> None:
+@pytest.mark.parametrize("kind", ACES_LIKE_EXPERIMENT_CONTROLS)
+def test_aces_like_symbolic_arguments_use_one_shared_x_and_piecewise_ites(kind) -> None:
     rgb = np.array([[[0.2, 0.5, 0.8]]], dtype=np.float64)
-    config = _aces_config_for_rgb(rgb, kind="aces-contrast")
+    config = _aces_config_for_rgb(rgb, kind=kind)
     engine = _Engine(config)
     kwargs = build_concolic_global_real_kwargs(engine, _rgb_inputs(rgb, 0.05))
     assert isinstance(kwargs["v_0_0_0"], Concolic)
@@ -530,6 +532,25 @@ def test_aces_like_symbolic_arguments_use_one_shared_x_and_piecewise_ites() -> N
     formula = Predicate.get_formula_deep(kwargs["v_0_0_0"])
     assert "ite" in repr(formula)
     assert GLOBAL_X_SMT_NAME in repr(formula)
+
+
+@pytest.mark.parametrize("kind", ACES_LIKE_EXPERIMENT_CONTROLS)
+def test_standalone_photo_control_defaults_exact_but_search_uses_pwl(kind):
+    source = np.asarray([[[0.2, 0.5, 0.8]]])
+    config = _aces_config_for_rgb(source, kind=kind)
+    shift = (config["pwl_knots"][0] + config["pwl_knots"][1]) / 2
+    inputs = _rgb_inputs(source, shift)
+    exact, _, _, diagnostics = materialize_global_real_details(inputs, config)
+    expected = global_real.apply_aces_like_transform(source, shift, kind=kind).rgb
+    np.testing.assert_array_equal(
+        np.asarray([[[exact[f"v_0_0_{i}"] for i in range(3)]]]), expected
+    )
+    assert diagnostics["reference_transform"] == "exact"
+    engine = _Engine(config)
+    search = build_concolic_global_real_kwargs(engine, inputs)
+    approximate, _, _ = materialize_global_real_arguments(inputs, config, exact_transform=False)
+    for name in approximate:
+        assert float(search[name]) == pytest.approx(approximate[name])
 
 
 def test_aces_like_pwl_symbolic_formula_accepts_negative_literals_in_cvc5() -> None:
@@ -657,7 +678,7 @@ def test_hybrid_aces_reference_and_recorded_image_use_exact_transform_between_kn
     config = _aces_config_for_rgb(seed, kind=kind)
     shift = (config["pwl_knots"][0] + config["pwl_knots"][1]) / 2.0
     inputs = _rgb_inputs(seed, shift)
-    approximate, _, _ = materialize_global_real_arguments(inputs, config)
+    approximate, _, _ = materialize_global_real_arguments(inputs, config, exact_transform=False)
     exact = global_real.apply_aces_like_transform(seed, shift, kind=kind).rgb
     approximation = np.asarray([[[approximate[f"v_0_0_{i}"] for i in range(3)]]])
     assert np.max(np.abs(approximation - exact)) > 1e-7
@@ -768,6 +789,25 @@ def _joint_aces_config(rgb, *, order="brightness-contrast", hybrid=False):
     })
 
 
+@pytest.mark.parametrize("kind", [
+    "aces-exposure", "aces-highlights", "aces-shadows", "aces-saturation", "aces-vibrance", "aces-curves"
+])
+def test_planar_aces_config_rejects_scalar_photo_controls(kind):
+    config = _joint_aces_config(np.asarray([[[0.2, 0.5, 0.8]]]))
+    config["global_shift_kind"] = kind
+    with pytest.raises(ValueError, match="brightness/contrast"):
+        validate_global_real_config(config)
+
+
+@pytest.mark.parametrize("kind", ["aces-brightness", "aces-contrast"])
+def test_planar_aces_config_keeps_existing_brightness_contrast_kinds(kind):
+    config = _joint_aces_config(np.asarray([[[0.2, 0.5, 0.8]]]))
+    config["global_shift_kind"] = kind
+    normalized = validate_global_real_config(config)
+    assert normalized["global_shift_kind"] == kind
+    assert normalized["search_axes"] == "both"
+
+
 def _joint_rgb_inputs(rgb, brightness, contrast):
     inputs = _rgb_inputs(rgb, 0.0)
     inputs.pop(GLOBAL_X_INPUT_NAME)
@@ -822,7 +862,7 @@ def test_joint_aces_symbolic_formulas_execute_as_linear_real_arithmetic_in_cvc5(
                and "ite" in formula for formula in formulas)
     for brightness, contrast in ((0.033, -0.046), (-0.047, 0.024), (0.075, 0.083), (0.0, 0.0)):
         materialized, _, _ = materialize_global_real_arguments(
-            _joint_rgb_inputs(seed, brightness, contrast), config
+            _joint_rgb_inputs(seed, brightness, contrast), config, exact_transform=False
         )
         statements = [
             "(set-logic QF_LRA)",
@@ -854,7 +894,7 @@ def test_joint_aces_hybrid_reference_and_recorded_images_use_exact_transform(ord
     config = _joint_aces_config(seed, order=order)
     brightness, contrast = 0.033, -0.046
     primitive = _joint_rgb_inputs(seed, brightness, contrast)
-    approximate, _, _ = materialize_global_real_arguments(primitive, config)
+    approximate, _, _ = materialize_global_real_arguments(primitive, config, exact_transform=False)
     approximation = np.asarray([[[approximate[f"v_0_0_{channel}"] for channel in range(3)]]])
     exact = apply_aces_like_joint_transform(seed, brightness, contrast, order=order).rgb
     assert np.max(np.abs(approximation - exact)) > 1e-7
