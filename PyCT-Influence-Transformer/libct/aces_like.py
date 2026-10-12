@@ -2,9 +2,8 @@
 
 This module intentionally implements a small, deterministic engineering
 approximation rather than an ACES JMh output transform.  It is a concrete
-reference oracle for later symbolic work: tone is adjusted in OKLab lightness,
-then out-of-gamut colours are mapped by reducing OKLCh chroma at fixed
-lightness and hue.
+reference oracle for symbolic work. Tone and chroma controls use OKLab/OKLCh
+with gamut mapping; exposure uses linear RGB gain and channel clipping.
 """
 
 from __future__ import annotations
@@ -18,10 +17,54 @@ from typing import Tuple
 import numpy as np
 
 
-ACES_LIKE_SHIFT_KINDS: Tuple[str, str] = (
+ACES_LIKE_SHIFT_KINDS: Tuple[str, ...] = (
     "aces-brightness",
     "aces-contrast",
+    "aces-exposure",
+    "aces-highlights",
+    "aces-shadows",
+    "aces-saturation",
+    "aces-vibrance",
+    "aces-curves",
 )
+ACES_LIKE_EXPERIMENT_CONTROLS = tuple(k for k in ACES_LIKE_SHIFT_KINDS if k != "aces-brightness")
+ACES_LIKE_CONTROL_VERSION = "scalar-photo-controls-v1"
+CURVE_INPUT_KNOTS = (0.0, 0.25, 0.5, 0.75, 1.0)
+CURVE_OFFSET_WEIGHTS = (0.0, 0.25, 0.5, 0.25, 0.0)
+
+
+def control_metadata(kind: str) -> dict:
+    """JSON-safe definitions of the exact control, independent of PWL knots."""
+    if kind not in ACES_LIKE_SHIFT_KINDS:
+        raise AcesLikeTransformError("unknown ACES-like control: {}".format(kind))
+    settings = {
+        "aces-brightness": {"logit_offset_strength": 2.0},
+        "aces-contrast": {"logit_slope_base": 2.0},
+        "aces-exposure": {"linear_gain_base": 2.0, "output_policy": "linear-rgb-channel-clip"},
+        "aces-highlights": {"lightness_transition": [0.5, 0.9], "logit_offset_strength": 2.0},
+        "aces-shadows": {"lightness_transition": [0.1, 0.5], "logit_offset_strength": 2.0},
+        "aces-saturation": {"chroma_gain": "1+X"},
+        "aces-vibrance": {"chroma_reference": 0.2, "chroma_gain": "1+X*(1-clip(C/0.2,0,1))"},
+        "aces-curves": {"input_knots": list(CURVE_INPUT_KNOTS), "offset_weights": list(CURVE_OFFSET_WEIGHTS)},
+    }
+    return {"version": ACES_LIKE_CONTROL_VERSION, "kind": kind,
+            "unit": "EV" if kind == "aces-exposure" else "dimensionless",
+            "settings": settings[kind]}
+
+
+def validate_control_range(kind: str, lower: float, upper: float) -> None:
+    """Reject ranges that invert chroma or produce non-monotone tone curves."""
+    control_metadata(kind)
+    if not math.isfinite(lower) or not math.isfinite(upper) or lower > upper:
+        raise AcesLikeTransformError("control bounds must be finite and ordered")
+    if kind in ("aces-saturation", "aces-vibrance") and lower < -1.0:
+        raise AcesLikeTransformError("chroma controls require X >= -1")
+    if kind == "aces-curves" and (lower <= -1.0 or upper >= 1.0):
+        raise AcesLikeTransformError("curves requires -1 < X < 1 for monotone anchors")
+    if kind in ("aces-highlights", "aces-shadows") and (lower < -0.5 or upper > 0.5):
+        raise AcesLikeTransformError("selective tone controls require -0.5 <= X <= 0.5")
+
+
 ACES_LIKE_COLOR_SPACE = "OKLCh-sRGB"
 ACES_LIKE_CURVE_VERSION = "oklch-logit-v1"
 ACES_LIKE_GAMUT_MAPPER = "css-color-4-local-minde-v1"
@@ -291,6 +334,21 @@ def _transformed_lightness(lightness: np.ndarray, x: float, kind: str) -> np.nda
         except OverflowError as exc:
             raise AcesLikeTransformError("ACES-like contrast X is too large") from exc
         return _logit_tone_curve(lightness, slope=slope)
+    if kind in ("aces-highlights", "aces-shadows"):
+        start, end = (0.5, 0.9) if kind == "aces-highlights" else (0.1, 0.5)
+        t = np.clip((lightness - start) / (end - start), 0.0, 1.0)
+        weight = t * t * (3.0 - 2.0 * t)
+        if kind == "aces-shadows":
+            weight = 1.0 - weight
+        # Each selective curve remains monotone within its validated range.
+        result = np.array(lightness, copy=True)
+        middle = (lightness > 0.0) & (lightness < 1.0)
+        values = lightness[middle]
+        result[middle] = _sigmoid(np.log(values) - np.log1p(-values) + 2.0 * x * weight[middle])
+        return result
+    if kind == "aces-curves":
+        anchors = np.asarray(CURVE_INPUT_KNOTS) + x * np.asarray(CURVE_OFFSET_WEIGHTS)
+        return np.interp(lightness, CURVE_INPUT_KNOTS, anchors)
     raise AcesLikeTransformError(
         "unknown ACES-like shift kind {!r}; expected one of {}".format(
             kind, ACES_LIKE_SHIFT_KINDS
@@ -413,7 +471,7 @@ def _diagnostics(
 def apply_aces_like_transform(
     rgb: np.ndarray, x: float, *, kind: str
 ) -> AcesLikeTransformResult:
-    """Apply a shared ACES-like display brightness or contrast control.
+    """Apply one versioned ACES-like photo control to normalized sRGB.
 
     ``rgb`` must be a finite normalized sRGB array with final dimension three.
     The result is always finite normalized sRGB.  Invalid inputs and any
@@ -428,6 +486,7 @@ def apply_aces_like_transform(
                 kind, ACES_LIKE_SHIFT_KINDS
             )
         )
+    validate_control_range(kind, shift, shift)
     if shift == 0.0:
         # This is a contract-level identity, not just a sufficiently-close
         # round trip through the finite-precision OKLab matrices.
@@ -445,9 +504,24 @@ def apply_aces_like_transform(
             ),
         )
 
+    if kind == "aces-exposure":
+        try:
+            gain = math.pow(2.0, shift)
+        except OverflowError as exc:
+            raise AcesLikeTransformError("exposure EV is too large") from exc
+        exposed = srgb_to_linear(source) * gain
+        clipped = (exposed < 0.0) | (exposed > 1.0)
+        result = np.clip(linear_to_srgb(np.clip(exposed, 0.0, 1.0)), 0.0, 1.0)
+        return AcesLikeTransformResult(result, _diagnostics(
+            source, result, np.zeros(source.shape[:-1], dtype=bool), int(np.count_nonzero(clipped))))
+
     source_lch = oklab_to_oklch(linear_rgb_to_oklab(srgb_to_linear(source)))
     transformed_lch = np.array(source_lch, copy=True)
-    transformed_lch[..., 0] = _transformed_lightness(source_lch[..., 0], shift, kind)
+    if kind in ("aces-saturation", "aces-vibrance"):
+        weight = 1.0 if kind == "aces-saturation" else 1.0 - np.clip(source_lch[..., 1] / 0.2, 0.0, 1.0)
+        transformed_lch[..., 1] *= 1.0 + shift * weight
+    else:
+        transformed_lch[..., 0] = _transformed_lightness(source_lch[..., 0], shift, kind)
     mapped_linear, gamut_mapped, hard_clipped_channels = (
         _constant_lightness_hue_gamut_map(transformed_lch)
     )
@@ -542,6 +616,7 @@ def build_adaptive_pwl_approximation(
     tolerance = _finite_scalar(error_tolerance, "PWL error_tolerance")
     if kind not in ACES_LIKE_SHIFT_KINDS:
         raise AcesLikeTransformError("PWL kind must be an ACES-like shift kind")
+    validate_control_range(kind, lower, upper)
     if lower >= upper:
         raise AcesLikeTransformError("PWL x_min must be less than x_max")
     if not lower <= 0.0 <= upper:
@@ -616,6 +691,8 @@ __all__ = [
     "ACES_LIKE_PWL_ERROR_METRIC",
     "ACES_LIKE_PWL_VALIDATOR_VERSION",
     "ACES_LIKE_SHIFT_KINDS",
+    "ACES_LIKE_EXPERIMENT_CONTROLS",
+    "ACES_LIKE_CONTROL_VERSION",
     "ACES_LIKE_TRANSFORM_ORDERS",
     "AcesLikeDiagnostics",
     "AcesLikeTransformError",
@@ -626,6 +703,8 @@ __all__ = [
     "apply_aces_like_transform",
     "apply_aces_like_joint_transform",
     "build_adaptive_pwl_approximation",
+    "control_metadata",
+    "validate_control_range",
     "linear_rgb_to_oklab",
     "linear_to_srgb",
     "oklab_to_linear_rgb",

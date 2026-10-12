@@ -359,6 +359,9 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
     if global_real_config is not None:
         extra_meta.update(
             {
+                "timeout": timeout,
+                "solver_run_timeout": solver_run_timeout,
+                "semantic_attack_mode": "hybrid-de" if global_real_config.get("hybrid_de_enabled") else "global-real",
                 "global_real_requested_min": global_real_config.get("requested_min"),
                 "global_real_requested_max": global_real_config.get("requested_max"),
                 "global_real_effective_min": global_real_config.get("effective_min"),
@@ -399,6 +402,9 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
                     "shap_sign_epsilon"
                 ),
                 "global_real_shift_kind": global_real_config.get("global_shift_kind"),
+                "global_real_aces_like_control": global_real_config.get("aces_like_control"),
+                "global_real_probe_enabled": global_real_config.get("probe_enabled"),
+                "global_real_reference_transform": global_real_config.get("reference_transform"),
                 "global_real_contrast_channel_means": global_real_config.get(
                     "contrast_channel_means"
                 ),

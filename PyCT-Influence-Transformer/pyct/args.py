@@ -6,6 +6,8 @@ import math
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 from libct.aces_like import (
+    ACES_LIKE_SHIFT_KINDS,
+    validate_control_range,
     DEFAULT_PWL_ERROR_TOLERANCE,
     DEFAULT_PWL_MAX_SEGMENTS,
 )
@@ -328,15 +330,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "shap-sign",
             "brightness",
             "contrast",
-            "aces-brightness",
-            "aces-contrast",
-        ),
+        ) + ACES_LIKE_SHIFT_KINDS,
         default="shap-sign",
         help=(
             "Shared GlobalReal direction: shap-sign follows per-pixel SHAP signs; "
             "brightness shifts all channels equally; contrast scales deviations "
             "from each image's RGB channel mean; aces-brightness and aces-contrast "
-            "use the ACES-like piecewise-linear transform."
+            "use the ACES-like piecewise-linear transform. Additional aces-* "
+            "photo controls are available in standalone global-real mode."
         ),
     )
     parser.add_argument(
@@ -411,7 +412,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "input variables to that range."
         )
     if axes_requested:
-        if args.attack_mode != "hybrid-de" or not args.global_shift_kind.startswith("aces-"):
+        if args.attack_mode != "hybrid-de" or args.global_shift_kind not in ("aces-brightness", "aces-contrast"):
             parser.error("Explicit search axes/order require --attack-mode hybrid-de and an ACES-like --global-shift-kind")
     if args.pyct_search_axes == "both":
         minimum_triangles = 8 if args.global_x_min < 0 < args.global_x_max else 2
@@ -445,6 +446,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             if args.de_population_size < 5:
                 parser.error("--de-population-size must be >= 5")
         if args.global_shift_kind.startswith("aces-"):
+            try:
+                validate_control_range(args.global_shift_kind, args.global_x_min, args.global_x_max)
+            except ValueError as exc:
+                parser.error(str(exc))
             if args.global_x_bounds_mode != "clip":
                 parser.error("ACES-like shifts require --global-x-bounds-mode clip")
             if args.global_x_min >= args.global_x_max:

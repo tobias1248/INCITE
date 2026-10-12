@@ -15,6 +15,7 @@ from libct.aces_like import (
     ACES_LIKE_SHIFT_KINDS,
     DEFAULT_PWL_ERROR_TOLERANCE,
     DEFAULT_PWL_MAX_SEGMENTS,
+    control_metadata,
 )
 from libct.global_real_probe import (
     DEFAULT_PROBE_INITIAL_POINTS,
@@ -291,6 +292,8 @@ def cifar10_global_real(
             "aces_like_color_space": ACES_LIKE_COLOR_SPACE,
             "aces_like_curve_version": ACES_LIKE_CURVE_VERSION,
             "aces_like_gamut_mapper": ACES_LIKE_GAMUT_MAPPER,
+            "aces_like_control": control_metadata(shift_kind),
+            "reference_transform": "exact",
             "probe_enabled": bool(probe_enabled),
             "probe_initial_points": int(probe_initial_points),
             "probe_max_refinements": int(probe_max_refinements),

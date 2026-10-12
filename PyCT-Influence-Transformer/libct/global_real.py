@@ -20,6 +20,8 @@ from libct.aces_like import (
     apply_aces_like_joint_transform,
     ACES_LIKE_TRANSFORM_ORDERS,
     build_adaptive_pwl_approximation,
+    control_metadata,
+    validate_control_range,
 )
 from libct.utils import ConcolicObject, get_in_dict_shape, py2smt, unwrap
 from libct.aces_like_pwl_2d import (
@@ -53,6 +55,8 @@ def build_aces_like_global_real_config(
 ) -> Dict[str, Any]:
     """Build and validate PWL metadata for the actual image used by PyCT."""
     updated = dict(config)
+    updated["aces_like_control"] = control_metadata(updated["global_shift_kind"])
+    updated["reference_transform"] = "exact"
     if updated.get("search_axes") == "both":
         source = np.asarray(rgb, dtype=np.float64)
         approximation = _cached_planar(
@@ -172,6 +176,7 @@ def validate_global_real_config(config: Mapping[str, Any]) -> Dict[str, Any]:
                 "ACES-like transform requires global_shift_kind to be one of "
                 + ", ".join(ACES_LIKE_SHIFT_KINDS)
             )
+        validate_control_range(kind, lower, upper)
         raw_knots = config.get("pwl_knots")
         if not isinstance(raw_knots, Sequence) or isinstance(raw_knots, (str, bytes)):
             raise ValueError("ACES-like transform requires a non-empty pwl_knots sequence")
@@ -412,8 +417,8 @@ def _validate_planar_config(config):
     if (not math.isfinite(lower) or not math.isfinite(upper) or lower >= upper
             or not lower <= 0 <= upper or config.get("bounds_mode") != BOUNDS_MODE_CLIP):
         raise ValueError("2D ACES-like bounds must be clip, finite, and include zero")
-    if config.get("search_axes") != "both" or config.get("global_shift_kind") not in ACES_LIKE_SHIFT_KINDS:
-        raise ValueError("2D ACES-like config requires both search axes and an ACES-like kind")
+    if config.get("search_axes") != "both" or config.get("global_shift_kind") not in ("aces-brightness", "aces-contrast"):
+        raise ValueError("2D ACES-like config requires both search axes and a brightness/contrast kind")
     if config.get("transform_order") not in ACES_LIKE_TRANSFORM_ORDERS:
         raise ValueError("2D ACES-like config requires a valid transform_order")
     for name in ("pwl_b_knots", "pwl_c_knots"):
@@ -521,7 +526,7 @@ def _materialize_planar_details(inputs, config, exact_transform):
     error = float(np.max(np.abs(exact.rgb - approximated)))
     if error > config["pwl_error_tolerance"] + 1e-12:
         raise ValueError("2D ACES-like PWL error at candidate exceeds tolerance (observed {})".format(error))
-    use_exact = bool(config.get("hybrid_de_enabled")) if exact_transform is None else exact_transform
+    use_exact = True if exact_transform is None else exact_transform
     output = exact.rgb if use_exact else approximated
     materialized = {
         name: float(output[coordinates[name]]) if name in coordinates else unwrap(value)
@@ -798,9 +803,9 @@ def materialize_global_real_details(
             )
         )
     materialized: MutableMapping[str, Any] = {}
-    # Hybrid reference validation and recorded images use the exact second
-    # transform. Symbolic execution still searches the PWL approximation.
-    use_exact = bool(normalized.get("hybrid_de_enabled")) if exact_transform is None else exact_transform
+    # Reference validation and artifacts use exact RGB, including standalone
+    # No Probe runs. Primitive search/coverage explicitly requests PWL RGB.
+    use_exact = True if exact_transform is None else exact_transform
     output_rgb = exact.rgb if use_exact else approximated_rgb
     for name, raw_value in primitive_inputs.items():
         if name == variable_name:

@@ -6,6 +6,7 @@ import time
 from typing import Any, Dict, Tuple
 
 import numpy as np
+from libct.aces_like import ACES_LIKE_SHIFT_KINDS
 
 from libct.executor.legacy import LegacyConcolicExecutor
 from libct.global_real import (
@@ -172,10 +173,7 @@ class CandidateExecutionRunner:
             return False
         if global_real_config.get("probe_enabled", True) is False:
             return False
-        return global_real_config.get("global_shift_kind") in {
-            "aces-brightness",
-            "aces-contrast",
-        }
+        return global_real_config.get("global_shift_kind") in ACES_LIKE_SHIFT_KINDS
 
     def _validate_global_real_candidate_with_probe(
         self,
@@ -345,7 +343,7 @@ class CandidateExecutionRunner:
                             all_args,
                             global_real_config,
                             # Primitive search/coverage must match the PWL
-                            # search model. Reference calls use exact hybrid RGB.
+                            # search model. Every reference call uses exact RGB.
                             exact_transform=(
                                 None if func is self._engine.reference_execute else False
                             ),
