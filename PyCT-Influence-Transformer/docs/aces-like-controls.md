@@ -189,3 +189,80 @@ lookup/nonzero counts, sensitivity coverage, fallback reasons, evaluated nodes
 and estimator seconds. Counters are cumulative over returned child envelopes;
 a hard-killed forward may not return its counters. Nonzero lookup counts should
 be checked before attributing an experiment effect to SHAP priority.
+
+## Four controls in two tmux groups
+
+`scripts/run_aces_shap_two_groups.sh` prepares one shared campaign and launches
+two independent tmux sessions:
+
+| Group | Controls, run sequentially for each model | Case workers |
+| --- | --- | --- |
+| A | Exposure, Highlights | 2 |
+| B | Shadows, Saturation | 2 |
+
+Both groups cover the five CIFAR10 models listed above, indices 0–99. This
+gives 20 model/control experiments and 2,000 case executions. Each group has
+`MAX_PARALLEL=1`, so only one attack CLI is active per group. There are at most
+four concurrent case workers across both groups, plus their parents/solvers.
+
+Defaults are timeout 1800s, solver 60s, build 30s, threshold 2000, X in
+`[-0.2,0.2]`, PWL cap 64 and tolerance `1/255`. The wrapper fixes alpha 0,
+target SHAP priority and sensitivity on. DE, Probe, ternary simplification,
+GPU and dataset downloads are off. CPU thread limits remain one per worker.
+The sensitivity fallback and cumulative budgets described above still apply.
+
+Preparation runs these stages before either attack group starts:
+
+1. Check all four controls on all 100 cached test images using the runtime PWL
+   builder (400 checks, shared across models). Save every rejection and stop
+   if any check fails; never change the segment cap or tolerance automatically.
+2. Refresh target SHAP for 100 images on each of the five models, sequentially,
+   with three background samples per class and background seed 2233.
+3. Save the prepared parameter gate, then create group A/B tmux sessions with
+   those exact settings. A group refuses to run with changed prepared settings.
+
+The wrapper resolves `PYCT_KERAS_HOME`, falling back to `KERAS_HOME` and then
+`~/.keras`, and forwards that absolute path to both tmux sessions. The same
+dataset cache location is included in the prepared parameter gate.
+
+Preview without writing files or starting tmux/SHAP/attacks:
+
+```bash
+DRY_RUN=1 CHECK_MODELS=0 BASE_CAMPAIGN_ID=aces_shap_four_reviewed \
+  bash scripts/run_aces_shap_two_groups.sh
+```
+
+After commit approval, push locally and update the experiment checkout on
+530lab through git. Start preparation inside tmux so it survives SSH exit:
+
+```bash
+tmux new-session -s aces_shap_four_prepare
+BASE_CAMPAIGN_ID=aces_shap_four_reviewed \
+  bash scripts/run_aces_shap_two_groups.sh --launch
+```
+
+The wrapper creates `aces_shap_four_reviewed_A` and
+`aces_shap_four_reviewed_B` after preparation succeeds. Preparation runs in
+the foreground of the caller's session. `--prepare` runs only preparation;
+to start a prepared group manually, keep the same exported campaign parameters
+and use `--group A` or `--group B` in its own tmux session.
+
+Artifacts default to `exp/<BASE_CAMPAIGN_ID>/`: `preflight.json`,
+`preflight.log`, per-model SHAP logs, `shap_target_class/`, `ready.json` and
+`status.txt`. Each `group_A/` or `group_B/` has its own manifest, case CLI logs,
+completion records and `report/{report.json,cases.csv}`. Actual case arrays
+and stats remain in the existing `exp/<model>_global-real_smtlast_...` layout,
+linked by the group's completion records. `group_A.exit_code` and
+`group_B.exit_code` record normal lane completion; interruption may omit them.
+`groups_started` records launch, not experiment completion. Attach to a lane
+with `tmux attach -t aces_shap_four_reviewed_A`; during a long case, inspect
+the current file under `group_A/logs/` for worker output.
+
+Campaign roots and tmux names cannot be reused by `--launch`; failed preparation
+remains available for inspection. A group failure stops that group and is
+reported separately; the other group continues. If session B cannot be created,
+the wrapper cancels session A. Closing a lane sends termination to its batch
+runner so its worker process groups are cleaned up.
+
+At full timeout usage, the case search budgets total about 10.4 days at four
+workers. SHAP refresh, PWL preprocessing and model startup add to that time.
