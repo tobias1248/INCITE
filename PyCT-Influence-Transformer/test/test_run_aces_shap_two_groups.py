@@ -26,6 +26,7 @@ def _environment(tmp_path, **overrides):
                        FIRST_N='100', TIMEOUT='1800', SOLVER_RUN_TIMEOUT='60', BUILD_TIMEOUT='30',
                        PATH_THRESHOLD='2000', X_MIN='-0.2', X_MAX='0.2', PWL_MAX_SEGMENTS='64',
                        PWL_ERROR=str(1 / 255), BG_PER_CLASS='3', BG_SEED='2233',
+                       SHAP_SENSITIVITY='1', SHAP_CACHE_MODE='refresh', SHAP_REUSE_ROOT='',
                        DRY_RUN='1', CHECK_MODELS='0')
     environment.update(overrides)
     return environment
@@ -72,12 +73,40 @@ def test_dry_run_has_twenty_scalar_commands_four_controls_and_no_files(tmp_path)
     assert not (tmp_path / 'campaign').exists()
 
 
+def test_shap_only_reuse_preview_has_no_sensitivity_or_shap_refresh(tmp_path):
+    source = tmp_path / "old campaign ' with spaces" / 'shap_target_class'
+    result = _run(_environment(tmp_path, SHAP_SENSITIVITY='0', SHAP_CACHE_MODE='reuse',
+                               SHAP_REUSE_ROOT=str(source)))
+    assert result.returncode == 0, result.stderr
+    commands = _commands(result.stdout, 'Running:')
+    assert len(commands) == 20
+    for command in commands:
+        assert '--global-real-shap-priority' in command
+        assert '--global-real-shap-sensitivity' not in command
+        assert _option(command, '--score-alpha') == '0'
+    assert not _commands(result.stdout, 'SHAP:')
+    command, = _commands(result.stdout, 'Cache:')
+    assert _option(command, '--mode') == 'reuse'
+    assert _option(command, '--source-root') == str(source.resolve())
+    assert not (tmp_path / 'campaign').exists()
+
+
+@pytest.mark.parametrize('overrides', [
+    {'SHAP_SENSITIVITY': '2'}, {'SHAP_CACHE_MODE': 'unknown'},
+    {'SHAP_CACHE_MODE': 'reuse'}, {'SHAP_REUSE_ROOT': '/unexpected/source'},
+])
+def test_invalid_shap_settings_rejected_before_campaign_writes(tmp_path, overrides):
+    result = _run(_environment(tmp_path, **overrides))
+    assert result.returncode != 0
+    assert not (tmp_path / 'campaign').exists()
+
+
 def _fake_tools(tmp_path):
     binaries = tmp_path / 'fake tools'
     binaries.mkdir()
     python = binaries / 'python'
     python.write_text('#!' + sys.executable + '\n' + '''
-import json,os,signal,sys,time
+import hashlib,json,os,shutil,signal,sys,time
 from pathlib import Path
 args=sys.argv[1:]
 with open(os.environ['EVENTS'],'a') as handle:
@@ -90,7 +119,7 @@ if module=='pyct' and os.environ.get('ALLOW_FAKE_ATTACK')=='1':
         raise SystemExit(143)
     signal.signal(signal.SIGTERM,terminated)
     while True: time.sleep(.1)
-if module not in ('orchestration.aces_campaign_preflight','pyct.shap'):
+if module not in ('orchestration.aces_campaign_preflight','orchestration.aces_shap_cache','pyct.shap'):
     raise SystemExit('Unexpected real attack: '+module)
 if module=='orchestration.aces_campaign_preflight':
     first_n=int(args[args.index('--first-n')+1])
@@ -103,6 +132,17 @@ if module=='orchestration.aces_campaign_preflight':
     if os.environ.get('INVALID_PREFLIGHT')=='1': report['complete']=False
     Path(args[args.index('--output')+1]).write_text(json.dumps(report))
     raise SystemExit(int(os.environ.get('FAIL_PREFLIGHT','0')))
+if module=='orchestration.aces_shap_cache':
+    mode=args[args.index('--mode')+1]
+    root=Path(args[args.index('--output-root')+1])
+    manifest=Path(args[args.index('--manifest')+1])
+    if os.environ.get('FAIL_CACHE')=='1': raise SystemExit('Invalid SHAP cache')
+    if mode=='reuse': shutil.copytree(args[args.index('--source-root')+1],root)
+    files={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*.json')}
+    if mode=='verify':
+        if json.loads(manifest.read_text())['files']!=files: raise SystemExit('Prepared SHAP cache changed')
+    else: manifest.write_text(json.dumps({'files':files}))
+    raise SystemExit(0)
 if os.environ.get('SKIP_SHAP_CACHE')!='1':
     root=Path(args[args.index('--output-root')+1])/args[args.index('--model-name')+1]
     root.mkdir(parents=True,exist_ok=True)
@@ -138,7 +178,7 @@ def _events(environment):
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
 
-@pytest.mark.parametrize('failure', ['FAIL_PREFLIGHT', 'FAIL_SHAP'])
+@pytest.mark.parametrize('failure', ['FAIL_PREFLIGHT', 'FAIL_SHAP', 'FAIL_CACHE'])
 def test_failed_preparation_never_marks_ready_or_starts_groups(tmp_path, failure):
     environment = _fake_environment(tmp_path, **{failure: '1'})
     result = _run(environment)
@@ -151,7 +191,7 @@ def test_failed_preparation_never_marks_ready_or_starts_groups(tmp_path, failure
     events = _events(environment)
     assert not any(event['tool'] == 'tmux' and event['args'][0] == 'new-session' for event in events)
     python = [event for event in events if event['tool'] == 'python']
-    assert len(python) == (1 if failure == 'FAIL_PREFLIGHT' else 2)
+    assert len(python) == {'FAIL_PREFLIGHT': 1, 'FAIL_SHAP': 2, 'FAIL_CACHE': 7}[failure]
 
 
 def test_launch_prepares_once_then_starts_two_tmux_sessions_with_quoted_absolute_paths(tmp_path):
@@ -163,7 +203,8 @@ def test_launch_prepares_once_then_starts_two_tmux_sessions_with_quoted_absolute
     events = _events(environment)
     preparation = [event for event in events if event['tool'] == 'python']
     assert [event['args'][1] for event in preparation] == [
-        'orchestration.aces_campaign_preflight'] + ['pyct.shap'] * 5
+        'orchestration.aces_campaign_preflight'] + ['pyct.shap'] * 5 + [
+        'orchestration.aces_shap_cache', 'orchestration.aces_shap_cache']
     assert all(event['downloads'] == '0' and event['gpu'] == '-1' for event in preparation)
     launches = [event for event in events if event['tool'] == 'tmux' and event['args'][0] == 'new-session']
     assert len(launches) == 2
@@ -181,6 +222,66 @@ def test_launch_prepares_once_then_starts_two_tmux_sessions_with_quoted_absolute
     assert (root / 'status.txt').read_text().strip() == 'groups_started'
     assert not (ROOT / 'injected').exists()
     assert not (root / 'group_A').exists()  # fake tmux did not invoke the real attack.
+
+
+def test_reuse_launch_snapshots_cache_and_forwards_shap_only_to_both_tmux_groups(tmp_path):
+    source = tmp_path / "source ' with spaces"
+    model_cache = source / 'model_a'
+    model_cache.mkdir(parents=True)
+    original = model_cache / 'shap_value_0.json'
+    original.write_text('{"example": 1}')
+    environment = _fake_environment(tmp_path, FIRST_N='1', MODEL_NAMES='model_a',
+                                    SHAP_SENSITIVITY='0', SHAP_CACHE_MODE='reuse',
+                                    SHAP_REUSE_ROOT=str(source))
+    result = _run(environment)
+    assert result.returncode == 0, result.stderr
+    events = _events(environment)
+    assert not any(e['tool'] == 'python' and e['args'][1] == 'pyct.shap' for e in events)
+    root = Path(environment['CAMPAIGN_ROOT'])
+    snapshot = root / 'shap_target_class/model_a/shap_value_0.json'
+    assert snapshot.read_bytes() == original.read_bytes()
+    assert snapshot.stat().st_ino != original.stat().st_ino
+    ready = json.loads((root / 'ready.json').read_text())
+    assert ready['SHAP_SENSITIVITY'] == '0'
+    assert ready['SHAP_CACHE_MODE'] == 'reuse'
+    launches = [e for e in events if e['tool'] == 'tmux' and e['args'][0] == 'new-session']
+    assert len(launches) == 2
+    for event in launches:
+        command = shlex.split(event['args'][-1])
+        assert 'SHAP_SENSITIVITY=0' in command
+        assert 'SHAP_CACHE_MODE=reuse' in command
+        assert 'SHAP_REUSE_ROOT=' + str(source.resolve()) in command
+
+
+@pytest.mark.parametrize('change', ['sensitivity', 'cache_mode', 'source', 'receipt', 'cache'])
+def test_prepared_shap_settings_and_snapshot_are_checked_before_group_attack(tmp_path, change):
+    source = tmp_path / 'source'
+    (source / 'model_a').mkdir(parents=True)
+    (source / 'model_a/shap_value_0.json').write_text('{}')
+    environment = _fake_environment(tmp_path, FIRST_N='1', MODEL_NAMES='model_a',
+                                    SHAP_SENSITIVITY='0', SHAP_CACHE_MODE='reuse',
+                                    SHAP_REUSE_ROOT=str(source))
+    result = _run(environment, '--prepare')
+    assert result.returncode == 0, result.stderr
+    root = Path(environment['CAMPAIGN_ROOT'])
+    if change == 'sensitivity':
+        environment['SHAP_SENSITIVITY'] = '1'
+    elif change == 'cache_mode':
+        environment.update(SHAP_CACHE_MODE='refresh', SHAP_REUSE_ROOT='')
+    elif change == 'source':
+        environment['SHAP_REUSE_ROOT'] = str(tmp_path / 'other source')
+    elif change == 'receipt':
+        path = root / 'shap_cache_manifest.json'
+        path.write_text(path.read_text() + ' ')
+    else:
+        (root / 'shap_target_class/model_a/shap_value_0.json').write_text('{"changed": 1}')
+    before = _events(environment)
+    result = _run(environment, '--group', 'B')
+    assert result.returncode != 0
+    assert not (root / 'group_B').exists()
+    if change != 'cache':
+        assert _events(environment) == before
+    assert not any(e['tool'] == 'python' and e['args'][1] == 'pyct' for e in _events(environment))
 
 
 def test_group_parameter_mismatch_rejected_before_attack(tmp_path):
@@ -264,6 +365,7 @@ def test_group_gate_revalidates_all_prepared_artifacts_before_attack(tmp_path, t
 
 def test_group_cancellation_reaches_batch_and_its_attack_process(tmp_path):
     environment = _fake_environment(tmp_path, FIRST_N='1', MODEL_NAMES='model_a',
+                                    SHAP_SENSITIVITY='0',
                                     ALLOW_FAKE_ATTACK='1', ATTACK_PID=str(tmp_path / 'attack.pid'),
                                     ATTACK_TERMINATED=str(tmp_path / 'attack.terminated'))
     result = _run(environment, '--prepare')
@@ -281,6 +383,9 @@ def test_group_cancellation_reaches_batch_and_its_attack_process(tmp_path):
                 pytest.fail('group exited before attack: ' + process.stderr.read())
             time.sleep(.05)
         assert attack_pid is not None, 'fake attack did not start'
+        attack, = [e for e in _events(environment) if e['tool'] == 'python' and e['args'][1] == 'pyct']
+        assert '--global-real-shap-priority' in attack['args']
+        assert '--global-real-shap-sensitivity' not in attack['args']
         process.send_signal(signal.SIGTERM)
         _, stderr = process.communicate(timeout=10)
         assert process.returncode == 143, stderr
