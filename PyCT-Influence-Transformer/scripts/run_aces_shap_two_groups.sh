@@ -22,16 +22,22 @@ export SOLVER_RUN_TIMEOUT="${SOLVER_RUN_TIMEOUT:-60}" BUILD_TIMEOUT="${BUILD_TIM
 export PATH_THRESHOLD="${PATH_THRESHOLD:-2000}" X_MIN="${X_MIN:--0.2}" X_MAX="${X_MAX:-0.2}"
 export PWL_MAX_SEGMENTS="${PWL_MAX_SEGMENTS:-64}" PWL_ERROR="${PWL_ERROR:-0.00392156862745098}"
 export BG_PER_CLASS="${BG_PER_CLASS:-3}" BG_SEED="${BG_SEED:-2233}"
-export SCORE_ALPHA=0 SHAP_PRIORITY=1 SHAP_SENSITIVITY=1 NUM_PROCESS=2 MAX_PARALLEL=1
+export SCORE_ALPHA=0 SHAP_PRIORITY=1 NUM_PROCESS=2 MAX_PARALLEL=1
+export SHAP_SENSITIVITY="${SHAP_SENSITIVITY:-1}"
+export SHAP_CACHE_MODE="${SHAP_CACHE_MODE:-refresh}" SHAP_REUSE_ROOT="${SHAP_REUSE_ROOT:-}"
 export MODEL_NAMES PYTHON_BIN MANIFEST_PYTHON
 export CUDA_VISIBLE_DEVICES=-1 PYCT_ALLOW_DATASET_DOWNLOAD=0
 export OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1
 DRY_RUN="${DRY_RUN:-0}" CHECK_MODELS="${CHECK_MODELS:-1}"
-"$MANIFEST_PYTHON" - "$BASE_CAMPAIGN_ID" "$DRY_RUN" "$CHECK_MODELS" <<'PY'
+"$MANIFEST_PYTHON" - "$BASE_CAMPAIGN_ID" "$DRY_RUN" "$CHECK_MODELS" "$SHAP_SENSITIVITY" "$SHAP_CACHE_MODE" "$SHAP_REUSE_ROOT" <<'PY'
 import re,sys
-name,dry,models=sys.argv[1:]
+name,dry,models,sensitivity,cache_mode,reuse_root=sys.argv[1:]
 if not re.fullmatch(r'[A-Za-z0-9_-]+',name) or dry not in ('0','1') or models not in ('0','1'):
     raise SystemExit('Invalid campaign ID or dry-run/model-check flags')
+if sensitivity not in ('0','1'):
+    raise SystemExit('SHAP_SENSITIVITY must be 0 or 1')
+if cache_mode not in ('refresh','reuse') or (cache_mode=='reuse') != bool(reuse_root):
+    raise SystemExit('Use SHAP_CACHE_MODE=refresh, or reuse with SHAP_REUSE_ROOT')
 PY
 CAMPAIGN_ROOT="$("$MANIFEST_PYTHON" - "$CAMPAIGN_ROOT" <<'PY'
 from pathlib import Path
@@ -40,6 +46,15 @@ print(Path(sys.argv[1]).resolve())
 PY
 )"
 export BASE_CAMPAIGN_ID CAMPAIGN_ROOT
+if [[ "$SHAP_CACHE_MODE" == reuse ]]; then
+  SHAP_REUSE_ROOT="$("$MANIFEST_PYTHON" - "$SHAP_REUSE_ROOT" <<'PY'
+from pathlib import Path
+import sys
+print(Path(sys.argv[1]).expanduser().resolve())
+PY
+)"
+  export SHAP_REUSE_ROOT
+fi
 export PYCT_KERAS_HOME="$("$MANIFEST_PYTHON" - <<'PY'
 import os
 from pathlib import Path
@@ -70,6 +85,21 @@ shap_for() {
     --background-seed "$BG_SEED" --output-root "$SHAP_OUTPUT_ROOT" --force-refresh --sleep-seconds 0)
 }
 read -r -a models <<< "$MODEL_NAMES"
+cache_cmd=("$PYTHON_BIN" -m orchestration.aces_shap_cache
+  --output-root "$SHAP_OUTPUT_ROOT" --manifest "$CAMPAIGN_ROOT/shap_cache_manifest.json"
+  --models "${models[@]}" --first-n "$FIRST_N"
+  --background-per-class "$BG_PER_CLASS" --background-seed "$BG_SEED")
+prepare_cache_cmd=("${cache_cmd[@]}" --mode "$SHAP_CACHE_MODE")
+if [[ "$SHAP_CACHE_MODE" == reuse ]]; then prepare_cache_cmd+=(--source-root "$SHAP_REUSE_ROOT"); fi
+cache_receipt_digest() {
+  SHAP_CACHE_RECEIPT_SHA256="$("$MANIFEST_PYTHON" - "$CAMPAIGN_ROOT/shap_cache_manifest.json" <<'PY'
+import hashlib,sys
+from pathlib import Path
+print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+PY
+)"
+  export SHAP_CACHE_RECEIPT_SHA256
+}
 check_preparation() {
   "$MANIFEST_PYTHON" - "$CAMPAIGN_ROOT" "$1" <<'PY'
 import json,os,sys
@@ -91,8 +121,12 @@ PY
 }
 if [[ "$MODE" != --group ]]; then
   printf 'Preflight:'; printf ' %q' "${preflight_cmd[@]}"; printf '\n'
-  for model in "${models[@]}"; do shap_for "$model"; printf 'SHAP:'; printf ' %q' "${shap_cmd[@]}"; printf '\n'; done
+  if [[ "$SHAP_CACHE_MODE" == refresh ]]; then
+    for model in "${models[@]}"; do shap_for "$model"; printf 'SHAP:'; printf ' %q' "${shap_cmd[@]}"; printf '\n'; done
+  fi
+  printf 'Cache:'; printf ' %q' "${prepare_cache_cmd[@]}"; printf '\n'
 fi
+printf 'SHAP priority=1; sensitivity=%s; cache=%s; source=%s\n' "$SHAP_SENSITIVITY" "$SHAP_CACHE_MODE" "$SHAP_REUSE_ROOT"
 printf 'Groups A=Exposure/Highlights, B=Shadows/Saturation; 2 workers each; sessions=%s_A,%s_B\n' "$BASE_CAMPAIGN_ID" "$BASE_CAMPAIGN_ID"
 if [[ "$DRY_RUN" == 1 ]]; then exit 0; fi
 [[ -x "$PYTHON_BIN" ]] || { printf 'Missing Python: %s\n' "$PYTHON_BIN" >&2; exit 1; }
@@ -113,18 +147,23 @@ if [[ "$MODE" != --group ]]; then
   printf 'preflight\n' > "$CAMPAIGN_ROOT/status.txt"
   "${preflight_cmd[@]}" 2>&1 | tee "$CAMPAIGN_ROOT/preflight.log"
   check_preparation pwl
-  printf 'shap_refresh\n' > "$CAMPAIGN_ROOT/status.txt"
-  for model in "${models[@]}"; do
-    shap_for "$model"
-    "${shap_cmd[@]}" 2>&1 | tee "$CAMPAIGN_ROOT/shap_${model}.log"
-  done
+  printf 'shap_%s\n' "$SHAP_CACHE_MODE" > "$CAMPAIGN_ROOT/status.txt"
+  if [[ "$SHAP_CACHE_MODE" == refresh ]]; then
+    for model in "${models[@]}"; do
+      shap_for "$model"
+      "${shap_cmd[@]}" 2>&1 | tee "$CAMPAIGN_ROOT/shap_${model}.log"
+    done
+  fi
+  "${prepare_cache_cmd[@]}" 2>&1 | tee "$CAMPAIGN_ROOT/shap_cache.log"
   check_preparation all
+  cache_receipt_digest
   # Persist only experiment parameters, never a dump of the shell environment.
   "$MANIFEST_PYTHON" - "$CAMPAIGN_ROOT/ready.json" <<'PY'
 import json,os,sys
 keys=['BASE_CAMPAIGN_ID','MODEL_NAMES','FIRST_N','TIMEOUT','SOLVER_RUN_TIMEOUT','BUILD_TIMEOUT',
       'PATH_THRESHOLD','X_MIN','X_MAX','PWL_MAX_SEGMENTS','PWL_ERROR','BG_PER_CLASS','BG_SEED','SHAP_OUTPUT_ROOT',
-      'SCORE_ALPHA','SHAP_PRIORITY','SHAP_SENSITIVITY','NUM_PROCESS','MAX_PARALLEL','PYCT_KERAS_HOME']
+      'SCORE_ALPHA','SHAP_PRIORITY','SHAP_SENSITIVITY','NUM_PROCESS','MAX_PARALLEL','PYCT_KERAS_HOME',
+      'SHAP_CACHE_MODE','SHAP_REUSE_ROOT','SHAP_CACHE_RECEIPT_SHA256']
 with open(sys.argv[1],'x') as handle: json.dump({key:os.environ[key] for key in keys},handle,indent=2)
 PY
   trap - ERR
@@ -132,16 +171,19 @@ PY
   if [[ "$MODE" == --prepare ]]; then printf 'Preparation complete: %s\n' "$CAMPAIGN_ROOT"; exit 0; fi
 fi
 # The gate must exist and match this invocation before either attack lane starts.
+cache_receipt_digest
 "$MANIFEST_PYTHON" - "$CAMPAIGN_ROOT/ready.json" <<'PY'
 import json,os,sys
 keys=['BASE_CAMPAIGN_ID','MODEL_NAMES','FIRST_N','TIMEOUT','SOLVER_RUN_TIMEOUT','BUILD_TIMEOUT',
       'PATH_THRESHOLD','X_MIN','X_MAX','PWL_MAX_SEGMENTS','PWL_ERROR','BG_PER_CLASS','BG_SEED','SHAP_OUTPUT_ROOT',
-      'SCORE_ALPHA','SHAP_PRIORITY','SHAP_SENSITIVITY','NUM_PROCESS','MAX_PARALLEL','PYCT_KERAS_HOME']
+      'SCORE_ALPHA','SHAP_PRIORITY','SHAP_SENSITIVITY','NUM_PROCESS','MAX_PARALLEL','PYCT_KERAS_HOME',
+      'SHAP_CACHE_MODE','SHAP_REUSE_ROOT','SHAP_CACHE_RECEIPT_SHA256']
 with open(sys.argv[1]) as handle: ready=json.load(handle)
 if not isinstance(ready,dict) or set(ready)!=set(keys) or any(os.environ.get(key)!=value for key,value in ready.items()):
     raise SystemExit('Prepared campaign parameters differ')
 PY
 check_preparation all
+"${cache_cmd[@]}" --mode verify
 if [[ "$MODE" == --group ]]; then
   printf 'Case logs and reports: %s/group_%s\n' "$CAMPAIGN_ROOT" "$GROUP"
   env DRY_RUN=0 CHECK_MODELS="$CHECK_MODELS" CAMPAIGN_ID="${BASE_CAMPAIGN_ID}_${GROUP}" \
@@ -155,7 +197,7 @@ if [[ "$MODE" == --group ]]; then
   exit "$code"
 fi
 group_env=()
-for key in BASE_CAMPAIGN_ID CAMPAIGN_ROOT MODEL_NAMES PYTHON_BIN MANIFEST_PYTHON FIRST_N TIMEOUT SOLVER_RUN_TIMEOUT BUILD_TIMEOUT PATH_THRESHOLD X_MIN X_MAX PWL_MAX_SEGMENTS PWL_ERROR BG_PER_CLASS BG_SEED PYCT_KERAS_HOME; do
+for key in BASE_CAMPAIGN_ID CAMPAIGN_ROOT MODEL_NAMES PYTHON_BIN MANIFEST_PYTHON FIRST_N TIMEOUT SOLVER_RUN_TIMEOUT BUILD_TIMEOUT PATH_THRESHOLD X_MIN X_MAX PWL_MAX_SEGMENTS PWL_ERROR BG_PER_CLASS BG_SEED PYCT_KERAS_HOME SHAP_SENSITIVITY SHAP_CACHE_MODE SHAP_REUSE_ROOT; do
   group_env+=("$key=${!key}")
 done
 group_env+=("CHECK_MODELS=$CHECK_MODELS" "DRY_RUN=0")

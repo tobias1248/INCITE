@@ -206,8 +206,9 @@ gives 20 model/control experiments and 2,000 case executions. Each group has
 four concurrent case workers across both groups, plus their parents/solvers.
 
 Defaults are timeout 1800s, solver 60s, build 30s, threshold 2000, X in
-`[-0.2,0.2]`, PWL cap 64 and tolerance `1/255`. The wrapper fixes alpha 0,
-target SHAP priority and sensitivity on. DE, Probe, ternary simplification,
+`[-0.2,0.2]`, PWL cap 64 and tolerance `1/255`. The wrapper fixes alpha 0
+and target SHAP priority on. Sensitivity defaults to on and can be disabled
+with `SHAP_SENSITIVITY=0`. DE, Probe, ternary simplification,
 GPU and dataset downloads are off. CPU thread limits remain one per worker.
 The sensitivity fallback and cumulative budgets described above still apply.
 
@@ -220,6 +221,89 @@ Preparation runs these stages before either attack group starts:
    with three background samples per class and background seed 2233.
 3. Save the prepared parameter gate, then create group A/B tmux sessions with
    those exact settings. A group refuses to run with changed prepared settings.
+
+### SHAP-only comparison with the same attribution caches
+
+Use `SHAP_SENSITIVITY=0` for raw target SHAP ordering; alpha remains zero, so
+depth does not affect priority. All model/control/case/search settings above
+remain the same. This comparison measures the effect of sensitivity weighting
+with the same SHAP attributions.
+
+`SHAP_CACHE_MODE=refresh` is the default and recomputes SHAP as before.
+`SHAP_CACHE_MODE=reuse` requires `SHAP_REUSE_ROOT`, pointing at the old
+campaign's `shap_target_class/` directory. Reuse never runs `pyct.shap` and
+never silently regenerates missing or incompatible caches. It copies the
+requested files into the new campaign's own `shap_target_class/` directory,
+without symlinks or hard links. Source and destination trees must not overlap.
+The old campaign's caches are only read.
+
+Both modes validate the local model hash, float32 input, balanced background,
+case index, explainer, background settings and internal-layer values. This
+offline check does not load the neural network; the attack runtime/report
+still verifies the target against the original reference prediction. A
+failure stops preparation; partial copies/logs remain for inspection and no
+successful receipt or ready gate is published. Use a new campaign ID/root
+after a failed preparation.
+
+`shap_cache_manifest.json` records the source path and every cache SHA256.
+The ready gate includes its digest, the cache mode, source path and sensitivity
+flag. Before each group starts, the runner verifies those parameters, current
+model/dataset identity and all snapshot hashes. The source directory need not
+remain available after preparation. Do not edit the snapshot during a run;
+the existing case/report audit also checks recorded cache provenance.
+
+Preview the SHAP-only campaign without writing files:
+
+```bash
+DRY_RUN=1 CHECK_MODELS=0 BASE_CAMPAIGN_ID=aces_shap_only_100c_reviewed \
+  SHAP_SENSITIVITY=0 SHAP_CACHE_MODE=reuse \
+  SHAP_REUSE_ROOT=/absolute/path/to/baseline/shap_target_class \
+  bash scripts/run_aces_shap_two_groups.sh
+```
+
+### Isolated checkout on 530lab
+
+After separately approving commits and pushing locally, fetch on 530lab and
+create a new worktree at the exact approved commit. The repository root is
+`INCITE`; the project is its `PyCT-Influence-Transformer/` subdirectory.
+The active baseline worktree must keep its current code and environment.
+
+```bash
+# Run on 530lab; replace these two values with the reviewed SHA and new name.
+APPROVED_SHA=REPLACE_WITH_APPROVED_COMMIT_SHA
+EXP_WORKTREE=/home/soslab-tobias/INCITE-worktrees/aces-shap-only-100-20261018
+git -C /home/soslab-tobias/INCITE fetch origin
+git -C /home/soslab-tobias/INCITE worktree add --detach "$EXP_WORKTREE" "$APPROVED_SHA"
+cd "$EXP_WORKTREE/PyCT-Influence-Transformer"
+```
+
+Provide the five existing model files in this checkout and verify their hashes
+against the baseline manifest. Tracked models are already checked out; link
+only missing model assets from the existing model cache. Use an explicit
+`PYTHON_BIN` for the existing venv and do not install/update dependencies while
+either campaign is running. Record the Python/package versions with the
+experiment. Worktrees isolate tracked code; they do not isolate shared venvs,
+model assets, dataset files or CPU resources.
+
+Start a preparation tmux session in the new project directory, then export:
+
+```bash
+export PYTHON_BIN=/home/soslab-tobias/INCITE/PyCT-Influence-Transformer/.venv/bin/python
+export PYCT_KERAS_HOME=/home/soslab-tobias/.keras
+export BASE_CAMPAIGN_ID=aces_shap_only_100c_1800s_20261018
+export SHAP_SENSITIVITY=0 SHAP_CACHE_MODE=reuse
+export SHAP_REUSE_ROOT=/home/soslab-tobias/INCITE-worktrees/aces-shap-four-controls-100-20261012/PyCT-Influence-Transformer/exp/aces_shap_four_100c_1800s_20261012/shap_target_class
+bash scripts/run_aces_shap_two_groups.sh --prepare
+```
+
+Preparation alone starts no attack workers. Once the baseline campaign has
+finished, start `--group A` and `--group B` in separate tmux sessions using
+the same exported settings and this worktree. Each group checks the ready gate
+before running. Alternatively, `--launch` prepares and starts both groups at
+once, but requires a fresh campaign root; it cannot reuse a prepared root.
+Do not run it after `--prepare` with the same campaign ID. Each campaign has
+four case workers, so overlapping baseline and SHAP-only campaigns would use
+up to eight workers and could change timing under the fixed case deadline.
 
 The wrapper resolves `PYCT_KERAS_HOME`, falling back to `KERAS_HOME` and then
 `~/.keras`, and forwards that absolute path to both tmux sessions. The same
@@ -248,7 +332,8 @@ to start a prepared group manually, keep the same exported campaign parameters
 and use `--group A` or `--group B` in its own tmux session.
 
 Artifacts default to `exp/<BASE_CAMPAIGN_ID>/`: `preflight.json`,
-`preflight.log`, per-model SHAP logs, `shap_target_class/`, `ready.json` and
+`preflight.log`, per-model SHAP logs (refresh mode), `shap_cache.log`,
+`shap_cache_manifest.json`, `shap_target_class/`, `ready.json` and
 `status.txt`. Each `group_A/` or `group_B/` has its own manifest, case CLI logs,
 completion records and `report/{report.json,cases.csv}`. Actual case arrays
 and stats remain in the existing `exp/<model>_global-real_smtlast_...` layout,
