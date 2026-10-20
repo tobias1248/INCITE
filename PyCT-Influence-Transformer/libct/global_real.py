@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from functools import lru_cache
+from collections import OrderedDict
 from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -27,6 +28,13 @@ from libct.utils import ConcolicObject, get_in_dict_shape, py2smt, unwrap
 from libct.aces_like_pwl_2d import (
     build_adaptive_pwl_2d, DEFAULT_PWL_MAX_TRIANGLES, PWL_2D_VALIDATOR_VERSION,
 )
+from libct.aces_like_multi import (
+    MULTI_SHIFT_KIND, MULTI_TRANSFORM_MODE, MULTI_CONTROL_VERSION,
+    normalize_controls, normalize_bounds, parameter_name, apply_aces_like_multi_transform,
+)
+from libct.aces_like_pwl_nd import (
+    build_adaptive_pwl_nd, mesh_fingerprint, normalize_region_budgets, PWL_ND_VALIDATOR_VERSION,
+)
 
 
 GLOBAL_X_INPUT_NAME = "__pyct_global_x"
@@ -47,6 +55,7 @@ TRANSFORM_MODES = (
     TRANSFORM_MODE_AFFINE_BC,
     TRANSFORM_MODE_ACES_LIKE_PWL,
     TRANSFORM_MODE_ACES_LIKE_PWL_2D,
+    MULTI_TRANSFORM_MODE,
 )
 
 
@@ -55,6 +64,8 @@ def build_aces_like_global_real_config(
 ) -> Dict[str, Any]:
     """Build and validate PWL metadata for the actual image used by PyCT."""
     updated = dict(config)
+    if updated.get("global_shift_kind") == MULTI_SHIFT_KIND:
+        return _build_multi_config(rgb, updated)
     updated["aces_like_control"] = control_metadata(updated["global_shift_kind"])
     updated["reference_transform"] = "exact"
     if updated.get("search_axes") == "both":
@@ -121,6 +132,8 @@ def _coerce_exact_int(value: Any, name: str) -> int:
 
 
 def validate_global_real_config(config: Mapping[str, Any]) -> Dict[str, Any]:
+    if config.get("transform_mode") == MULTI_TRANSFORM_MODE:
+        return _validate_multi_config(config)
     if config.get("transform_mode") == TRANSFORM_MODE_ACES_LIKE_PWL_2D:
         return _validate_planar_config(config)
     if config.get("transform_mode") == TRANSFORM_MODE_AFFINE_BC:
@@ -401,6 +414,205 @@ def _build_aces_like_approximation(
     return approximation, rgb, coordinates
 
 
+# Seed initial builds directly: a deadline must never be part of a cache key,
+# and constructing metadata must not trigger a second mesh build.
+_MULTI_MESH_CACHE = OrderedDict()
+
+
+def _remember_multi(key, approximation):
+    _MULTI_MESH_CACHE[key] = approximation
+    _MULTI_MESH_CACHE.move_to_end(key)
+    while len(_MULTI_MESH_CACHE) > 2:
+        _MULTI_MESH_CACHE.popitem(last=False)
+
+
+def _cached_multi(shape, data, controls, bounds, cap, tolerance, region_budgets=None):
+    key = (shape, data, controls, bounds, cap, tolerance, region_budgets)
+    if key in _MULTI_MESH_CACHE:
+        _MULTI_MESH_CACHE.move_to_end(key)
+        return _MULTI_MESH_CACHE[key]
+    approximation = build_adaptive_pwl_nd(
+        np.frombuffer(data, dtype=np.float64).reshape(shape),
+        controls=controls, bounds=bounds, max_regions=cap,
+        error_tolerance=tolerance, region_budgets=region_budgets,
+    )
+    _remember_multi(key, approximation)
+    return approximation
+
+
+_cached_multi.cache_clear = _MULTI_MESH_CACHE.clear
+
+
+def _build_multi_config(rgb, config):
+    controls = normalize_controls(config["controls"])
+    bounds = normalize_bounds(config["controls"], config["control_bounds"])
+    source = np.asarray(rgb, dtype=np.float64)
+    cap, tolerance = config["pwl_max_regions"], config["pwl_error_tolerance"]
+    budgets = normalize_region_budgets(cap, config.get("pwl_region_budgets"))
+    stats = {}
+    # Always honor the initial build deadline, including after a cache hit for
+    # another task. The returned mesh then serves all solver materializations.
+    approximation = build_adaptive_pwl_nd(
+        source, controls=controls, bounds=bounds, max_regions=cap,
+        error_tolerance=tolerance, region_budgets=budgets,
+        deadline=config.get("pwl_build_deadline"), build_stats=stats,
+    )
+    effective_cap = stats["final_budget"]
+    effective_budgets = tuple(value for value in budgets if value <= effective_cap)
+    cache_budgets = effective_budgets if config.get("pwl_region_budgets") is not None else None
+    _remember_multi((source.shape, source.tobytes(), controls, bounds, effective_cap,
+                     tolerance, cache_budgets), approximation)
+    updated = dict(config, controls=list(controls), control_order=list(controls),
+                   control_bounds=[list(b) for b in bounds], control_version=MULTI_CONTROL_VERSION,
+                   transform_mode=MULTI_TRANSFORM_MODE, reference_transform="exact",
+                   pwl_nd_knots=[k.tolist() for k in approximation.knots],
+                   pwl_region_count=approximation.region_count,
+                   pwl_max_regions=effective_cap,
+                   pwl_max_abs_error=approximation.max_abs_error,
+                   pwl_validator_version=PWL_ND_VALIDATOR_VERSION,
+                   pwl_error_metric=ACES_LIKE_PWL_ERROR_METRIC,
+                   pwl_build_history=stats["budget_history"],
+                   pwl_build_wall_time=stats["build_wall_time"],
+                   variable_names=[parameter_name(c) for c in controls])
+    if config.get("pwl_region_budgets") is not None:
+        updated["pwl_region_budgets"] = list(budgets)
+    updated.pop("pwl_build_deadline", None)
+    updated["pwl_mesh_sha256"] = mesh_fingerprint(source, updated)
+    return _validate_multi_config(updated)
+
+
+def _validate_multi_config(config):
+    controls = normalize_controls(config["controls"])
+    bounds = normalize_bounds(controls, config["control_bounds"])
+    if list(controls) != config["controls"] or config.get("control_order") != list(controls):
+        raise ValueError("Multi-control order must match the canonical selected controls")
+    if (config.get("global_shift_kind") != MULTI_SHIFT_KIND or config.get("bounds_mode") != "clip"
+            or config.get("probe_enabled") is not False or config.get("shap_sensitivity_enabled") is not False
+            or config.get("shap_priority_enabled") is not True or config.get("hybrid_de_enabled")):
+        raise ValueError("Multi-control search requires standalone SHAP-only, clip, No Probe")
+    if config.get("variable_names") != [parameter_name(c) for c in controls]:
+        raise ValueError("Multi-control variable names differ")
+    digest = config.get("pwl_mesh_sha256")
+    if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        raise ValueError("Missing or invalid multi-control mesh fingerprint")
+    for key, value in (("control_version", MULTI_CONTROL_VERSION),
+                       ("pwl_validator_version", PWL_ND_VALIDATOR_VERSION),
+                       ("pwl_error_metric", ACES_LIKE_PWL_ERROR_METRIC), ("reference_transform", "exact")):
+        if config.get(key) != value:
+            raise ValueError("Invalid multi-control {}".format(key))
+    knots = config.get("pwl_nd_knots")
+    if not isinstance(knots, (list, tuple)) or len(knots) != len(controls):
+        raise ValueError("Multi-control PWL requires one knot vector per axis")
+    for axis, (lo, hi) in zip(knots, bounds):
+        if (not isinstance(axis, (list, tuple)) or len(axis) < 2
+                or not all(math.isfinite(v) for v in axis) or any(b <= a for a, b in zip(axis, axis[1:]))
+                or axis[0] != lo or axis[-1] != hi or 0.0 not in axis):
+            raise ValueError("Multi-control knots must increase, span bounds and contain zero")
+    count = _coerce_exact_int(config["pwl_region_count"], "pwl_region_count")
+    cap = _coerce_exact_int(config["pwl_max_regions"], "pwl_max_regions")
+    error, tolerance = float(config["pwl_max_abs_error"]), float(config["pwl_error_tolerance"])
+    if (count != math.factorial(len(controls)) * math.prod(len(k) - 1 for k in knots) or cap < count
+            or not math.isfinite(error) or not math.isfinite(tolerance) or not 0 <= error <= tolerance
+            or tolerance <= 0):
+        raise ValueError("Invalid multi-control PWL budget or error")
+    budgets = config.get("pwl_region_budgets")
+    if budgets is not None:
+        if not isinstance(budgets, (list, tuple)) or not budgets:
+            raise ValueError("Invalid multi-control PWL region budget ladder")
+        try:
+            budgets = normalize_region_budgets(budgets[-1], budgets)
+        except AcesLikeTransformError as exc:
+            raise ValueError("Invalid multi-control PWL region budget ladder") from exc
+        if cap not in budgets:
+            raise ValueError("Multi-control effective cap must appear in the budget ladder")
+    if "pwl_build_wall_time" in config:
+        duration = config["pwl_build_wall_time"]
+        if not isinstance(duration, (int, float)) or not math.isfinite(duration) or duration < 0:
+            raise ValueError("Multi-control PWL build time must be finite and non-negative")
+    return dict(config, control_bounds=[list(b) for b in bounds])
+
+
+def _multi_for_inputs(inputs, config):
+    rgb, coordinates = _input_mapping_to_rgb(inputs)
+    if mesh_fingerprint(rgb, config) != config["pwl_mesh_sha256"]:
+        raise ValueError("Multi-control mesh fingerprint differs from source/configuration")
+    cache_args = (rgb.shape, rgb.tobytes(), tuple(config["controls"]),
+                  tuple(tuple(b) for b in config["control_bounds"]),
+                  config["pwl_max_regions"], config["pwl_error_tolerance"])
+    budgets = config.get("pwl_region_budgets")
+    if budgets is not None:
+        cache_args += (tuple(value for value in budgets if value <= config["pwl_max_regions"]),)
+    approximation = _cached_multi(*cache_args)
+    if (config["pwl_nd_knots"] != [k.tolist() for k in approximation.knots]
+            or not math.isclose(config["pwl_max_abs_error"], approximation.max_abs_error, abs_tol=1e-12, rel_tol=0)):
+        raise ValueError("Multi-control PWL metadata differs from source image")
+    if any(name not in inputs for name in config["variable_names"]):
+        raise ValueError("Multi-control candidate is missing a parameter")
+    params = tuple(float(unwrap(inputs[name])) for name in config["variable_names"])
+    if any(not math.isfinite(v) or not lo <= v <= hi for v, (lo, hi) in zip(params, config["control_bounds"])):
+        raise ValueError("Multi-control candidate outside configured bounds")
+    if any(name in inputs for name in (GLOBAL_X_INPUT_NAME, GLOBAL_BRIGHTNESS_INPUT_NAME, GLOBAL_CONTRAST_INPUT_NAME)):
+        raise ValueError("Multi-control candidate must not contain scalar/hybrid variables")
+    return approximation, rgb, coordinates, params
+
+
+def _build_concolic_multi_kwargs(engine, inputs, config):
+    approximation, _rgb, coordinates, params = _multi_for_inputs(inputs, config)
+    engine._shap_priority_stats = {"lookups": 0, "nonzero": 0}
+    engine._global_x_sensitivity = None
+    symbols = []
+    for name, value in zip(config["variable_names"], params):
+        symbol = name + "_VAR"
+        symbols.append(ConcolicObject(value, symbol, engine))
+        engine.concolic_name_list.append(symbol)
+        engine.concolic_flag_dict[symbol] = 1
+        engine.var_to_types[symbol] = "Real"
+    regions = []
+    for index, (cell, permutation) in enumerate(approximation.regions):
+        condition, units = ["and"], []
+        for x, knots, j in zip(symbols, approximation.knots, cell):
+            lo, hi = knots[j:j + 2]
+            condition.extend(([">=", x, py2smt(float(lo))], ["<=", x, py2smt(float(hi))]))
+            units.append(["/", ["-", x, py2smt(float(lo))], py2smt(float(hi - lo))])
+        condition.extend([">=", units[a], units[b]] for a, b in zip(permutation, permutation[1:]))
+        regions.append((condition, approximation.affine_for_region(index)))
+    concrete = approximation.evaluate(*params)
+    kwargs = {}
+    for name, value in inputs.items():
+        if name in config["variable_names"]:
+            continue
+        if name not in coordinates:
+            kwargs[name] = value
+            continue
+        coordinate = coordinates[name]
+        branch = None
+        for condition, (coefficients, intercept) in reversed(regions):
+            plane = ["+"] + [["*", x, py2smt(float(a[coordinate]))] for x, a in zip(symbols, coefficients)]
+            plane.append(py2smt(float(intercept[coordinate])))
+            branch = plane if branch is None else ["ite", condition, plane, branch]
+        engine.concolic_flag_dict[name + "_VAR"] = 0
+        kwargs[name] = ConcolicObject(float(concrete[coordinate]), branch, engine)
+    return kwargs
+
+
+def _materialize_multi_details(inputs, config, exact_transform):
+    approximation, rgb, coordinates, params = _multi_for_inputs(inputs, config)
+    exact = apply_aces_like_multi_transform(rgb, params, controls=config["controls"])
+    approximated = approximation.evaluate(*params)
+    error = float(np.max(np.abs(exact.rgb - approximated)))
+    if error > config["pwl_error_tolerance"] + 1e-12:
+        raise ValueError("Multi-control PWL candidate exceeds error tolerance")
+    use_exact = exact_transform is not False
+    output = exact.rgb if use_exact else approximated
+    materialized = {name: float(output[coordinates[name]]) if name in coordinates else unwrap(value)
+                    for name, value in inputs.items() if name not in config["variable_names"]}
+    diagnostics = dict(exact.diagnostics.__dict__, transform_mode=MULTI_TRANSFORM_MODE,
+                       reference_transform="exact" if use_exact else "pwl", pwl_error_at_x=error,
+                       pwl_region_index=approximation.region_index(*params),
+                       gamut_count_semantics="mapping-operations-across-selected-passes")
+    return materialized, params, exact.diagnostics.hard_clipped_channel_count, diagnostics
+
+
 @lru_cache(maxsize=2)
 def _cached_planar(shape, data, lower, upper, order, cap, tolerance):
     # The image bytes are part of the key: never reuse a table for a different
@@ -574,6 +786,9 @@ def _pwl_symbolic_expression(
 
 def solver_variable_bounds(config: Mapping[str, Any]) -> Dict[str, Tuple[float, float]]:
     normalized = validate_global_real_config(config)
+    if normalized["transform_mode"] == MULTI_TRANSFORM_MODE:
+        return {parameter_name(c) + "_VAR": tuple(b)
+                for c, b in zip(normalized["controls"], normalized["control_bounds"])}
     if normalized["transform_mode"] in (TRANSFORM_MODE_AFFINE_BC, TRANSFORM_MODE_ACES_LIKE_PWL_2D):
         bounds = (normalized["effective_min"], normalized["effective_max"])
         return {
@@ -593,6 +808,8 @@ def build_concolic_global_real_kwargs(
     primitive_inputs: Mapping[str, Any],
 ) -> Dict[str, Any]:
     config = validate_global_real_config(engine.global_real_config)
+    if config["transform_mode"] == MULTI_TRANSFORM_MODE:
+        return _build_concolic_multi_kwargs(engine, primitive_inputs, config)
     if config["transform_mode"] == TRANSFORM_MODE_ACES_LIKE_PWL_2D:
         return _build_concolic_planar_kwargs(engine, primitive_inputs, config)
     if config["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
@@ -753,6 +970,8 @@ def materialize_global_real_details(
     exact_transform: Optional[bool] = None,
 ) -> Tuple[Dict[str, Any], Union[float, Tuple[float, float]], int, Dict[str, Any]]:
     normalized = validate_global_real_config(config)
+    if normalized["transform_mode"] == MULTI_TRANSFORM_MODE:
+        return _materialize_multi_details(primitive_inputs, normalized, exact_transform)
     if normalized["transform_mode"] == TRANSFORM_MODE_ACES_LIKE_PWL_2D:
         return _materialize_planar_details(primitive_inputs, normalized, exact_transform)
     if normalized["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
@@ -903,7 +1122,7 @@ def materialize_global_real_arguments(
     normalized = validate_global_real_config(config)
     if normalized["transform_mode"] == TRANSFORM_MODE_AFFINE_BC:
         return _materialize_affine_bc_arguments(primitive_inputs, normalized)
-    if normalized["transform_mode"] in (TRANSFORM_MODE_ACES_LIKE_PWL, TRANSFORM_MODE_ACES_LIKE_PWL_2D):
+    if normalized["transform_mode"] in (TRANSFORM_MODE_ACES_LIKE_PWL, TRANSFORM_MODE_ACES_LIKE_PWL_2D, MULTI_TRANSFORM_MODE):
         materialized, shift, clipped_count, _diagnostics = materialize_global_real_details(
             primitive_inputs, normalized, exact_transform=exact_transform
         )
