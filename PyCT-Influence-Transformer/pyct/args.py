@@ -16,6 +16,7 @@ from pyct.config import (
     _DEFAULT_PIXEL_SEARCH,
     _LOG_LEVEL_CHOICES,
 )
+from libct.aces_like_multi import MULTI_SHIFT_KIND, normalize_controls, normalize_bounds
 
 logger = logging.getLogger("ct.cli")
 
@@ -278,14 +279,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--global-x-min",
         type=float,
-        default=-0.1,
-        help="Lower bound for GlobalReal X, or each hybrid brightness/contrast variable (default: -0.1).",
+        default=None,
+        help="Lower bound for GlobalReal X (default: -0.1; multi-control: -0.2).",
     )
     parser.add_argument(
         "--global-x-max",
         type=float,
-        default=0.1,
-        help="Upper bound for GlobalReal X, or each hybrid brightness/contrast variable (default: 0.1).",
+        default=None,
+        help="Upper bound for GlobalReal X (default: 0.1; multi-control: 0.2).",
     )
     parser.add_argument(
         "--de-search-axes", choices=("auto", "brightness", "contrast", "both"), default=None,
@@ -330,7 +331,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "shap-sign",
             "brightness",
             "contrast",
-        ) + ACES_LIKE_SHIFT_KINDS,
+        ) + ACES_LIKE_SHIFT_KINDS + (MULTI_SHIFT_KIND,),
         default="shap-sign",
         help=(
             "Shared GlobalReal direction: shap-sign follows per-pixel SHAP signs; "
@@ -355,6 +356,17 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
                         help="Rank standalone ACES branches using validated target SHAP caches.")
     parser.add_argument("--global-real-shap-sensitivity", action="store_true",
                         help="Weight target SHAP by scalar-X predicate sensitivity (requires SHAP priority).")
+    parser.add_argument("--aces-controls", nargs="+", help="Select 2 or 3 independent controls for aces-multi.")
+    parser.add_argument("--aces-control-bounds", action="append", default=[], metavar="CONTROL:MIN:MAX",
+                        help="Override a selected control's bounds; repeat for multiple controls.")
+    parser.add_argument("--aces-pwl-max-regions", type=_parse_positive_int,
+                        help="Maximum simplices for multi-control PWL (default: 512).")
+    parser.add_argument("--aces-recipe-policy", choices=("fixed", "staged"), default="fixed",
+                        help="For aces-multi, search fixed controls or pairs followed by the triple.")
+    parser.add_argument("--aces-pwl-region-budgets", nargs="+", type=_parse_positive_int,
+                        help="Increasing region caps; staged default: 512 1024 2048.")
+    parser.add_argument("--aces-pwl-build-timeout", type=_parse_positive_float, default=30.0,
+                        help="PWL build budget within each staged recipe (default: 30s).")
     parser.add_argument(
         "--aces-pwl-max-segments",
         type=_parse_non_negative_int,
@@ -396,10 +408,48 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     args = parser.parse_args(argv)
+    supplied_region_cap = args.aces_pwl_max_regions
+    args.aces_pwl_max_regions = 512 if supplied_region_cap is None else supplied_region_cap
+    multi = args.global_shift_kind == MULTI_SHIFT_KIND
+    args.global_x_min = (-0.2 if multi else -0.1) if args.global_x_min is None else args.global_x_min
+    args.global_x_max = (0.2 if multi else 0.1) if args.global_x_max is None else args.global_x_max
+    if multi:
+        if args.attack_mode != "global-real" or args.global_x_bounds_mode != "clip":
+            parser.error("aces-multi requires standalone global-real with clip bounds")
+        if args.global_real_shap_sensitivity or args.score_alpha not in (None, 0):
+            parser.error("aces-multi requires SHAP-only with score-alpha=0")
+        args.global_real_shap_priority, args.global_real_probe, args.score_alpha = True, False, 0.0
+        try:
+            args.aces_controls = normalize_controls(args.aces_controls)
+            pairs = {c: (args.global_x_min, args.global_x_max) for c in args.aces_controls}
+            seen = set()
+            for override in args.aces_control_bounds:
+                name, lo, hi = override.split(":")
+                if name not in pairs or name in seen:
+                    raise ValueError("Bounds override must name a selected control once")
+                pairs[name] = (float(lo), float(hi)); seen.add(name)
+            args.aces_control_bounds = normalize_bounds(args.aces_controls, pairs)
+            if args.aces_recipe_policy == "staged":
+                budgets = args.aces_pwl_region_budgets or [512, 1024, 2048]
+                if any(b <= a for a, b in zip(budgets, budgets[1:])):
+                    raise ValueError("PWL region budgets must strictly increase")
+                # An explicit legacy cap must agree with the ladder, rather than be ignored.
+                if supplied_region_cap is not None and supplied_region_cap != budgets[-1]:
+                    raise ValueError("PWL max-regions must equal the final region budget")
+                args.aces_pwl_region_budgets = tuple(budgets)
+                args.aces_pwl_max_regions = budgets[-1]
+            elif args.aces_pwl_region_budgets is not None or args.aces_pwl_build_timeout != 30:
+                raise ValueError("Region budget ladders and build limits require --aces-recipe-policy staged")
+        except (TypeError, ValueError) as exc:
+            parser.error(str(exc))
+    elif (args.aces_controls is not None or args.aces_control_bounds or args.aces_pwl_max_regions != 512
+          or args.aces_recipe_policy != "fixed" or args.aces_pwl_region_budgets is not None
+          or args.aces_pwl_build_timeout != 30):
+        parser.error("Multi-control options require --global-shift-kind aces-multi")
     if args.global_real_shap_sensitivity and not args.global_real_shap_priority:
         parser.error("--global-real-shap-sensitivity requires --global-real-shap-priority")
     if args.global_real_shap_priority and (
-        args.attack_mode != "global-real" or args.global_shift_kind not in ACES_LIKE_SHIFT_KINDS
+        args.attack_mode != "global-real" or args.global_shift_kind not in ACES_LIKE_SHIFT_KINDS + (MULTI_SHIFT_KIND,)
     ):
         parser.error("SHAP priority requires standalone global-real with an ACES-like control")
     axes_requested = any(value is not None for value in (
@@ -457,7 +507,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
                 parser.error("--de-population-size must be >= 5")
         if args.global_shift_kind.startswith("aces-"):
             try:
-                validate_control_range(args.global_shift_kind, args.global_x_min, args.global_x_max)
+                if not multi:
+                    validate_control_range(args.global_shift_kind, args.global_x_min, args.global_x_max)
             except ValueError as exc:
                 parser.error(str(exc))
             if args.global_x_bounds_mode != "clip":

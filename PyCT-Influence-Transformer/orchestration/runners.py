@@ -239,6 +239,14 @@ class BaseRunner:
         gc.collect()
 
     def _execute_attack(self, payload: Dict[str, Any]) -> Any:
+        if payload.get("aces_recipe_plan"):
+            from orchestration.aces_recipes import run_recipes
+
+            return run_recipes(payload, timeout=self.timeout, norm=self.norm,
+                               constraint_build_timeout=self.constraint_build_timeout,
+                               constraint_build_timeout_seconds=self.constraint_build_timeout_seconds,
+                               solver_run_timeout=self.solver_run_timeout,
+                               collect_constraints_with=self.collect_constraints_with)
         from engine.executor import run
 
         return run(

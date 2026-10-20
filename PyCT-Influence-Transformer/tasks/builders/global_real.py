@@ -34,6 +34,7 @@ from explainability.input_shap_sign import (
     derive_valid_affine_shift_interval,
 )
 from libct.global_real import GLOBAL_X_INPUT_NAME, build_aces_like_global_real_config
+from libct.aces_like_multi import MULTI_SHIFT_KIND, normalize_controls, normalize_bounds, parameter_name
 from tasks.builders.common import log, normalize_indices
 from tasks.paths import get_save_dir_from_save_exp
 
@@ -219,12 +220,32 @@ def cifar10_global_real(
     defer_pwl: bool = False,
     shap_priority_enabled: bool = False,
     shap_sensitivity_enabled: bool = False,
+    controls=None,
+    control_bounds=None,
+    pwl_max_regions: int = 512,
+    recipe_policy: str = "fixed",
+    pwl_region_budgets=None,
+    pwl_build_timeout_seconds: float = 30.0,
 ) -> List[Dict[str, object]]:
+    multi = shift_kind == MULTI_SHIFT_KIND
+    if recipe_policy not in ("fixed", "staged") or (recipe_policy == "staged" and not multi):
+        raise ValueError("Staged recipes require aces-multi")
+    if recipe_policy == "staged":
+        budgets = list((512, 1024, 2048) if pwl_region_budgets is None else pwl_region_budgets)
+        if (not budgets or any(type(b) is not int or b < 1 for b in budgets)
+                or any(b <= a for a, b in zip(budgets, budgets[1:]))
+                or not math.isfinite(pwl_build_timeout_seconds) or pwl_build_timeout_seconds <= 0):
+            raise ValueError("Invalid staged PWL budgets")
+    if multi:
+        control_bounds = normalize_bounds(controls, control_bounds)
+        controls = normalize_controls(controls)
+        if not shap_priority_enabled or shap_sensitivity_enabled or probe_enabled or defer_pwl:
+            raise ValueError("Multi-control requires standalone SHAP-only and No Probe")
     if shap_sensitivity_enabled and not shap_priority_enabled:
         raise ValueError("SHAP sensitivity requires SHAP priority")
-    if shap_priority_enabled and (shift_kind not in ACES_LIKE_SHIFT_KINDS or defer_pwl):
+    if shap_priority_enabled and (shift_kind not in ACES_LIKE_SHIFT_KINDS + (MULTI_SHIFT_KIND,) or defer_pwl):
         raise ValueError("SHAP priority requires standalone scalar ACES")
-    if shift_kind not in ACES_LIKE_SHIFT_KINDS:
+    if shift_kind not in ACES_LIKE_SHIFT_KINDS + (MULTI_SHIFT_KIND,):
         return _cifar10_global_real_affine(
             model_name,
             first_n_img,
@@ -280,7 +301,8 @@ def cifar10_global_real(
             continue
         sample = np.asarray(dataset.x_test[idx], dtype=np.float64)
         in_dict, _ = dataset.get_cifar10_test_data(idx)
-        in_dict[GLOBAL_X_INPUT_NAME] = 0.0
+        variable_names = [parameter_name(c) for c in controls] if multi else [GLOBAL_X_INPUT_NAME]
+        in_dict.update({name: 0.0 for name in variable_names})
         global_real_config = {
             "variable_name": GLOBAL_X_INPUT_NAME,
             "requested_min": float(requested_min),
@@ -298,7 +320,7 @@ def cifar10_global_real(
             "aces_like_color_space": ACES_LIKE_COLOR_SPACE,
             "aces_like_curve_version": ACES_LIKE_CURVE_VERSION,
             "aces_like_gamut_mapper": ACES_LIKE_GAMUT_MAPPER,
-            "aces_like_control": control_metadata(shift_kind),
+            "aces_like_control": None if multi else control_metadata(shift_kind),
             "reference_transform": "exact",
             "probe_enabled": bool(probe_enabled),
             "probe_initial_points": int(probe_initial_points),
@@ -307,10 +329,13 @@ def cifar10_global_real(
             "shap_priority_enabled": bool(shap_priority_enabled),
             "shap_sensitivity_enabled": bool(shap_sensitivity_enabled),
         }
+        if multi:
+            global_real_config.update(controls=list(controls), control_bounds=[list(b) for b in control_bounds],
+                                      pwl_max_regions=pwl_max_regions)
         if defer_pwl:
             # Hybrid builds the other axis only after DE selects its seed.
             global_real_config["pwl_deferred"] = True
-        else:
+        elif recipe_policy != "staged":
             global_real_config = build_aces_like_global_real_config(sample, global_real_config)
         shap_input, shap_background = sample, None
         if shap_priority_enabled:
@@ -321,7 +346,7 @@ def cifar10_global_real(
                 "model_name": model_name,
                 "idx": idx,
                 "in_dict": in_dict,
-                "con_dict": {GLOBAL_X_INPUT_NAME: 1},
+                "con_dict": {name: 1 for name in variable_names},
                 "solve_order_stack": "priority_queue",
                 "input_for_shap": shap_input,
                 "background_dataset_for_shap": shap_background,
@@ -332,6 +357,12 @@ def cifar10_global_real(
                 "save_exp": save_exp,
             }
         )
+        if recipe_policy == "staged":
+            inputs[-1]["aces_recipe_plan"] = {
+                "policy": "staged", "controls": list(controls),
+                "control_bounds": [list(b) for b in control_bounds],
+                "region_budgets": budgets, "pwl_build_timeout_seconds": float(pwl_build_timeout_seconds),
+            }
     log.info("built global-real inputs=%s skipped=%s kind=%s", len(inputs), skipped, shift_kind)
     return inputs
 

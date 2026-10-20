@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import queue as py_queue
@@ -401,6 +402,21 @@ def run_launcher(args: Any) -> None:
                 f"x{_range_component(args.global_x_min)}_{_range_component(args.global_x_max)}",
             ]
         )
+        if args.global_shift_kind == "aces-multi":
+            identity = json.dumps({"controls": args.aces_controls, "bounds": args.aces_control_bounds,
+                                   "regions": args.aces_pwl_max_regions,
+                                   "error": args.aces_pwl_error_tolerance,
+                                   "version": "ordered-photo-controls-v1"}, sort_keys=True)
+            if getattr(args, "aces_recipe_policy", "fixed") == "staged":
+                identity += json.dumps({"policy": "staged", "budgets": args.aces_pwl_region_budgets,
+                                        "build_seconds": args.aces_pwl_build_timeout}, sort_keys=True)
+            attack_mode_parts.extend([
+                "-".join(c[:3] for c in args.aces_controls),
+                "cfg" + hashlib.sha256(identity.encode()).hexdigest()[:12],
+                "r{}".format(args.aces_pwl_max_regions), "noprobe",
+            ])
+            if getattr(args, "aces_recipe_policy", "fixed") == "staged":
+                attack_mode_parts.append("staged")
         if args.attack_mode == "hybrid-de":
             axes_configured = (
                 getattr(args, "de_search_axes", "auto") != "auto"
@@ -431,7 +447,7 @@ def run_launcher(args: Any) -> None:
             attack_mode_parts.append(
                 f"eps{_range_component(args.shap_sign_epsilon)}"
             )
-        if args.global_shift_kind.startswith("aces-"):
+        if args.global_shift_kind.startswith("aces-") and args.global_shift_kind != "aces-multi":
             attack_mode_parts.append(f"pwlseg{args.aces_pwl_max_segments}")
             attack_mode_parts.append(f"pwlerr{_range_component(args.aces_pwl_error_tolerance)}")
             probe_tag = "probe" if args.global_real_probe else "noprobe"
@@ -535,6 +551,12 @@ def run_launcher(args: Any) -> None:
             shap_output_root=args.shap_output_root,
             shap_priority_enabled=getattr(args, "global_real_shap_priority", False),
             shap_sensitivity_enabled=getattr(args, "global_real_shap_sensitivity", False),
+            controls=getattr(args, "aces_controls", None),
+            control_bounds=getattr(args, "aces_control_bounds", None),
+            pwl_max_regions=getattr(args, "aces_pwl_max_regions", 512),
+            recipe_policy=getattr(args, "aces_recipe_policy", "fixed"),
+            pwl_region_budgets=getattr(args, "aces_pwl_region_budgets", None),
+            pwl_build_timeout_seconds=getattr(args, "aces_pwl_build_timeout", 30.0),
         )
     else:
         raise ValueError(f"Unsupported attack mode: {args.attack_mode}")

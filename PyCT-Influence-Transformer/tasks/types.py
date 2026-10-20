@@ -39,6 +39,14 @@ class TonPlan(TypedDict):
     save_exp: SaveExpConfig
 
 
+class AcesRecipePlan(TypedDict):
+    policy: Literal["staged"]
+    controls: List[str]
+    control_bounds: List[List[float]]
+    region_budgets: List[int]
+    pwl_build_timeout_seconds: float
+
+
 class TaskPayload(TypedDict, total=False):
     model_name: str
     idx: int
@@ -58,6 +66,7 @@ class TaskPayload(TypedDict, total=False):
     ternary_fallback: bool
     global_real_config: Dict[str, Any]
     shap_output_root: str
+    aces_recipe_plan: AcesRecipePlan
 
 
 @dataclass(frozen=True)
@@ -91,6 +100,7 @@ __all__ = [
     "PixelSelector",
     "SaveExpConfig",
     "TonPlan",
+    "AcesRecipePlan",
     "TaskPayload",
     "QueueMode",
     "TaskGenerationSpec",

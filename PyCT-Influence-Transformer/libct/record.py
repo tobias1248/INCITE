@@ -13,6 +13,7 @@ from libct.global_real import (
     materialize_global_real_arguments,
 )
 from libct.global_real_probe import PROBE_STRATEGY_VERSION
+from libct.aces_like_multi import MULTI_TRANSFORM_MODE
 
 
 def _json_default(value):
@@ -299,7 +300,10 @@ class ConcolicTestRecorder:
             input_dict,
             global_real_config,
         )
-        if isinstance(shift, tuple):
+        if global_real_config.get("transform_mode") == MULTI_TRANSFORM_MODE:
+            self.extra_meta[f"{prefix}_params"] = dict(zip(global_real_config["controls"], shift))
+            self.extra_meta[f"{prefix}_parameter_vector"] = list(shift)
+        elif isinstance(shift, tuple):
             self.extra_meta[f"{prefix}_brightness"] = shift[0]
             self.extra_meta[f"{prefix}_contrast"] = shift[1]
             self.extra_meta[f"{prefix}_de_params"] = self.extra_meta.get("hybrid_de_seed_params")
@@ -714,7 +718,11 @@ class ConcolicTestRecorder:
                 np.save(os.path.join(self.save_dir, "sat_inputs.npy"),
                         np.stack(self.sat_inputs).astype(np.float32))
             if getattr(self, "global_real_config", None) is not None:
-                if self.global_real_config.get("transform_mode") in (TRANSFORM_MODE_AFFINE_BC, TRANSFORM_MODE_ACES_LIKE_PWL_2D):
+                if self.global_real_config.get("transform_mode") == MULTI_TRANSFORM_MODE:
+                    np.save(os.path.join(self.save_dir, "sat_aces_params.npy"),
+                            np.asarray(self.hybrid_sat_params, dtype=np.float64).reshape(
+                                -1, len(self.global_real_config["controls"])))
+                elif self.global_real_config.get("transform_mode") in (TRANSFORM_MODE_AFFINE_BC, TRANSFORM_MODE_ACES_LIKE_PWL_2D):
                     np.save(
                         os.path.join(self.save_dir, "sat_hybrid_bc.npy"),
                         np.asarray(self.hybrid_sat_params, dtype=np.float64).reshape(-1, 2),

@@ -357,6 +357,13 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
     if random_seed is not None:
         extra_meta["random_seed"] = int(random_seed)
     if global_real_config is not None:
+        if global_real_config.get("global_shift_kind") == "aces-multi":
+            for key in ("controls", "control_order", "control_bounds", "control_version",
+                        "variable_names", "pwl_nd_knots", "pwl_region_count", "pwl_max_regions", "pwl_mesh_sha256"):
+                extra_meta["global_real_" + key] = global_real_config[key]
+            for key in ("pwl_region_budgets", "pwl_build_history", "pwl_build_wall_time"):
+                if key in global_real_config:
+                    extra_meta["global_real_" + key] = global_real_config[key]
         extra_meta.update(
             {
                 "timeout": timeout,
