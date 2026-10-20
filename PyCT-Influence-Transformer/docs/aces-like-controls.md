@@ -351,3 +351,155 @@ runner so its worker process groups are cleaned up.
 
 At full timeout usage, the case search budgets total about 10.4 days at four
 workers. SHAP refresh, PWL preprocessing and model startup add to that time.
+
+## Joint photo controls: two or three independent sliders
+
+`--global-shift-kind aces-multi` selects standalone joint PyCT search. Each
+selected control has its own real variable, starts at zero and can change in
+the same SMT solution. Choose two or three unique short names from
+`exposure contrast highlights shadows saturation vibrance curves`.
+The pipeline applies selected controls in that canonical order, regardless of
+CLI ordering. Each candidate is rendered afresh from the original image.
+All zeros preserve the source exactly; one nonzero slider reduces to its
+existing exact scalar control. Curves uses the existing scalar five-anchor
+curve family.
+
+This mode enables target SHAP priority, disables Probe and uses alpha zero.
+Sensitivity, hybrid DE and strict bounds are rejected. Target SHAP caches
+remain tied to the original prediction and can be reused across combinations.
+Prepare compatible all-layer caches with `python -m pyct.shap` as above.
+
+```bash
+PYCT_SMT_PATH_MODE=last PYCT_BG_PER_CLASS=3 PYCT_BG_SEED=2233 \
+  .venv/bin/python -m pyct --dataset cifar10 \
+  --model-name cifar10_concolic_transformer --attack-mode global-real \
+  --global-shift-kind aces-multi --aces-controls exposure highlights saturation \
+  --aces-control-bounds=highlights:-0.1:0.1 \
+  --global-x-min -0.2 --global-x-max 0.2 \
+  --aces-pwl-max-regions 512 --aces-pwl-error-tolerance 0.00392156862745098 \
+  --shap-output-root /absolute/path/to/shap_target_class \
+  --first-n 1 --pixel-search 1 --num-process 1 \
+  --timeout 1800 --solver-run-timeout 60 \
+  --constraint-build-timeout-seconds 30 --symbolic-path-threshold 2000
+```
+
+The common bounds default to `[-0.2,0.2]` for this mode. Repeat
+`--aces-control-bounds=CONTROL:MIN:MAX` to override individual axes; unselected
+and duplicate names, nonfinite bounds, ranges excluding zero and invalid
+control domains fail validation. Scalar/hybrid default bounds remain ±0.1.
+
+The search image uses an adaptive conforming simplex mesh over the selected
+parameter box. Within each triangle/tetrahedron each RGB element is affine
+in all selected variables. In last mode, every variable's bounds remains in
+the query together with the final negated predicate. A new forward uses the
+entire returned parameter vector. Candidate reference predictions and saved
+images use the exact ordered transform.
+
+`--aces-pwl-max-regions` is a separate mesh budget, default 512. It does not
+replace path threshold or the scalar segment cap. Validation samples a
+barycentric quarter grid plus centroid in every simplex, measuring maximum
+absolute RGB error against the exact renderer. It is a sampled check, not a
+uniform error certificate. Refinement inserts a full axis plane to maintain
+shared-face continuity; the mesh always contains zero. Failure to satisfy
+the configured tolerance within the cap stops task preparation. The runtime
+also rejects a candidate whose exact/PWL error exceeds tolerance. Neither
+bounds, tolerance nor region cap is automatically relaxed. Larger joint
+domains may require substantially more preparation and solver work.
+
+Results include canonical controls/order, per-axis bounds, variable names,
+mesh knots/count/cap/version and a source/mesh SHA256 receipt. Successful
+parameters are saved as named `global_real_solved_params` and an ordered
+`global_real_solved_parameter_vector`. `sat_aces_params.npy` has shape
+`(SAT candidates, number of controls)` aligned with `sat_inputs.npy`.
+`ori_input.npy`/`ori_input.jpg` and `adv_input.npy`/`adv_<labels>.jpg` retain
+the before/after images. Result paths contain short control names and a
+configuration digest covering bounds, region budget, tolerance and version.
+
+For `python -m pyct.aces_stats`, joint runs require a campaign `manifest.json`
+with the existing SHAP cache/model provenance settings and explicit expected
+cases. Each experiment adds `controls` and `control_bounds`, for example:
+
+```json
+{"model": "cifar10_concolic_transformer", "control": "aces-multi",
+ "controls": ["exposure", "highlights", "saturation"],
+ "control_bounds": [[-0.2, 0.2], [-0.1, 0.1], [-0.2, 0.2]],
+ "case_ids": [0], "result_dir": "/absolute/path/to/model_result_directory"}
+```
+
+The campaign settings must include `shap_priority_enabled="1"`,
+`shap_sensitivity_enabled="0"`, `score_alpha="0"`, `shap_output_root`,
+`bg_per_class`, `bg_seed`, and the usual `model_sha256` map. Reports keep
+different control combinations separate, verify cache and mesh receipts,
+check parameter bounds, and replay every SAT/success image with the exact
+ordered renderer. They do not repeat neural-network inference. Existing
+two-group scalar wrappers continue to run scalar-control experiments; use
+the joint CLI explicitly for this mode.
+## Staged multi-control recipes
+
+`aces-multi` keeps `--aces-recipe-policy fixed` as its default. Opt into
+`--aces-recipe-policy staged` to try canonical pairs of the selected controls,
+then the triple when three controls were selected. For example, exposure,
+highlights and saturation produce these attempts:
+
+1. Exposure + highlights.
+2. Exposure + saturation.
+3. Highlights + saturation.
+4. Exposure + highlights + saturation.
+
+Every attempt starts at zero parameters on the original image. A new PyCT
+engine and constraint queue are created for each recipe, while the original
+target-class SHAP cache is reused. SHAP-only priority, alpha zero, independent
+bounds, No Probe and exact reference verification apply to every attempt.
+Selection order is deterministic; this is a staged search, not a learned
+recipe-ranking algorithm.
+
+The entire case shares `--timeout`, including PWL construction, model setup,
+forward execution and solver work. Each recipe receives the remaining case
+time divided by the number of remaining recipes. An early finish leaves its
+unused time for later recipes. A successful exact prediction flip stops the
+case immediately. An outer supervisor stops an overdue attempt's process
+session, including forward and solver descendants; process cleanup and writing
+the final receipt can add a small amount of wall time after the deadline.
+
+In staged mode, `--aces-pwl-region-budgets` defaults to `512 1024 2048`.
+The builder increases its region cap only when refinement cannot continue at
+the current cap. It retains previously computed transform samples and region
+errors. This never changes the requested X bounds or the RGB error tolerance
+(normally `1/255`). An explicitly supplied `--aces-pwl-max-regions` must match
+the final ladder entry. `--aces-pwl-build-timeout` defaults to 30 seconds for
+each recipe and is also constrained by that recipe's remaining time. This is
+separate from the existing constraint-build timeout.
+
+Example (choose `X_MIN` and `X_MAX` explicitly before launching):
+
+```bash
+.venv/bin/python -m pyct \
+  --dataset cifar10 --model-name cifar10_concolic_transformer \
+  --attack-mode global-real --global-shift-kind aces-multi \
+  --aces-controls exposure highlights saturation \
+  --aces-recipe-policy staged \
+  --aces-pwl-region-budgets 512 1024 2048 \
+  --aces-pwl-build-timeout 30 \
+  --global-x-min "${X_MIN}" --global-x-max "${X_MAX}" \
+  --timeout 1800 --solver-run-timeout 60 \
+  --symbolic-path-threshold 2000 --first-n 1 --num-process 1
+```
+
+Each case saves `recipe_summary.json` and an aggregate `stats.json`. Individual
+attempts save their ordinary PyCT artifacts under `recipes/01-<controls>/`,
+including source/adversarial pictures and SAT parameter vectors when available.
+The recipe summary records allocation, elapsed time, PWL budgets and errors,
+transition reasons, and the winning recipe. Region exhaustion or a PWL build
+timeout advances to the next recipe; unexpected errors stop the case.
+
+If no recipe reaches search because all PWL builds fail, the case is `invalid`,
+not `exhausted`. Partial coverage is `incomplete`; search/case deadline expiry
+is `timeout`. Only exhaustion of every planned recipe is `exhausted`.
+
+Use `python -m pyct.aces_stats --recipes --path <campaign> --output-dir <report>`
+with the campaign manifest and local CIFAR10 cache to audit the receipts.
+The report replays exact candidate images and counts each model/case once,
+with prediction flips separate from ground-truth correct-to-wrong outcomes.
+Invalid/error cases do not enter observed ASR denominators, and incomplete
+coverage prevents a complete-campaign ASR claim. PWL error remains sampled
+validation rather than a uniform mathematical bound.
