@@ -1000,3 +1000,62 @@ def test_joint_aces_approximation_cache_does_not_reuse_different_seed_pixels():
         exact = apply_aces_like_joint_transform(seed, 0.033, -0.046).rgb
         actual = np.asarray([[[materialized[f"v_0_0_{channel}"] for channel in range(3)]]])
         np.testing.assert_array_equal(actual, exact)
+
+
+@pytest.mark.parametrize("kind", ["clip", "affine_bc", "pwl", "pwl_2d"])
+def test_shared_solver_preserves_real_global_transform_payloads(monkeypatch, kind):
+    cvc5 = shutil.which("cvc5")
+    if cvc5 is None:
+        pytest.skip("cvc5 is required for shared global transform serialization")
+    from libct.utils import py2smt
+
+    if kind == "clip":
+        config = _config()
+        primitive = {"v_0": 0.95, "v_1": 0.2, "v_2": 0.4, GLOBAL_X_INPUT_NAME: 0.08}
+    elif kind == "affine_bc":
+        config = _bc_config()
+        primitive = {"v_0": 0.02, "v_1": 0.98, GLOBAL_BRIGHTNESS_INPUT_NAME: 0.05, GLOBAL_CONTRAST_INPUT_NAME: 0.1}
+    else:
+        seed = np.asarray([[[0.2, 0.5, 0.8]]])
+        config = _aces_config_for_rgb(seed) if kind == "pwl" else _joint_aces_config(seed)
+        primitive = (_rgb_inputs(seed, 0.033) if kind == "pwl" else _joint_rgb_inputs(seed, 0.033, -0.046))
+    engine = _Engine(config)
+    bounds = solver_variable_bounds(config)
+    flags = {name[:-4]: 1 for name in bounds}
+    _, symbolic = ConcolicArgumentBuilder(engine).build(lambda **values: values, primitive, flags)
+    expected, _, _ = materialize_global_real_arguments(primitive, config, exact_transform=False)
+    predicates = []
+    for name, value in symbolic.items():
+        if isinstance(value, Concolic):
+            predicates.extend([
+                Predicate([">=", value, py2smt(expected[name] - 1e-10)], True),
+                Predicate(["<=", value, py2smt(expected[name] + 1e-10)], True),
+            ])
+
+    class _Constraint:
+        @staticmethod
+        def get_all_asserts():
+            return predicates
+
+    def forbid_raw(*args, **kwargs):
+        pytest.fail("shared global transform serialization expanded raw text")
+
+    monkeypatch.setenv("PYCT_SMT_SERIALIZATION", "shared")
+    monkeypatch.setenv("PYCT_SMT_EXPERIMENT_MODE", "exact_affine")
+    monkeypatch.setenv("PYCT_SMT_PATH_MODE", "full")
+    monkeypatch.setattr(Solver, "norm", True)
+    monkeypatch.setattr(Solver, "limit_change_range", None)
+    monkeypatch.setattr(Predicate, "get_formula_deep", forbid_raw)
+    engine.solver_variable_bounds = bounds
+    formula = Solver._build_formulas_from_constraint(engine, _Constraint(), {})
+    query = formula.split("(check-sat)", 1)[0]
+    for name in bounds:
+        query += "(assert (= {} {}))\n".format(name, py2smt(primitive[name[:-4]]))
+    result = subprocess.run(
+        [cvc5, "--lang=smt2", "--quiet"], input=query + "(check-sat)\n",
+        text=True, capture_output=True, timeout=10, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == "sat", result.stdout + result.stderr
+    assert Solver._last_smt_transform_stats["fallback_count"] == len(predicates)
+    assert Solver._last_smt_transform_stats["shared_serialization"]["shared_nodes"] > 0

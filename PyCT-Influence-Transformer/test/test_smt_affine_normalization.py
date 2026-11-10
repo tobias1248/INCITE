@@ -4,7 +4,8 @@ import pytest
 
 import libct.predicate as predicate_module
 from libct.predicate import Predicate
-from libct.smt_affine import AffineBudgets, normalize_affine_comparison
+from libct.expression_graph import MAX_ESTIMATED_BYTES
+from libct.smt_affine import AffineBudgets, AffineContext, normalize_affine_comparison
 from libct.solver import Solver
 
 
@@ -266,3 +267,60 @@ def test_solver_rejects_unknown_smt_experiment_mode(monkeypatch):
             _Constraint([]),
             {},
         )
+
+
+def test_affine_context_reuses_shared_nodes_across_predicates():
+    types = {"x_VAR": "Real"}
+    shared = ["+", "x_VAR", "x_VAR", "x_VAR"]
+    context = AffineContext(types)
+    first = normalize_affine_comparison(["<", shared, "1.000000000000000"], types, context=context)
+    second = normalize_affine_comparison([">", shared, "0.000000000000000"], types, context=context)
+    fresh = normalize_affine_comparison([">", shared, "0.000000000000000"], types)
+
+    assert first.applied and second.applied
+    assert second.formula_body == fresh.formula_body
+    assert second.subexpression_cache_hits > 0
+    assert second.node_count < fresh.node_count
+    assert context.memo[id(shared)][0] is shared
+
+
+@pytest.mark.parametrize("change", ["types", "budgets"])
+def test_affine_context_rejects_changed_query_types_or_budgets(change):
+    types = {"x_VAR": "Real"}
+    context = AffineContext(types)
+    budgets = AffineBudgets()
+    if change == "types":
+        types = {"x_VAR": "Int"}
+    else:
+        budgets = AffineBudgets(max_nodes=10)
+    with pytest.raises(ValueError, match="AffineContext"):
+        normalize_affine_comparison(["<", "x_VAR", "1"], types, budgets=budgets, context=context)
+
+
+def test_shared_predicate_cache_does_not_reuse_real_normalization_for_integer_types():
+    predicate = Predicate(["<", ["+", "x_VAR", "x_VAR", "x_VAR"], "1.000000000000000"], False)
+    real_types = {"x_VAR": "Real"}
+    real_expression, real_stats = predicate.get_expression_with_exact_affine(real_types, AffineContext(real_types))
+    integer_types = {"x_VAR": "Int"}
+    integer_expression, integer_stats = predicate.get_expression_with_exact_affine(integer_types, AffineContext(integer_types))
+
+    assert real_stats["applied"]
+    assert real_expression[0] == "not"
+    assert not integer_stats["cache_hit"]
+    assert not integer_stats["applied"]
+    assert integer_stats["fallback_reason"] == "non_real_variable"
+    assert integer_expression[1] is predicate.expr
+
+
+def test_deep_shared_affine_normalization_does_not_recurse_or_expand():
+    expression = "x_VAR"
+    for _ in range(1200):
+        expression = ["+", expression, expression]
+    normalization = normalize_affine_comparison(["<", expression, "1.000000000000000"], {"x_VAR": "Real"})
+
+    assert normalization.applied
+    assert normalization.node_count < 1210
+    assert normalization.subexpression_cache_hits >= 1200
+    assert normalization.output_bytes < 500
+    assert normalization.input_bytes == MAX_ESTIMATED_BYTES
+    assert normalization.input_bytes_capped

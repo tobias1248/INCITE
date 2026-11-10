@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -76,3 +78,21 @@ def test_get_repo_output_subdir_creates_directory_under_repo_root(tmp_path, monk
 
     assert output_dir == tmp_path / "popped_constraint_position" / "demo_model" / "shap_1"
     assert output_dir.is_dir()
+
+
+def test_shared_serialization_uses_separate_output_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "REPO_ROOT", tmp_path)
+    monkeypatch.delenv("PYCT_SMT_SERIALIZATION", raising=False)
+    config = {"input_name": "case_3", "idx": 3}
+    raw = Path(paths.get_save_dir_from_save_exp(config, "model", "queue"))
+    monkeypatch.setenv("PYCT_SMT_SERIALIZATION", "shared")
+    shared = Path(paths.get_save_dir_from_save_exp(config, "model", "queue"))
+    assert shared.parent.name == raw.parent.name + "_smtshared"
+    assert shared.name == raw.name == "case_3"
+
+
+def test_output_directory_rejects_invalid_serialization_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "REPO_ROOT", tmp_path)
+    monkeypatch.setenv("PYCT_SMT_SERIALIZATION", "typo")
+    with pytest.raises(ValueError, match="PYCT_SMT_SERIALIZATION"):
+        paths.get_save_dir_from_save_exp({"idx": 0}, "model", "queue")

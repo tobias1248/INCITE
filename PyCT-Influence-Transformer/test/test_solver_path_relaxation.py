@@ -81,12 +81,14 @@ def test_invalid_path_mode_fails_before_building_formula(monkeypatch, path_and_e
         Solver._build_formulas_from_constraint(engine, path, {})
 
 
+@pytest.mark.parametrize("serialization", ["raw", "shared"])
 @pytest.mark.parametrize("mode", ["full", "last"])
 def test_path_relaxation_keeps_percentage_limits_for_ordinary_inputs(
-    monkeypatch, path_and_engine, mode
+    monkeypatch, path_and_engine, mode, serialization
 ):
     path, engine, _, _ = path_and_engine
     monkeypatch.setenv("PYCT_SMT_PATH_MODE", mode)
+    monkeypatch.setenv("PYCT_SMT_SERIALIZATION", serialization)
     monkeypatch.setattr(Solver, "limit_change_range", 0.1)
 
     formula = Solver._build_formulas_from_constraint(engine, path, {"pixel": 0.5})
@@ -95,13 +97,16 @@ def test_path_relaxation_keeps_percentage_limits_for_ordinary_inputs(
     assert "(<= x_VAR 2.000000000000000)" in formula
 
 
-def test_cvc5_solves_relaxed_query_but_rejects_contradictory_prefix(monkeypatch, path_and_engine):
+@pytest.mark.parametrize("serialization", ["raw", "shared"])
+@pytest.mark.parametrize("normalization", ["raw", "exact_affine"])
+def test_cvc5_solves_relaxed_query_but_rejects_contradictory_prefix(monkeypatch, path_and_engine, serialization, normalization):
     cvc5 = shutil.which("cvc5")
     if cvc5 is None:
         pytest.skip("cvc5 unavailable")
     path, engine, first, _ = path_and_engine
     first.expr = [">", "x_VAR", "1"]
-    monkeypatch.setenv("PYCT_SMT_EXPERIMENT_MODE", "exact_affine")
+    monkeypatch.setenv("PYCT_SMT_EXPERIMENT_MODE", normalization)
+    monkeypatch.setenv("PYCT_SMT_SERIALIZATION", serialization)
 
     for mode, expected in (("full", "unsat"), ("last", "sat")):
         monkeypatch.setenv("PYCT_SMT_PATH_MODE", mode)
@@ -113,3 +118,21 @@ def test_cvc5_solves_relaxed_query_but_rejects_contradictory_prefix(monkeypatch,
             capture_output=True, timeout=5, check=True,
         )
         assert result.stdout.strip() == expected
+
+
+@pytest.mark.parametrize("mode", ["full", "last"])
+def test_shared_path_retains_explicit_and_image_bounds_in_cvc5(monkeypatch, path_and_engine, mode):
+    cvc5 = shutil.which("cvc5")
+    if cvc5 is None:
+        pytest.skip("cvc5 unavailable")
+    path, engine, _, _ = path_and_engine
+    monkeypatch.setenv("PYCT_SMT_PATH_MODE", mode)
+    monkeypatch.setenv("PYCT_SMT_SERIALIZATION", "shared")
+    formula = Solver._build_formulas_from_constraint(engine, path, {})
+    query = formula.split("(check-sat)", 1)[0]
+    for violation in ("(> x_VAR 2)", "(< x_VAR (- 2))", "(> pixel_VAR 1)", "(< pixel_VAR 0)"):
+        result = subprocess.run(
+            [cvc5, "--lang=smt2"], input=query + "(assert {})\n(check-sat)".format(violation),
+            text=True, capture_output=True, timeout=5, check=True,
+        )
+        assert result.stdout.strip() == "unsat"
