@@ -205,6 +205,19 @@ gives 20 model/control experiments and 2,000 case executions. Each group has
 `MAX_PARALLEL=1`, so only one attack CLI is active per group. There are at most
 four concurrent case workers across both groups, plus their parents/solvers.
 
+The scalar standalone search retries an out-of-tolerance PWL candidate at most
+twice by inserting that candidate as a knot and restarting exploration with a
+fresh constraint queue. The original total exploration deadline and segment
+cap still apply; a PWL rebuild is checked against the deadline after it returns
+and is not forcibly interrupted. Unresolved candidates remain errors; they are not attack
+failures or valid exhausted searches. Case metadata records refinement history.
+The sampled builder check is not a uniform error guarantee.
+
+`PYCT_SMT_SERIALIZATION`, `PYCT_SYMBOLIC_REPRESENTATION`, and
+`PYCT_SMT_EXPERIMENT_MODE` are recorded in each batch manifest and in the
+preparation gate. Set them before preparation; changing them invalidates that
+gate. Their defaults remain `raw`, `legacy`, and `exact_affine` respectively.
+
 Defaults are timeout 1800s, solver 60s, build 30s, threshold 2000, X in
 `[-0.2,0.2]`, PWL cap 64 and tolerance `1/255`. The wrapper fixes alpha 0
 and target SHAP priority on. Sensitivity defaults to on and can be disabled

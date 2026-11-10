@@ -48,11 +48,11 @@ PredictorCacheEntry = Tuple[
 _PREDICTOR_CACHE: Dict[Tuple[str, str], PredictorCacheEntry] = {}
 
 
-def _image_from_input_dict(input_dict: Dict[str, Any]) -> np.ndarray:
+def _image_from_input_dict(input_dict: Dict[str, Any], *, dtype=np.float32) -> np.ndarray:
     shape = get_in_dict_shape(input_dict)
     if not shape:
         raise ValueError("hybrid-de requires a non-empty image input")
-    image = np.zeros(shape, dtype=np.float32)
+    image = np.zeros(shape, dtype=dtype)
     for name, value in input_dict.items():
         if isinstance(name, str) and name.startswith("v_"):
             indices = tuple(int(part) for part in name.split("_")[1:])
@@ -761,43 +761,104 @@ def run(model_name, in_dict, con_dict, norm, solve_order_stack, idx,
         ternary_threshold_scale=ternary_threshold_scale,
     )
 
-    engine = _build_explorer(explorer_cfg)
-    engine.extra_meta = extra_meta
+    # Every refined PWL table needs a fresh explorer: its predicates and queue
+    # belong to the old table and must never be reused after refinement.
+    retry_started = time.monotonic()
+    pwl_retries = []
+    while True:
+        if pwl_retries and total_timeout and time.monotonic() - retry_started >= total_timeout:
+            recorder.extra_meta["pwl_refinement_history"] = pwl_retries
+            recorder.extra_meta["pwl_refinement_error"] = "total timeout before retry"
+            recorder.save_stats_dict()
+            break
+        engine = _build_explorer(explorer_cfg)
+        engine.extra_meta = dict(extra_meta)
+        if pwl_retries:
+            engine.extra_meta["pwl_refinement_history"] = list(pwl_retries)
+        remaining = (max(0.000001, total_timeout - (time.monotonic() - retry_started))
+                     if total_timeout and pwl_retries else total_timeout)
+        result: tuple[int, Any] = engine.explore(
+          module_path,
+          in_dict.copy(),
+          idx=idx,
+          concolic_dict=con_dict,
+          root=root,
+          funcname="predict",
+          max_iterations=max_iter,
+          single_timeout=single_timeout,
+          total_timeout=remaining,
+          deadcode=set(),
+          include_exception=False,
+          lib=None,
+          file_as_total=False,
+          norm=norm,
+          solve_order_stack=solve_order_stack,
+          limit_change_range=limit_change_range,
+          model_path=model_path,
+          input_for_shap=input_for_shap,
+          background_dataset_for_shap=background_dataset_for_shap,
+          shap_value_pre_calculated=(
+              bool(shap_value_pre_calculated)
+              if shap_value_pre_calculated is not None
+              else False
+          ),
+          collect_constraints_with=collect_mode,
+          popped_log_attack_mode=popped_log_attack_mode or "unknown",
+          global_real_config=global_real_config,
+          shap_output_root=shap_output_root,
+        )
 
-    result: tuple[int, Any] = engine.explore(
-        module_path,
-        in_dict,
-        idx=idx,
-        concolic_dict=con_dict,
-        root=root,
-        funcname="predict",
-        max_iterations=max_iter,
-        single_timeout=single_timeout,
-        total_timeout=total_timeout,
-        deadcode=set(),
-        include_exception=False,
-        lib=None,
-        file_as_total=False,
-        norm=norm,
-        solve_order_stack=solve_order_stack,
-        limit_change_range=limit_change_range,
-        model_path=model_path,
-        input_for_shap=input_for_shap,
-        background_dataset_for_shap=background_dataset_for_shap,
-        shap_value_pre_calculated=(
-            bool(shap_value_pre_calculated)
-            if shap_value_pre_calculated is not None
-            else False
-        ),
-        collect_constraints_with=collect_mode,
-        popped_log_attack_mode=popped_log_attack_mode or "unknown",
-        global_real_config=global_real_config,
-        shap_output_root=shap_output_root,
-    )
+        recorder = result[1]
+        meta = getattr(recorder, "extra_meta", {}) or {}
+        can_retry = (meta.get("error_type") == "pwl_candidate_error"
+                     and isinstance(global_real_config, dict)
+                     and global_real_config.get("transform_mode") == "aces-like-pwl"
+                     and not global_real_config.get("hybrid_de_enabled")
+                     and len(pwl_retries) < 2)
+        libct.explore.clear_global_context()
+        del engine
+        gc.collect()
+        if not can_retry:
+            if meta.get("error_type") == "pwl_candidate_error" and len(pwl_retries) >= 2:
+                meta["pwl_refinement_error"] = "retry limit reached"
+                recorder.save_stats_dict()
+            break
+        shift = meta["pwl_failed_x"]
+        knots = list(global_real_config.get("pwl_forced_knots", ()))
+        if shift in global_real_config["pwl_knots"] or len(global_real_config["pwl_knots"]) - 1 >= global_real_config["pwl_max_segments"]:
+            meta["pwl_refinement_error"] = "candidate already a knot or segment limit reached"
+            recorder.save_stats_dict()
+            break
+        if total_timeout and time.monotonic() - retry_started >= total_timeout:
+            meta["pwl_refinement_error"] = "total timeout before refinement"
+            recorder.save_stats_dict()
+            break
+        knots.append(shift)
+        pwl_retries.append({"x": shift, "error": meta["pwl_failed_error"],
+                            "tolerance": meta["pwl_failed_tolerance"],
+                            "attempt_wall_time": getattr(recorder, "total_wall_time", None)})
+        try:
+            revised = dict(global_real_config, pwl_forced_knots=knots)
+            global_real_config = build_aces_like_global_real_config(
+                _image_from_input_dict(in_dict, dtype=np.float64), revised)
+        except ValueError as exc:
+            meta["pwl_refinement_history"] = pwl_retries
+            meta["pwl_refinement_error"] = str(exc)
+            recorder.save_stats_dict()
+            break
+        extra_meta.update(global_real_pwl_knots=global_real_config["pwl_knots"],
+                          global_real_pwl_segment_count=global_real_config["pwl_segment_count"],
+                          global_real_pwl_max_abs_error=global_real_config["pwl_max_abs_error"],
+                          global_real_pwl_forced_knots=list(knots))
+        if total_timeout and time.monotonic() - retry_started >= total_timeout:
+            meta["pwl_refinement_history"] = pwl_retries
+            meta["pwl_refinement_error"] = "total timeout during refinement"
+            recorder.save_stats_dict()
+            break
 
-    libct.explore.clear_global_context()
-    del engine
-    gc.collect()
+    if pwl_retries and callable(getattr(recorder, "save_stats_dict", None)):
+        recorder.extra_meta["pwl_retry_total_wall_time_seconds"] = time.monotonic() - retry_started
+        recorder.save_stats_dict()
 
     if hybrid_de_result is not None:
         result = _finalize_hybrid_de_artifacts(

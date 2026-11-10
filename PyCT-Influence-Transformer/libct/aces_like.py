@@ -12,7 +12,7 @@ import bisect
 import heapq
 import math
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Sequence, Tuple
 
 import numpy as np
 
@@ -601,6 +601,7 @@ def build_adaptive_pwl_approximation(
     x_max: float,
     max_segments: int = DEFAULT_PWL_MAX_SEGMENTS,
     error_tolerance: float = DEFAULT_PWL_ERROR_TOLERANCE,
+    forced_knots: Sequence[float] = (),
 ) -> PiecewiseLinearApproximation:
     """Build a bounded shared-knot PWL approximation of the exact transform.
 
@@ -628,7 +629,10 @@ def build_adaptive_pwl_approximation(
     segment_cap = int(max_segments)
 
     # Pinning X=0 makes the symbolic identity exact, rather than merely close.
-    knots = sorted({lower, 0.0, upper})
+    forced = [float(value) for value in forced_knots]
+    if any(not math.isfinite(value) or not lower < value < upper for value in forced):
+        raise AcesLikeTransformError("PWL forced knots must be finite and inside the bounds")
+    knots = sorted({lower, 0.0, upper, *forced})
     minimum_segments = len(knots) - 1
     if segment_cap < minimum_segments:
         raise AcesLikeTransformError(

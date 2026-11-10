@@ -32,6 +32,12 @@ CAMPAIGN_ID="${CAMPAIGN_ID:-aces_noprobe_$(date +%Y%m%d_%H%M%S)}"
 CAMPAIGN_DIR="${CAMPAIGN_DIR:-$ROOT_DIR/exp/$CAMPAIGN_ID}"
 export CUDA_VISIBLE_DEVICES=-1
 export PYCT_SMT_PATH_MODE=last
+export PYCT_SMT_SERIALIZATION="${PYCT_SMT_SERIALIZATION:-raw}"
+export PYCT_SYMBOLIC_REPRESENTATION="${PYCT_SYMBOLIC_REPRESENTATION:-legacy}"
+export PYCT_SMT_EXPERIMENT_MODE="${PYCT_SMT_EXPERIMENT_MODE:-exact_affine}"
+case "$PYCT_SMT_SERIALIZATION" in raw|shared) ;; *) printf 'Invalid SMT serialization\n' >&2; exit 1;; esac
+case "$PYCT_SYMBOLIC_REPRESENTATION" in legacy|compact-affine) ;; *) printf 'Invalid symbolic representation\n' >&2; exit 1;; esac
+case "$PYCT_SMT_EXPERIMENT_MODE" in raw|exact_affine) ;; *) printf 'Invalid SMT experiment mode\n' >&2; exit 1;; esac
 export PYCT_ATTACK_MODE_SUFFIX="$CAMPAIGN_ID"
 export PYCT_ALLOW_DATASET_DOWNLOAD=0
 export OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1
@@ -113,7 +119,7 @@ manifest={'schema_version':'aces-no-probe-campaign-v1','created_at':datetime.now
  'source_commit':commit,'source_dirty':bool(git('status','--porcelain')) if commit else None,'source_files_sha256':source_hashes,
  'python':v[16],'host':platform.node(),'model_sha256':hashes,
  'settings':dict(zip(['first_n','timeout','solver_timeout','build_timeout','path_threshold','num_process','max_parallel','x_min','x_max','score_alpha','pwl_max_segments','pwl_error'],v[4:16])),
-'environment':{k:os.environ.get(k) for k in ['PYCT_SMT_PATH_MODE','PYCT_ATTACK_MODE_SUFFIX','CUDA_VISIBLE_DEVICES','PYCT_ALLOW_DATASET_DOWNLOAD','OMP_NUM_THREADS','TF_NUM_INTRAOP_THREADS','TF_NUM_INTEROP_THREADS','PYCT_BG_PER_CLASS','PYCT_BG_SEED','PYCT_SHAP_LOOKUP_MODE']},
+'environment':{k:os.environ.get(k) for k in ['PYCT_SMT_PATH_MODE','PYCT_SMT_SERIALIZATION','PYCT_SYMBOLIC_REPRESENTATION','PYCT_SMT_EXPERIMENT_MODE','PYCT_ATTACK_MODE_SUFFIX','CUDA_VISIBLE_DEVICES','PYCT_ALLOW_DATASET_DOWNLOAD','OMP_NUM_THREADS','TF_NUM_INTRAOP_THREADS','TF_NUM_INTEROP_THREADS','PYCT_BG_PER_CLASS','PYCT_BG_SEED','PYCT_SHAP_LOOKUP_MODE']},
  'experiments':[{'model':m,'control':'aces-'+c,'case_ids':list(range(int(v[4])))} for m in v[2].split() for c in v[3].split()]}
 manifest['settings'].update(shap_priority_enabled=os.environ['SHAP_PRIORITY'],
  shap_sensitivity_enabled=os.environ['SHAP_SENSITIVITY'],shap_output_root=str(Path(os.environ['SHAP_OUTPUT_ROOT']).resolve()),

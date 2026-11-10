@@ -24,7 +24,7 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 from types import ModuleType
 from libct.constraint import Constraint
 from explainability.shap_calculator import ShapValuesComparator
-from libct.global_real import solver_variable_bounds
+from libct.global_real import PwlCandidateError, solver_variable_bounds
 
 
 log = logging.getLogger("ct.explore")
@@ -654,6 +654,11 @@ class ExplorationEngine:
             interrupted = True
             log.warning("Exploration interrupted by user (idx=%s)", self.idx)
             raise
+        except PwlCandidateError as exc:
+            interrupted = True
+            recorder.mark_error("pwl_candidate_error", str(exc), phase="execution_loop")
+            recorder.extra_meta.update(pwl_failed_x=exc.shift, pwl_failed_error=exc.error,
+                                       pwl_failed_tolerance=exc.tolerance)
         except BaseException as exc:
             interrupted = True
             log.exception("Exploration loop terminated unexpectedly")

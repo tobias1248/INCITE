@@ -50,6 +50,16 @@ TRANSFORM_MODE_AFFINE = "affine"
 TRANSFORM_MODE_AFFINE_BC = "affine-brightness-contrast"
 TRANSFORM_MODE_ACES_LIKE_PWL = "aces-like-pwl"
 TRANSFORM_MODE_ACES_LIKE_PWL_2D = "aces-like-pwl-2d"
+
+
+class PwlCandidateError(ValueError):
+    """A scalar candidate failed the exact transform error check."""
+
+    def __init__(self, shift, error, tolerance):
+        self.shift, self.error, self.tolerance = shift, error, tolerance
+        super().__init__("ACES-like PWL error at X={} exceeds tolerance {} (observed {})".format(
+            shift, tolerance, error))
+
 TRANSFORM_MODES = (
     TRANSFORM_MODE_AFFINE,
     TRANSFORM_MODE_AFFINE_BC,
@@ -100,6 +110,7 @@ def build_aces_like_global_real_config(
         x_max=float(updated["effective_max"]),
         max_segments=updated.get("pwl_max_segments", DEFAULT_PWL_MAX_SEGMENTS),
         error_tolerance=updated.get("pwl_error_tolerance", DEFAULT_PWL_ERROR_TOLERANCE),
+        forced_knots=updated.get("pwl_forced_knots", ()),
     )
     updated.update(
         transform_mode=TRANSFORM_MODE_ACES_LIKE_PWL,
@@ -386,6 +397,7 @@ def _build_aces_like_approximation(
             x_max=config["effective_max"],
             max_segments=config["pwl_max_segments"],
             error_tolerance=config["pwl_error_tolerance"],
+            forced_knots=config.get("pwl_forced_knots", ()),
         )
     except AcesLikeTransformError as exc:
         raise ValueError(f"unable to build ACES-like PWL approximation: {exc}") from exc
@@ -1022,13 +1034,7 @@ def materialize_global_real_details(
     approximated_rgb = approximation.evaluate(shift)
     error_at_x = float(np.max(np.abs(exact.rgb - approximated_rgb)))
     if error_at_x > normalized["pwl_error_tolerance"] + 1e-12:
-        raise ValueError(
-            "ACES-like PWL error at X={} exceeds tolerance {} (observed {})".format(
-                shift,
-                normalized["pwl_error_tolerance"],
-                error_at_x,
-            )
-        )
+        raise PwlCandidateError(shift, error_at_x, normalized["pwl_error_tolerance"])
     materialized: MutableMapping[str, Any] = {}
     # Reference validation and artifacts use exact RGB, including standalone
     # No Probe runs. Primitive search/coverage explicitly requests PWL RGB.
