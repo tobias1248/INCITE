@@ -1,6 +1,7 @@
 # Copyright: see copyright.txt
 
 from libct.concolic import Concolic
+from libct.expression_graph import expressions_equal
 from libct.smt_affine import normalize_affine_comparison
 
 def depth(expr):
@@ -24,11 +25,7 @@ class Predicate:
             self._eq_worker(self.expr, other.expr)
 
     def _eq_worker(self, expr1, expr2):
-        if isinstance(expr1, Concolic) and isinstance(expr2, Concolic):
-            return self._eq_worker(expr1.expr, expr2.expr)
-        if isinstance(expr1, list) and isinstance(expr2, list) and len(expr1) == len(expr2):
-            return next((False for (e1, e2) in zip(expr1, expr2) if not self._eq_worker(e1, e2)), True)
-        return expr1 == expr2
+        return expressions_equal(expr1, expr2)
 
     def get_formula(self):
         formula = self.get_formula_deep(self.expr)
@@ -71,6 +68,36 @@ class Predicate:
         stats["assertion_output_bytes"] = len(assertion.encode("utf-8"))
         self._exact_affine_cache = (cache_key, assertion, dict(stats))
         return assertion, stats
+
+    def get_expression_with_exact_affine(self, variable_types, context):
+        """Return a Boolean AST/SMT atom without expanding a fallback formula.
+
+        Like the existing text cache, this small metadata cache assumes that a
+        recorded predicate and its expression are immutable after construction.
+        The query context owns the larger subexpression memo tables.
+        """
+        cache_key = (context.signature, context.budgets)
+        cached = getattr(self, "_shared_affine_cache", None)
+        cache_hit = cached is not None and cached[0] == cache_key
+        if cache_hit:
+            normalization = cached[1]
+        else:
+            normalization = normalize_affine_comparison(
+                self.expr, variable_types, budgets=context.budgets, context=context,
+            )
+            self._shared_affine_cache = (cache_key, normalization)
+        stats = normalization.to_stats()
+        stats["cache_hit"] = cache_hit
+        if cache_hit:
+            stats["node_count"] = 0
+            stats["subexpression_cache_hits"] = 0
+        wrapper_bytes = len("(assert )") + (len("(not )") if not self.value else 0)
+        stats["assertion_input_bytes"] = normalization.input_bytes + wrapper_bytes
+        stats["assertion_output_bytes"] = normalization.output_bytes + wrapper_bytes
+        expression = normalization.formula_body if normalization.applied else self.expr
+        if not self.value:
+            expression = ["not", expression]
+        return expression, stats
 
     @staticmethod
     def get_formula_deep(expr):

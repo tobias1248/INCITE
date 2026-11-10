@@ -5,8 +5,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 from libct.concolic import Concolic
+from libct.expression_graph import expanded_formula_size, MAX_ESTIMATED_BYTES
 from libct.position import summarize_position
 from libct.predicate import Predicate
+from libct.smt_affine import AffineContext
+from libct.smt_shared import serialize_shared_assertions
+from libct.symbolic_config import resolve_smt_serialization
 from libct.utils import py2smt
 from tasks.paths import get_repo_output_subdir
 
@@ -464,6 +468,8 @@ class Solver:
         model_path = getattr(engine, "model_path", None)
         model_name = Path(model_path).stem if model_path else "unknown_model"
         attack_mode = cls._derive_attack_mode(engine)
+        if resolve_smt_serialization() == "shared":
+            attack_mode += "_smtshared"
         ton_label = cls._derive_attack_ton(engine)
         output_dir = get_repo_output_subdir(
             "popped_constraint_position",
@@ -840,6 +846,9 @@ class Solver:
             )
 
         query_formulas = []
+        serialization = resolve_smt_serialization()
+        shared_expressions = []
+        affine_context = AffineContext(engine.var_to_types) if serialization == "shared" else None
         path_mode = resolve_smt_path_mode()
         assertions = constraint.get_all_asserts()
         original_assertion_count = len(assertions)
@@ -866,6 +875,10 @@ class Solver:
             "max_variable_count": 0,
             "max_rational_digits": 0,
         }
+        if serialization == "shared":
+            transform_stats["serialization"] = "shared"
+            transform_stats["subexpression_cache_hits"] = 0
+            transform_stats["input_bytes_capped"] = False
         variable_type_signature = (
             tuple(sorted(engine.var_to_types.items()))
             if experiment_mode == "exact_affine"
@@ -874,16 +887,26 @@ class Solver:
         for assertion in assertions:
             transform_stats["assertion_count"] += 1
             if experiment_mode == "raw":
-                query = assertion.get_formula()
-                query_bytes = len(query.encode("utf-8"))
+                if serialization == "shared":
+                    query = assertion.expr if assertion.value else ["not", assertion.expr]
+                    query_bytes = expanded_formula_size(query, affine_context.sizes) + len("(assert )")
+                else:
+                    query = assertion.get_formula()
+                    query_bytes = len(query.encode("utf-8"))
                 transform_stats["input_bytes"] += query_bytes
                 transform_stats["output_bytes"] += query_bytes
             else:
                 normalize_start = time.perf_counter()
-                query, assertion_stats = assertion.get_formula_with_exact_affine(
-                    engine.var_to_types,
-                    cache_key=variable_type_signature,
-                )
+                if serialization == "shared":
+                    query, assertion_stats = assertion.get_expression_with_exact_affine(
+                        engine.var_to_types, affine_context,
+                    )
+                    transform_stats["subexpression_cache_hits"] += assertion_stats["subexpression_cache_hits"]
+                else:
+                    query, assertion_stats = assertion.get_formula_with_exact_affine(
+                        engine.var_to_types,
+                        cache_key=variable_type_signature,
+                    )
                 transform_stats["normalization_time_s"] += (
                     time.perf_counter() - normalize_start
                 )
@@ -920,8 +943,21 @@ class Solver:
                     )
                     if detail is not None and detail not in examples and len(examples) < 3:
                         examples.append(detail)
-            query_formulas.append(query)
-        queries = "\n".join(query_formulas)
+            if serialization == "shared":
+                shared_expressions.append(query)
+            else:
+                query_formulas.append(query)
+        if serialization == "shared":
+            serialization_start = time.perf_counter()
+            shared = serialize_shared_assertions(shared_expressions, engine.var_to_types)
+            queries = shared.formula
+            transform_stats["shared_serialization"] = shared.stats
+            transform_stats["serialization_time_s"] = time.perf_counter() - serialization_start
+            transform_stats["output_bytes"] = shared.stats["output_bytes"]
+            transform_stats["input_bytes_capped"] = transform_stats["input_bytes"] >= MAX_ESTIMATED_BYTES
+            transform_stats["input_bytes"] = min(transform_stats["input_bytes"], MAX_ESTIMATED_BYTES)
+        else:
+            queries = "\n".join(query_formulas)
         Solver._last_smt_transform_stats = transform_stats
         
         explicit_bounds = getattr(engine, "solver_variable_bounds", {}) or {}

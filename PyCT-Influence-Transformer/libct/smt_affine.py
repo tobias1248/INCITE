@@ -5,12 +5,13 @@ concolic expression tree, and unsupported or over-budget expressions are left
 unchanged by the caller.
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from fractions import Fraction
 import re
 from typing import Dict, Mapping, Optional
 
 from libct.concolic import Concolic
+from libct.expression_graph import expanded_formula_size, MAX_ESTIMATED_BYTES
 
 
 class AffineNotApplicable(ValueError):
@@ -46,6 +47,8 @@ class AffineNormalization:
     max_rational_digits: int
     input_bytes: int
     output_bytes: int
+    subexpression_cache_hits: int = 0
+    input_bytes_capped: bool = False
 
     def to_stats(self):
         return asdict(self)
@@ -57,6 +60,8 @@ class _WorkState:
     node_count: int = 0
     rational_digits: int = 0
     max_rational_digits: int = 0
+    memo: dict = field(default_factory=dict)
+    cache_hits: int = 0
 
     def visit(self):
         self.node_count += 1
@@ -82,24 +87,22 @@ class _Affine:
     constant: Fraction
 
 
+class AffineContext:
+    """Memoized exact forms and sizes, owned by one SMT query only."""
+
+    def __init__(self, variable_types, budgets=AffineBudgets()):
+        self.signature = tuple(sorted(variable_types.items()))
+        self.budgets = budgets
+        self.memo = {}
+        self.sizes = {}
+
+
 def _raw_formula_size(expr, memo=None) -> int:
     """Return expanded SMT byte size without materialising the raw formula."""
-    if memo is None:
-        memo = {}
-    if isinstance(expr, Concolic):
-        return _raw_formula_size(expr.expr, memo)
-    if isinstance(expr, str):
-        return len(expr.encode("utf-8"))
-    if isinstance(expr, list):
-        cache_key = id(expr)
-        cached = memo.get(cache_key)
-        if cached is not None:
-            return cached
-        size = 2 + max(0, len(expr) - 1)
-        size += sum(_raw_formula_size(item, memo) for item in expr)
-        memo[cache_key] = size
-        return size
-    raise AffineNotApplicable("unsupported_expression_node")
+    try:
+        return expanded_formula_size(expr, memo)
+    except TypeError as exc:
+        raise AffineNotApplicable("unsupported_expression_node") from exc
 
 
 def _parse_numeric_smt(atom: str) -> Fraction:
@@ -189,46 +192,74 @@ def _scale(affine: _Affine, factor: Fraction, state: _WorkState) -> _Affine:
 
 
 def _to_affine(expr, variable_types: Mapping[str, str], state: _WorkState) -> _Affine:
-    state.visit()
-    if isinstance(expr, Concolic):
-        return _to_affine(expr.expr, variable_types, state)
+    stack = [(expr, False)]
+    active = set()
+    while stack:
+        node, exiting = stack.pop()
+        key = id(node)
+        if not exiting and key in state.memo:
+            state.cache_hits += 1
+            continue
+        if exiting:
+            if isinstance(node, Concolic):
+                result = state.memo[id(node.expr)][1]
+            else:
+                result = _apply_affine_operator(
+                    node[0], [state.memo[id(item)][1] for item in node[1:]], state,
+                )
+            state.memo[key] = (node, result)
+            active.remove(key)
+            continue
+        state.visit()
+        if key in active:
+            raise AffineNotApplicable("cyclic_expression")
+        if isinstance(node, str):
+            if node in variable_types:
+                if variable_types[node] != "Real":
+                    raise AffineNotApplicable("non_real_variable")
+                result = _Affine({node: Fraction(1)}, Fraction(0))
+                _check_variables(result, state)
+            else:
+                result = _constant(_fraction_atom(node), state)
+            state.memo[key] = (node, result)
+            continue
+        if isinstance(node, Concolic):
+            children = (node.expr,)
+        elif isinstance(node, list) and node and isinstance(node[0], str):
+            operator, children = node[0], node[1:]
+            if not ((operator in {"+", "-", "*"} and children)
+                    or (operator == "/" and len(children) == 2)):
+                raise AffineNotApplicable("unsupported_operator")
+        else:
+            raise AffineNotApplicable("unsupported_expression_node")
+        active.add(key)
+        stack.append((node, True))
+        stack.extend((child, False) for child in reversed(children))
+    return state.memo[id(expr)][1]
 
-    if isinstance(expr, str):
-        if expr in variable_types:
-            if variable_types[expr] != "Real":
-                raise AffineNotApplicable("non_real_variable")
-            result = _Affine({expr: Fraction(1)}, Fraction(0))
-            _check_variables(result, state)
-            return result
-        return _constant(_fraction_atom(expr), state)
 
-    if not isinstance(expr, list) or not expr or not isinstance(expr[0], str):
-        raise AffineNotApplicable("unsupported_expression_node")
-
-    operator = expr[0]
-    operands = expr[1:]
+def _apply_affine_operator(operator, operands, state):
     if operator == "+" and operands:
         result = _constant(Fraction(0), state)
         for operand in operands:
-            result = _add(result, _to_affine(operand, variable_types, state), state)
+            result = _add(result, operand, state)
         return result
 
     if operator == "-" and operands:
-        result = _to_affine(operands[0], variable_types, state)
+        result = operands[0]
         if len(operands) == 1:
             return _scale(result, Fraction(-1), state)
         for operand in operands[1:]:
             result = _add(
                 result,
-                _scale(_to_affine(operand, variable_types, state), Fraction(-1), state),
+                _scale(operand, Fraction(-1), state),
                 state,
             )
         return result
 
     if operator == "*" and operands:
         result = _constant(Fraction(1), state)
-        for operand in operands:
-            factor = _to_affine(operand, variable_types, state)
+        for factor in operands:
             if result.coefficients and factor.coefficients:
                 raise AffineNotApplicable("nonlinear_multiplication")
             if factor.coefficients:
@@ -238,8 +269,7 @@ def _to_affine(expr, variable_types: Mapping[str, str], state: _WorkState) -> _A
         return result
 
     if operator == "/" and len(operands) == 2:
-        numerator = _to_affine(operands[0], variable_types, state)
-        denominator = _to_affine(operands[1], variable_types, state)
+        numerator, denominator = operands
         if denominator.coefficients:
             raise AffineNotApplicable("symbolic_denominator")
         if denominator.constant == 0:
@@ -284,14 +314,19 @@ def normalize_affine_comparison(
     variable_types: Mapping[str, str],
     raw_body: Optional[str] = None,
     budgets: AffineBudgets = AffineBudgets(),
+    context: Optional[AffineContext] = None,
 ) -> AffineNormalization:
     """Return a shorter, exactly equivalent affine comparison when possible."""
+    if context is not None and (
+        context.signature != tuple(sorted(variable_types.items())) or context.budgets != budgets
+    ):
+        raise ValueError("AffineContext must match query variable types and budgets")
     input_bytes = (
-        _raw_formula_size(expr)
+        _raw_formula_size(expr, context.sizes if context is not None else None)
         if raw_body is None
         else len(raw_body.encode("utf-8"))
     )
-    state = _WorkState(budgets)
+    state = _WorkState(budgets, memo=context.memo if context is not None else {})
     term_count = 0
     variable_count = 0
 
@@ -326,6 +361,8 @@ def normalize_affine_comparison(
             max_rational_digits=state.max_rational_digits,
             input_bytes=input_bytes,
             output_bytes=input_bytes,
+            subexpression_cache_hits=state.cache_hits,
+            input_bytes_capped=input_bytes >= MAX_ESTIMATED_BYTES,
         )
 
     return AffineNormalization(
@@ -340,4 +377,6 @@ def normalize_affine_comparison(
         max_rational_digits=state.max_rational_digits,
         input_bytes=input_bytes,
         output_bytes=output_bytes,
+        subexpression_cache_hits=state.cache_hits,
+        input_bytes_capped=input_bytes >= MAX_ESTIMATED_BYTES,
     )

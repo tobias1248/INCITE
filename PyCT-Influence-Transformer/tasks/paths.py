@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from tasks.types import SaveExpConfig
+from libct.symbolic_config import resolve_smt_serialization
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -133,6 +134,8 @@ def get_save_dir_from_save_exp(
         _format_component(threshold_val),
         ternary_component,
     )
+    if resolve_smt_serialization() == "shared":
+        base_dir += "_smtshared"
     idx = save_exp.get("idx")
     if idx is None:
         input_name = save_exp.get("input_name", "")
