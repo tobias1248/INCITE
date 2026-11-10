@@ -386,6 +386,12 @@ counts describe operations across both passes and can count a pixel twice.
 
 ### Experimental SMT path relaxation
 
+SMT output can also preserve shared subexpressions with
+`PYCT_SMT_SERIALIZATION=shared` (default: `raw`). This is independent of affine
+normalization and path selection; shared runs use separate `_smtshared`
+experiment directories. See [symbolic optimization](docs/symbolic-optimization.md)
+for cache scope, PWL fallback, diagnostics, and a bounded offline example.
+
 Set `PYCT_SMT_PATH_MODE=last` to solve only the final predicate of each queued
 path constraint; that predicate is already the negated branch selected for
 exploration. The default `full` includes the preceding path predicates.
