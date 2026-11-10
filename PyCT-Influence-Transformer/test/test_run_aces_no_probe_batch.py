@@ -116,7 +116,9 @@ if sys.argv[2]=="pyct":
         model=argv[argv.index("--model-name")+1]
         control=argv[argv.index("--global-shift-kind")+1]
         tag=os.environ["PYCT_ATTACK_MODE_SUFFIX"]
-        (Path(os.environ["FAKE_RESULT_ROOT"])/(model+"_global-real_smtlast_"+tag+"_clip_"+control+"_xm0p2_0p2")).mkdir(parents=True)
+        suffix = ("_smtshared" if os.environ.get("PYCT_SMT_SERIALIZATION") == "shared" else "")
+        suffix += ("_sym-affine" if os.environ.get("PYCT_SYMBOLIC_REPRESENTATION") == "compact-affine" else "")
+        (Path(os.environ["FAKE_RESULT_ROOT"])/(model+"_global-real_smtlast_"+tag+"_clip_"+control+"_xm0p2_0p2"+suffix)).mkdir(parents=True)
     update(start=True);time.sleep(.15);update(finish=True)
     sys.exit(int(os.environ.get("FAKE_ATTACK_EXIT","0")))
 update()
@@ -185,6 +187,7 @@ def test_runner_discovers_real_smtlast_result_directory(tmp_path):
     fake = _fake_python(tmp_path)
     environment = _environment(tmp_path, DRY_RUN="0", PYTHON_BIN=str(fake),
                                MODEL_NAMES="model_a", CONTROLS="exposure",
+                               PYCT_SMT_SERIALIZATION="shared", PYCT_SYMBOLIC_REPRESENTATION="compact-affine",
                                FAKE_STATE=str(tmp_path / "state.json"),
                                FAKE_RESULT_ROOT=str(isolated_root / "exp"))
     result = subprocess.run(["bash", str(copied_runner)], env=environment,
@@ -192,7 +195,10 @@ def test_runner_discovers_real_smtlast_result_directory(tmp_path):
     assert result.returncode == 0, result.stderr
     completion = json.loads((tmp_path / "campaign" / "model_a_exposure.completion.json").read_text())
     assert completion["matching_directories"] == 1
-    assert completion["result_dir"] == str(isolated_root / "exp" / "model_a_global-real_smtlast_unit_no_probe_clip_aces-exposure_xm0p2_0p2")
+    assert completion["result_dir"] == str(isolated_root / "exp" / "model_a_global-real_smtlast_unit_no_probe_clip_aces-exposure_xm0p2_0p2_smtshared_sym-affine")
+    manifest = json.loads((tmp_path / "campaign" / "manifest.json").read_text())
+    assert manifest["environment"]["PYCT_SMT_SERIALIZATION"] == "shared"
+    assert manifest["environment"]["PYCT_SYMBOLIC_REPRESENTATION"] == "compact-affine"
 
 
 def _running(pid):

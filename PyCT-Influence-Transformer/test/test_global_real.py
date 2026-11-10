@@ -776,8 +776,22 @@ def test_aces_like_runtime_exact_error_check_fails_closed(monkeypatch) -> None:
         build_tampered_approximation,
     )
 
-    with pytest.raises(ValueError, match="exceeds tolerance"):
+    with pytest.raises(global_real.PwlCandidateError, match="exceeds tolerance") as failure:
         materialize_global_real_details(_rgb_inputs(rgb, 0.05), config)
+    assert failure.value.shift == pytest.approx(0.05)
+    assert failure.value.error > failure.value.tolerance
+
+
+def test_refined_scalar_config_rebuilds_same_table_during_materialization():
+    rgb = np.asarray([[[0.2, 0.5, 0.8]]], dtype=np.float64)
+    config = _aces_config_for_rgb(rgb)
+    config = global_real.build_aces_like_global_real_config(
+        rgb, dict(config, pwl_forced_knots=[0.05]))
+    assert 0.05 in config["pwl_knots"]
+    materialized, shift, _, details = materialize_global_real_details(_rgb_inputs(rgb, 0.05), config)
+    assert shift == pytest.approx(0.05)
+    assert details["pwl_error_at_x"] <= 1e-12
+    assert materialized
 
 
 def _joint_aces_config(rgb, *, order="brightness-contrast", hybrid=False):

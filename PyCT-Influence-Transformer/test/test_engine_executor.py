@@ -850,6 +850,73 @@ def test_run_attaches_complete_aces_like_pwl_metadata(monkeypatch) -> None:
     assert metadata["global_real_pwl_validator_version"] == "adaptive-31-point-v1"
     assert metadata["global_real_aces_like_color_space"] == "OKLCh-sRGB"
     assert metadata["global_real_aces_like_curve_version"] == "oklch-logit-v1"
-    assert metadata["global_real_aces_like_gamut_mapper"] == (
-        "css-color-4-local-minde-v1"
-    )
+    assert metadata["global_real_aces_like_gamut_mapper"] == "css-color-4-local-minde-v1"
+
+
+def test_scalar_pwl_retry_restarts_with_forced_knot_and_original_input(monkeypatch):
+    calls = []
+    monkeypatch.setattr(executor, "_resolve_model_artifacts", lambda _: ("/tmp/a.h5", "/tmp/p.py", "/tmp"))
+    monkeypatch.setattr(executor, "_load_predictor", lambda *_: (
+        object(), lambda *_: None, lambda *a, **k: None, "search", "reference", set()))
+    monkeypatch.setattr(executor, "_prepare_experiment_paths", lambda *a, **k: (None, None, None))
+    monkeypatch.setattr(executor.libct.explore, "clear_global_context", lambda: None)
+
+    class FakeEngine:
+        def explore(self, _path, inputs, **kwargs):
+            calls.append((self, inputs.copy(), kwargs, self.extra_meta.copy()))
+            inputs[GLOBAL_X_INPUT_NAME] = 0.19
+            meta = ({"error_type": "pwl_candidate_error", "pwl_failed_x": 0.05,
+                     "pwl_failed_error": 0.004, "pwl_failed_tolerance": 1 / 255}
+                    if len(calls) == 1 else {})
+            return 1, SimpleNamespace(extra_meta=meta, total_wall_time=1)
+
+    monkeypatch.setattr(executor, "_build_explorer", lambda _: FakeEngine())
+    def rebuild(_rgb, config):
+        assert config["pwl_forced_knots"] == [0.05]
+        return dict(config, pwl_knots=[-0.2, 0.0, 0.05, 0.2],
+                    pwl_segment_count=3, pwl_max_abs_error=0.001)
+    monkeypatch.setattr(executor, "build_aces_like_global_real_config", rebuild)
+    config = {"transform_mode": "aces-like-pwl", "pwl_knots": [-0.2, 0.0, 0.2],
+              "pwl_max_segments": 128, "global_shift_kind": "aces-exposure"}
+    inputs = {"v_0_0_0": 0.5, GLOBAL_X_INPUT_NAME: 0.0}
+    executor.run("demo", inputs, {GLOBAL_X_INPUT_NAME: 1}, False, False, 0,
+                 global_real_config=config, total_timeout=30)
+    assert len(calls) == 2 and calls[0][0] is not calls[1][0]
+    assert calls[1][1][GLOBAL_X_INPUT_NAME] == 0.0
+    assert inputs[GLOBAL_X_INPUT_NAME] == 0.0
+    assert calls[1][2]["global_real_config"]["pwl_forced_knots"] == [0.05]
+    assert 0 < calls[1][2]["total_timeout"] < 30
+    assert calls[1][3]["pwl_refinement_history"][0]["x"] == 0.05
+
+
+@pytest.mark.parametrize("segment_cap, expected_attempts", [(2, 1), (128, 3)])
+def test_scalar_pwl_retries_are_bounded_and_remain_errors(monkeypatch, segment_cap, expected_attempts):
+    attempts = []
+    monkeypatch.setattr(executor, "_resolve_model_artifacts", lambda _: ("/tmp/a.h5", "/tmp/p.py", "/tmp"))
+    monkeypatch.setattr(executor, "_load_predictor", lambda *_: (
+        object(), lambda *_: None, lambda *a, **k: None, "search", "reference", set()))
+    monkeypatch.setattr(executor, "_prepare_experiment_paths", lambda *a, **k: (None, None, None))
+    monkeypatch.setattr(executor.libct.explore, "clear_global_context", lambda: None)
+
+    class FakeEngine:
+        def explore(self, _path, inputs, **kwargs):
+            attempts.append(kwargs)
+            meta = dict(self.extra_meta, status="error", error_type="pwl_candidate_error",
+                        pwl_failed_x=0.02 * len(attempts), pwl_failed_error=0.004,
+                        pwl_failed_tolerance=1 / 255)
+            return 0, SimpleNamespace(extra_meta=meta, total_wall_time=1, save_stats_dict=lambda: None)
+
+    monkeypatch.setattr(executor, "_build_explorer", lambda _: FakeEngine())
+    def rebuild(_rgb, config):
+        knots = sorted([-0.2, 0.0, 0.2] + config["pwl_forced_knots"])
+        return dict(config, pwl_knots=knots, pwl_segment_count=len(knots) - 1,
+                    pwl_max_abs_error=0.001)
+    monkeypatch.setattr(executor, "build_aces_like_global_real_config", rebuild)
+    config = {"transform_mode": "aces-like-pwl", "pwl_knots": [-0.2, 0.0, 0.2],
+              "pwl_max_segments": segment_cap, "global_shift_kind": "aces-exposure"}
+    _, recorder = executor.run("demo", {"v_0_0_0": 0.5, GLOBAL_X_INPUT_NAME: 0.0},
+                               {GLOBAL_X_INPUT_NAME: 1}, False, False, 0,
+                               global_real_config=config, total_timeout=30)
+    assert len(attempts) == expected_attempts
+    assert recorder.extra_meta["status"] == "error"
+    assert recorder.extra_meta["error_type"] == "pwl_candidate_error"

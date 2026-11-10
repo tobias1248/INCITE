@@ -25,6 +25,18 @@ def _hue(srgb: np.ndarray) -> np.ndarray:
     return oklab_to_oklch(linear_rgb_to_oklab(srgb_to_linear(srgb)))[..., 2]
 
 
+def test_forced_candidate_knot_is_retained_and_obeys_segment_budget():
+    rgb = np.asarray([[[0.2, 0.5, 0.8]]])
+    kwargs = dict(kind="aces-exposure", x_min=-0.2, x_max=0.2,
+                  error_tolerance=1 / 255, forced_knots=[0.0265])
+    result = build_adaptive_pwl_approximation(rgb, max_segments=128, **kwargs)
+    assert 0.0265 in result.knots
+    np.testing.assert_allclose(result.evaluate(0.0265),
+                               apply_aces_like_transform(rgb, 0.0265, kind="aces-exposure").rgb)
+    with pytest.raises(AcesLikeTransformError, match="initial segments"):
+        build_adaptive_pwl_approximation(rgb, max_segments=2, **kwargs)
+
+
 @pytest.mark.parametrize("order", ["brightness-contrast", "contrast-brightness"])
 def test_joint_transform_matches_ordered_exact_transforms(order) -> None:
     source = np.asarray([[[0.12, 0.45, 0.85], [0.9, 0.25, 0.07]]])
