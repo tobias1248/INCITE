@@ -212,3 +212,57 @@ def test_concolic_runner_child_success_builds_ok_envelope(monkeypatch) -> None:
             "constraint_payload": (concolic.Constraint.global_constraints, ["constraint"], engine.path, 3),
         }
     ]
+
+
+def _send_compact_constraint_from_spawn(connection):
+    """Spawn target stays module-level so no fork inheritance is required."""
+    from types import SimpleNamespace
+    from libct.concolic.float import ConcolicFloat
+    from libct.constraint import Constraint
+    from libct.path import PathToConstraint
+    from libct.solver import Solver
+    import libct.position as position
+
+    Solver.safety = 0
+    Constraint.global_constraints = []
+    position.current_layer_number = 0
+    position.current_indices_in_current_layer = (0,)
+    engine = SimpleNamespace(symbolic_enabled=True, path=PathToConstraint())
+    engine.push_constraint = lambda *_: None  # Deliberately unpicklable owner.
+    value = ConcolicFloat(0.2, "x_VAR", engine) * 0.75 + 0.1
+    bool(value > 0.2)
+    connection.send({"kind": "ok", "result": float(value),
+                     "constraint_payload": (Constraint.global_constraints, [], engine.path, None)})
+    connection.close()
+
+
+def test_compact_predicates_survive_real_spawn_child_envelope(monkeypatch):
+    import multiprocessing
+    from libct.predicate import Predicate
+
+    monkeypatch.setenv("PYCT_SYMBOLIC_REPRESENTATION", "compact-affine")
+    context = multiprocessing.get_context("spawn")
+    receive, send = context.Pipe(duplex=False)
+    process = context.Process(target=_send_compact_constraint_from_spawn, args=(send,))
+    try:
+        process.start()
+        send.close()
+        assert receive.poll(15), "spawn child did not send its constraint payload"
+        envelope = receive.recv()
+        process.join(5)
+        assert process.exitcode == 0
+        assert envelope["kind"] == "ok"
+        assert envelope["result"] == 0.25
+        path = envelope["constraint_payload"][2]
+        predicate = path.current_constraint.last_predicate
+        compact = predicate.expr[1]
+        assert compact.engine is None
+        assert "_affine_form" in compact.__dict__
+        assert Predicate.get_formula_deep(compact) == "(+ (* (/ 3 4) x_VAR) (/ 1 10))"
+        assert "x_VAR" in predicate.get_formula()
+    finally:
+        receive.close()
+        send.close()
+        if process.is_alive():
+            process.kill()
+        process.join(5)

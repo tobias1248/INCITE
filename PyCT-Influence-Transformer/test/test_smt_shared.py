@@ -216,3 +216,56 @@ def test_constraint_logs_separate_raw_and_shared_outputs(monkeypatch, tmp_path):
 
     assert raw == tmp_path / "popped_constraint_position" / "demo" / "shap_solver60s_1" / "constraint_7.txt"
     assert shared == tmp_path / "popped_constraint_position" / "demo" / "shap_solver60s_smtshared_1" / "constraint_7.txt"
+
+
+@pytest.mark.parametrize("serialization", ["raw", "shared"])
+@pytest.mark.parametrize("normalization", ["raw", "exact_affine"])
+@pytest.mark.parametrize("path_mode,expected,retained", [("full", "unsat", 2), ("last", "sat", 1)])
+def test_compact_runtime_interoperates_with_all_query_modes(
+    monkeypatch, serialization, normalization, path_mode, expected, retained,
+):
+    from libct.concolic.float import ConcolicFloat
+
+    monkeypatch.setenv("PYCT_SMT_SERIALIZATION", serialization)
+    monkeypatch.setenv("PYCT_SMT_EXPERIMENT_MODE", normalization)
+    monkeypatch.setenv("PYCT_SMT_PATH_MODE", path_mode)
+    monkeypatch.setattr(Solver, "safety", 0, raising=False)
+    monkeypatch.setattr(Solver, "norm", False, raising=False)
+    monkeypatch.setattr(Solver, "limit_change_range", None, raising=False)
+    results = []
+    for representation in ("legacy", "compact-affine"):
+        monkeypatch.setenv("PYCT_SYMBOLIC_REPRESENTATION", representation)
+        engine = SimpleNamespace(symbolic_enabled=True, concolic_name_list=["x_VAR"],
+                                 var_to_types={"x_VAR": "Real"})
+        x = ConcolicFloat(0.2, "x_VAR", engine)
+        first, second = x * 0.75, x * 0.5 + 0.1
+        unused = x * 5.0
+        constraint = _Constraint([Predicate([">", first, "1"], True),
+                                  Predicate(["<", second, "0"], True)])
+        query = Solver._build_formulas_from_constraint(engine, constraint, {})
+        stats = Solver._last_smt_transform_stats
+        results.append(_cvc5(query.split("(get-value", 1)[0]))
+        assert stats["original_assertion_count"] == 2
+        assert stats["retained_assertion_count"] == retained
+        if representation == "compact-affine":
+            assert stats["symbolic_representation"] == "compact-affine"
+            assert stats["compact_affine"]["compact_nodes"] == retained
+            assert not stats["compact_affine"]["truncated"]
+            assert unused.__dict__["_affine_form"].slope == 5
+        else:
+            assert "compact_affine" not in stats
+    assert results == [expected, expected]
+
+
+@pytest.mark.parametrize("serialization", ["raw", "shared"])
+def test_compact_runtime_isolates_constraint_logs(monkeypatch, tmp_path, serialization):
+    monkeypatch.setattr("libct.solver.get_repo_output_subdir", lambda *parts: tmp_path.joinpath(*parts))
+    monkeypatch.setenv("PYCT_SMT_SERIALIZATION", serialization)
+    engine = SimpleNamespace(model_path="models/demo.h5", popped_log_attack_mode="queue",
+                             concolic_flag_dict={"pixel": 1})
+    monkeypatch.setenv("PYCT_SYMBOLIC_REPRESENTATION", "legacy")
+    legacy = Solver._resolve_constraint_log_path(engine, 7)
+    monkeypatch.setenv("PYCT_SYMBOLIC_REPRESENTATION", "compact-affine")
+    compact = Solver._resolve_constraint_log_path(engine, 7)
+    assert compact.parent.name == legacy.parent.name.removesuffix("_1") + "_sym-affine_1"
+    assert compact.name == legacy.name == "constraint_7.txt"

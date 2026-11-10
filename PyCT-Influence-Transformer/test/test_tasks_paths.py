@@ -96,3 +96,22 @@ def test_output_directory_rejects_invalid_serialization_mode(tmp_path, monkeypat
     monkeypatch.setenv("PYCT_SMT_SERIALIZATION", "typo")
     with pytest.raises(ValueError, match="PYCT_SMT_SERIALIZATION"):
         paths.get_save_dir_from_save_exp({"idx": 0}, "model", "queue")
+
+
+@pytest.mark.parametrize("serialization", ["raw", "shared"])
+def test_compact_representation_isolates_output_directories(tmp_path, monkeypatch, serialization):
+    monkeypatch.setattr(paths, "REPO_ROOT", tmp_path)
+    monkeypatch.setenv("PYCT_SMT_SERIALIZATION", serialization)
+    config = {"input_name": "case_3", "idx": 3}
+    monkeypatch.setenv("PYCT_SYMBOLIC_REPRESENTATION", "legacy")
+    legacy = Path(paths.get_save_dir_from_save_exp(config, "model", "queue"))
+    monkeypatch.setenv("PYCT_SYMBOLIC_REPRESENTATION", "compact-affine")
+    compact = Path(paths.get_save_dir_from_save_exp(config, "model", "queue"))
+    assert compact.parent.name == legacy.parent.name + "_sym-affine"
+    assert compact.name == legacy.name == "case_3"
+
+
+def test_output_directory_rejects_invalid_symbolic_representation(monkeypatch):
+    monkeypatch.setenv("PYCT_SYMBOLIC_REPRESENTATION", "typo")
+    with pytest.raises(ValueError, match="PYCT_SYMBOLIC_REPRESENTATION"):
+        paths.get_save_dir_from_save_exp({"idx": 0}, "model", "queue")

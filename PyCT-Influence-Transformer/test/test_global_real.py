@@ -1003,7 +1003,10 @@ def test_joint_aces_approximation_cache_does_not_reuse_different_seed_pixels():
 
 
 @pytest.mark.parametrize("kind", ["clip", "affine_bc", "pwl", "pwl_2d"])
-def test_shared_solver_preserves_real_global_transform_payloads(monkeypatch, kind):
+@pytest.mark.parametrize("representation", ["legacy", "compact-affine"])
+def test_shared_solver_preserves_real_global_transform_payloads(monkeypatch, kind, representation):
+    monkeypatch.setenv("PYCT_SYMBOLIC_REPRESENTATION", representation)
+    monkeypatch.setattr(Solver, "safety", 0, raising=False)
     cvc5 = shutil.which("cvc5")
     if cvc5 is None:
         pytest.skip("cvc5 is required for shared global transform serialization")
