@@ -3,6 +3,7 @@
 import logging
 from libct.concolic import Concolic, MetaFinal
 from libct.utils import ConcolicObject, unwrap
+from libct.concolic.affine import AffineForm, NOT_COMPACT, initialize, try_binary
 
 log = logging.getLogger("ct.con.float")
 
@@ -11,8 +12,31 @@ class ConcolicFloat(float, Concolic, metaclass=MetaFinal):
         assert type(value) is float
         obj = super().__new__(cls, value)
         Concolic.__init2__(obj, value, expr, engine)
-        log.debug(f"ConFloat, value: {value}, expr: {obj.expr}")
+        initialize(obj)
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug("ConFloat, value: %s, expr: %s", value, obj.expr)
         return obj
+
+    @property
+    def expr(self):
+        state = self.__dict__
+        form = state.get("_affine_form")
+        if form is not None:
+            if "_affine_expression" not in state:
+                state["_affine_expression"] = form.expression()
+            return state["_affine_expression"]
+        return state["expr"]
+
+    @expr.setter
+    def expr(self, expression):
+        state = self.__dict__
+        state.pop("_affine_expression", None)
+        state.pop("_affine_form", None)
+        if isinstance(expression, AffineForm):
+            state.pop("expr", None)
+            state["_affine_form"] = expression
+        else:
+            state["expr"] = expression
 
     ####### Unary Operation, only value modified #######
 
@@ -123,6 +147,10 @@ class ConcolicFloat(float, Concolic, metaclass=MetaFinal):
         return ConcolicObject(value, expr)
 
     def _bin_op(self, op, other):
+        if self.__dict__.get("_compact_enabled"):
+            compact = try_binary(self, op, other)
+            if compact is not NOT_COMPACT:
+                return compact
         if op == '__rtruediv__':
             # TODO: not sure in the following statement what if "other" does not support the "!=" operator.
             try: (self != 0).__bool__() # insert a handmade branch since a number cannot be divided by zero.

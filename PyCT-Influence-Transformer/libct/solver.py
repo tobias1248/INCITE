@@ -10,7 +10,7 @@ from libct.position import summarize_position
 from libct.predicate import Predicate
 from libct.smt_affine import AffineContext
 from libct.smt_shared import serialize_shared_assertions
-from libct.symbolic_config import resolve_smt_serialization
+from libct.symbolic_config import resolve_smt_serialization, resolve_symbolic_representation
 from libct.utils import py2smt
 from tasks.paths import get_repo_output_subdir
 
@@ -470,6 +470,8 @@ class Solver:
         attack_mode = cls._derive_attack_mode(engine)
         if resolve_smt_serialization() == "shared":
             attack_mode += "_smtshared"
+        if resolve_symbolic_representation() == "compact-affine":
+            attack_mode += "_sym-affine"
         ton_label = cls._derive_attack_ton(engine)
         output_dir = get_repo_output_subdir(
             "popped_constraint_position",
@@ -879,6 +881,10 @@ class Solver:
             transform_stats["serialization"] = "shared"
             transform_stats["subexpression_cache_hits"] = 0
             transform_stats["input_bytes_capped"] = False
+        if resolve_symbolic_representation() == "compact-affine":
+            from libct.concolic.affine import query_statistics
+            transform_stats["symbolic_representation"] = "compact-affine"
+            transform_stats["compact_affine"] = query_statistics(assertion.expr for assertion in assertions)
         variable_type_signature = (
             tuple(sorted(engine.var_to_types.items()))
             if experiment_mode == "exact_affine"

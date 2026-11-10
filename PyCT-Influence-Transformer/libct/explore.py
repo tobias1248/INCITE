@@ -8,7 +8,7 @@ import sys
 import time
 from libct.path import PathToConstraint
 from libct.solver import Solver, _ensure_smtlib2_logger, resolve_smt_path_mode
-from libct.symbolic_config import resolve_smt_serialization
+from libct.symbolic_config import resolve_smt_serialization, resolve_symbolic_representation
 from libct.utils import get_in_dict_shape
 from libct.record import ConcolicTestRecorder
 from libct.executor import CandidateExecutionRunner, ConcolicArgumentBuilder
@@ -365,6 +365,7 @@ class ExplorationEngine:
         recorder.extra_meta.update(
             smt_path_mode=resolve_smt_path_mode(),
             smt_serialization=resolve_smt_serialization(),
+            symbolic_representation=resolve_symbolic_representation(),
             smt_sat_candidate_count=0,
             smt_duplicate_candidate_count=0,
             smt_validated_candidate_count=0,
