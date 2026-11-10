@@ -392,6 +392,12 @@ normalization and path selection; shared runs use separate `_smtshared`
 experiment directories. See [symbolic optimization](docs/symbolic-optimization.md)
 for cache scope, PWL fallback, diagnostics, and a bounded offline example.
 
+For single-variable affine arithmetic, opt into
+`PYCT_SYMBOLIC_REPRESENTATION=compact-affine` (default: `legacy`). This keeps
+concrete float execution separate from exact symbolic coefficients and can be
+combined with shared serialization. See the same guide for supported operations,
+fallback behavior, and `_sym-affine` experiment directories.
+
 Set `PYCT_SMT_PATH_MODE=last` to solve only the final predicate of each queued
 path constraint; that predicate is already the negated branch selected for
 exploration. The default `full` includes the preceding path predicates.

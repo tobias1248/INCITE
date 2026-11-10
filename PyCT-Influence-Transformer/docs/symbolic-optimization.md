@@ -77,10 +77,9 @@ shared serializer rejects cyclic graphs, unsupported node types, and graphs
 larger than one million unique nodes explicitly; it does not fall back to
 potentially enormous expanded text after those errors.
 
-This stage does not change `ConcolicFloat`, implement runtime `a*t+b` values,
-or repair Transformer approximations and concrete dependencies. It does not
-change branch matching to position-based deduplication. SMT Real equivalence
-also does not imply exact equivalence to floating-point model execution.
+Shared serialization does not repair Transformer approximations or concrete
+dependencies, or change branch matching to position-based deduplication. SMT
+Real equivalence does not imply exact equivalence to floating-point execution.
 
 ## Diagnostics and validation
 
@@ -115,3 +114,64 @@ nonlinear fallback, name collisions, dependent lets, bounds, both path modes,
 deep graphs, and cache isolation. Bounded real CLI runs complement these tests;
 a timed-out model run is a compatibility observation, not a successful complete
 benchmark or evidence of attack completeness.
+
+## Compact affine runtime (opt-in)
+
+`PYCT_SYMBOLIC_REPRESENTATION=legacy|compact-affine` selects the numeric symbolic
+representation independently of SMT normalization and serialization. The default
+is `legacy`. Compact mode keeps the existing `ConcolicFloat` class and stores an
+immutable `a*t+b` form alongside its concrete float. Coefficients are exact
+`Fraction` values based on the legacy SMT decimal constants, not binary floats.
+The representation does not retain historical operand objects. Its ordinary
+expression AST is generated lazily when inspected or serialized.
+
+Concrete values still use native float operations and legacy zero shortcuts;
+they are not recomputed from the symbolic coefficients. Comparisons still use
+the original dispatcher and `ConcolicBool` branch recording. Pickle transfers
+the coefficients and drops engine references using the existing protocol; old
+states containing an `expr` field remain readable. No new float subclass or
+child-process protocol is introduced.
+
+The first version compresses single-variable float inputs, addition, scalar
+multiplication, and division by constants. Unsupported expressions, multiple
+variables, input clipping/PWL, symbolic products or denominators, mixed owners,
+and rational-budget overflow retain a regular symbolic AST. Existing unsupported
+Python operations are not repaired by this feature. Safety-validation mode
+uses the legacy arithmetic dispatcher. The limit is 4096 combined numerator
+and denominator digits per coefficient; exceeding it falls back without
+rounding. A lower active Python integer-to-string limit also triggers fallback
+before retaining an unprintable coefficient. Exact rational arithmetic has a
+cost and can be slower on some models.
+
+Because PWL/clip inputs remain complete piecewise expressions, they mainly
+benefit from shared serialization in this version. This mode does not select
+one PWL segment and extend it outside its valid region. It also does not repair
+attention softmax, LayerNorm or other Transformer concrete dependencies.
+
+After preparing the local cache described above, run a bounded case with:
+
+```bash
+PYCT_ALLOW_DATASET_DOWNLOAD=0 \
+PYCT_SYMBOLIC_REPRESENTATION=compact-affine PYCT_SMT_SERIALIZATION=shared \
+  .venv/bin/python -m pyct \
+  --dataset mnist --model-name simple_mnist_m6_09585 \
+  --attack-mode queue --pixel-search 1 --first-n 1 --num-process 1 \
+  --timeout 17 --solver-run-timeout 2 \
+  --constraint-build-timeout-seconds 5 --symbolic-path-threshold 128
+```
+
+Compact runs append `_sym-affine` to case and auxiliary constraint-log directory
+names, following `_smtshared` when both are enabled. Existing legacy directories
+remain unchanged. Case metadata records `symbolic_representation`. Compact SMT
+transform statistics add `compact_affine`, counting live compact values and
+fallback reasons visible in the selected query, not every forward operation.
+The diagnostic traversal is limited to 100,000 objects and reports `truncated`
+when it reaches that limit.
+
+Validate with all combinations of legacy/compact runtime and raw/shared output.
+Use concrete bit patterns, branch directions, cvc5 formula equivalence, and
+candidate replay as correctness checks. Compact canonical expressions may
+change structural matching and equivalent solver formulas may yield different
+SAT inputs, so identical exploration order or final attack success is not a
+guarantee. Measure graph size/memory and forward time separately; exact rational
+coefficients do not guarantee the speedups of a floating-point affine method.
